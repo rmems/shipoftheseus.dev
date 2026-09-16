@@ -13,7 +13,7 @@ test('the browser bridge copies typed-array snapshots and preserves lossless u64
     last_sequence: 2n ** 63n + 2n,
     membrane_potentials: memory,
     spike_neurons: new Uint32Array([1]),
-    topology_rows: new Uint32Array([0, 1]),
+    topology_rows: new Uint32Array([0, 1, 1]),
     topology_targets: new Uint32Array([1]),
     topology_weights: new Float32Array([0.5]),
     topology_delays: new Uint16Array([0]),
@@ -93,4 +93,40 @@ test('the browser bridge fails closed after disposal and rejects invalid u64 sta
   adapter.dispose();
   assert.equal(disposeCalls, 1);
   assert.throws(() => adapter.step(), runtime.AdapterUnavailableError);
+});
+
+test('the browser bridge rejects malformed typed arrays and topology shapes', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const malformed = {
+    contract_version: 1,
+    seed: 1n,
+    completed_step: 0n,
+    last_sequence: 0n,
+    membrane_potentials: [],
+    spike_neurons: new Uint32Array(),
+    topology_rows: new Uint32Array([0]),
+    topology_targets: new Uint32Array(),
+    topology_weights: new Float32Array(),
+    topology_delays: new Uint16Array(),
+    topology_digest: 'digest',
+    protocol_wire_version: 1,
+  };
+  const adapter = await runtime.initNeuromorphicAdapter(
+    async () => ({
+      async default() {},
+      WasmAdapter: {
+        init() {
+          return {
+            input() {},
+            step() { return malformed; },
+            state() { return malformed; },
+            dispose() {},
+          };
+        },
+      },
+    }),
+    1n,
+  );
+
+  assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
 });

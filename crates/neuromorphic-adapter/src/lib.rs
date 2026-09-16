@@ -38,7 +38,7 @@ pub struct BrowserRuntime {
     mesh: SynapticMesh,
     network: SpikingNetwork,
     rng: StdRng,
-    pending_currents: Vec<f32>,
+    pending_source_spikes: Vec<bool>,
     last_spikes: Vec<u32>,
     topology_rows: Vec<u32>,
     topology_targets: Vec<u32>,
@@ -64,7 +64,7 @@ impl BrowserRuntime {
             mesh,
             network: SpikingNetwork::with_dimensions(CHANNEL_COUNT, 0, CHANNEL_COUNT),
             rng: StdRng::seed_from_u64(seed),
-            pending_currents: vec![0.0; CHANNEL_COUNT],
+            pending_source_spikes: vec![false; CHANNEL_COUNT],
             last_spikes: Vec::new(),
             topology_rows,
             topology_targets,
@@ -77,8 +77,9 @@ impl BrowserRuntime {
     /// Accept a monotonically increasing browser input sequence.
     ///
     /// Raw samples are summarized by `kinetic-signals`, transformed into a
-    /// bounded feature vector, encoded by `axon-encoder`, and propagated by
-    /// `synaptic-wiring`. `step` then advances `neuromod` with a seeded RNG.
+    /// bounded feature vector, and encoded by `axon-encoder`. The resulting
+    /// spikes are queued, so each logical `step` advances `synaptic-wiring`
+    /// exactly once before it advances `neuromod` with a seeded RNG.
     pub fn input(&mut self, sequence: u64, samples: &[f32]) -> Result<(), String> {
         if sequence <= self.last_sequence {
             return Err("input sequence must be strictly increasing".into());
@@ -100,18 +101,25 @@ impl BrowserRuntime {
         for spike in encoded.spikes {
             source_spikes[usize::from(spike.channel)] = true;
         }
-        self.pending_currents = self
-            .mesh
-            .propagate(&source_spikes)
-            .map_err(|error| format!("could not propagate encoded spikes: {error}"))?;
+        for (pending, spike) in self.pending_source_spikes.iter_mut().zip(source_spikes) {
+            *pending |= spike;
+        }
         self.last_sequence = sequence;
         Ok(())
     }
 
     pub fn step(&mut self) -> Result<BrowserState, String> {
+        let source_spikes = std::mem::replace(
+            &mut self.pending_source_spikes,
+            vec![false; CHANNEL_COUNT],
+        );
+        let currents = self
+            .mesh
+            .propagate(&source_spikes)
+            .map_err(|error| format!("could not propagate encoded spikes: {error}"))?;
         let spikes = self
             .network
-            .step_with_rng(&self.pending_currents, &NeuroModulators::default(), &mut self.rng)
+            .step_with_rng(&currents, &NeuroModulators::default(), &mut self.rng)
             .map_err(|error| format!("could not advance neuromod: {error:?}"))?;
         self.last_spikes = spikes
             .into_iter()
@@ -136,6 +144,10 @@ impl BrowserRuntime {
             topology_digest: self.topology_digest.clone(),
             protocol_wire_version: WireCompatibility::CURRENT,
         }
+    }
+
+    pub fn mesh_tick(&self) -> u64 {
+        self.mesh.tick()
     }
 }
 

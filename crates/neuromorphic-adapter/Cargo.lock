@@ -330,8 +330,7 @@ dependencies = [
 [[package]]
 name = "synaptic-wiring"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "311aed9804c027f786ed5385883bd22469f8cb87fe804b88f77162466b9137b2"
+source = "git+https://github.com/Limen-Neural/synaptic-wiring.git?rev=5f70762b4ef09346d0689a65a1a8b20531cfbdab#5f70762b4ef09346d0689a65a1a8b20531cfbdab"
 dependencies = [
  "serde",
  "sha2",

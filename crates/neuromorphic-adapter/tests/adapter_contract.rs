@@ -34,3 +34,16 @@ fn input_sequences_are_monotonic_and_state_is_a_value_snapshot() {
     assert_eq!(after.completed_step, 1);
     assert_eq!(after.last_sequence, 5);
 }
+
+#[test]
+fn logical_steps_advance_delays_and_do_not_require_a_second_input() {
+    let mut runtime = BrowserRuntime::new(11).expect("the fixed browser topology is valid");
+    runtime.input(1, &[1.0; 16]).expect("input is accepted");
+
+    runtime.step().expect("first logical tick advances the mesh");
+    assert_eq!(runtime.mesh_tick(), 1);
+    assert!(runtime.state().topology_delays.iter().any(|delay| *delay > 0));
+    runtime.step().expect("second logical tick advances queued delays without input");
+    assert_eq!(runtime.mesh_tick(), 2);
+    assert_eq!(runtime.state().completed_step, 2);
+}

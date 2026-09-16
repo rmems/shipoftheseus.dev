@@ -1,5 +1,6 @@
 /** Browser-safe bridge for the generated `neuromorphic-adapter` WASM package. */
 export const NEUROMORPHIC_CONTRACT_VERSION = 1;
+export const CORPUS_IPC_WIRE_VERSION = 1;
 
 export interface NeuromorphicState {
   contractVersion: number;
@@ -64,7 +65,24 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     raw.contract_version !== NEUROMORPHIC_CONTRACT_VERSION ||
     typeof raw.seed !== 'bigint' ||
     typeof raw.completed_step !== 'bigint' ||
-    typeof raw.last_sequence !== 'bigint'
+    typeof raw.last_sequence !== 'bigint' ||
+    !(raw.membrane_potentials instanceof Float32Array) ||
+    !(raw.spike_neurons instanceof Uint32Array) ||
+    !(raw.topology_rows instanceof Uint32Array) ||
+    !(raw.topology_targets instanceof Uint32Array) ||
+    !(raw.topology_weights instanceof Float32Array) ||
+    !(raw.topology_delays instanceof Uint16Array) ||
+    raw.topology_rows.length < 2 ||
+    raw.topology_rows[0] !== 0 ||
+    raw.topology_rows[raw.topology_rows.length - 1] !== raw.topology_targets.length ||
+    raw.topology_targets.length !== raw.topology_weights.length ||
+    raw.topology_targets.length !== raw.topology_delays.length ||
+    raw.membrane_potentials.length !== raw.topology_rows.length - 1 ||
+    !raw.topology_digest.trim() ||
+    raw.protocol_wire_version !== CORPUS_IPC_WIRE_VERSION ||
+    !allFinite(raw.membrane_potentials) ||
+    !allFinite(raw.topology_weights) ||
+    !isMonotonicTopologyRows(raw.topology_rows)
   ) {
     throw new AdapterUnavailableError('The Rust/WASM runtime returned an invalid contract state.');
   }
@@ -83,6 +101,19 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     topologyDigest: raw.topology_digest,
     protocolWireVersion: raw.protocol_wire_version,
   };
+}
+
+function allFinite(values: Float32Array): boolean {
+  return values.every(Number.isFinite);
+}
+
+function isMonotonicTopologyRows(rows: Uint32Array): boolean {
+  for (let index = 1; index < rows.length; index += 1) {
+    if (rows[index - 1] > rows[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
