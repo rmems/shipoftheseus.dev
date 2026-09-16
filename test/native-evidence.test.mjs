@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -220,12 +220,150 @@ test('published loader fails closed when the catalog contains invalid JSON', () 
   }
 });
 
-test('the published site catalog is empty until a measured artifact exists', () => {
+test('published ingest accepts zero or more measured-only artifacts', () => {
   const published = catalog.loadPublishedNativeEvidence();
 
-  assert.ok(published.status === 'empty' || published.status === 'missing');
-  assert.deepEqual(published.artifacts, []);
+  assert.notEqual(published.status, 'invalid');
   assert.deepEqual(published.issues, []);
+  assert.equal(
+    published.artifacts.every((artifact) => artifact.recordStatus === 'measured'),
+    true,
+  );
+  if (published.artifacts.length > 0) {
+    assert.equal(published.status, 'ok');
+  } else {
+    assert.ok(published.status === 'empty' || published.status === 'missing');
+  }
+
+  const measured = cloneFixture('valid-cuda-synthetic.json');
+  measured.recordStatus = 'measured';
+  measured.id = 'valid-cuda-measured';
+  const cwd = mkdtempSync(join(tmpdir(), 'native-evidence-future-measured-'));
+  try {
+    mkdirSync(join(cwd, 'src/content/native-evidence'), { recursive: true });
+    writeFileSync(
+      join(cwd, 'src/content/native-evidence/valid-cuda-measured.json'),
+      JSON.stringify(measured),
+    );
+    const future = catalog.loadPublishedNativeEvidence(cwd);
+    assert.equal(future.status, 'ok');
+    assert.deepEqual(future.issues, []);
+    assert.equal(future.artifacts.length, 1);
+    assert.equal(future.artifacts[0].recordStatus, 'measured');
+    assert.equal(future.artifacts[0].id, 'valid-cuda-measured');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('catalog discovery fails closed when depth, file count, or aggregate bytes exceed small limits', () => {
+  const measured = cloneFixture('valid-cuda-synthetic.json');
+  measured.recordStatus = 'measured';
+  measured.id = 'too-deep';
+  const deepPath = ['n1', 'n2', 'n3', 'n4', 'n5', 'too-deep.json'].join('/');
+  const deep = withTempCatalog(
+    { [deepPath]: JSON.stringify(measured) },
+    (directory) => load.loadNativeEvidenceDirectory(directory),
+  );
+  assert.equal(deep.status, 'invalid');
+  assert.deepEqual(deep.artifacts, []);
+  assert.equal(deep.issues.length, 1);
+  assert.equal(deep.issues[0].code, 'catalog-limit-exceeded');
+  assert.match(deep.issues[0].message, /depth/);
+
+  measured.id = 'depth-ok';
+  const boundedPath = ['n1', 'n2', 'n3', 'n4', 'depth-ok.json'].join('/');
+  const bounded = withTempCatalog(
+    { [boundedPath]: JSON.stringify(measured) },
+    (directory) => load.loadNativeEvidenceDirectory(directory),
+  );
+  assert.equal(bounded.status, 'ok');
+  assert.equal(bounded.artifacts.length, 1);
+
+  const many = {};
+  for (let index = 0; index < load.MAX_CATALOG_JSON_FILES + 1; index += 1) {
+    many[`overflow-${index}.json`] = '{}';
+  }
+  const tooMany = withTempCatalog(many, (directory) => load.loadNativeEvidenceDirectory(directory));
+  assert.equal(tooMany.status, 'invalid');
+  assert.deepEqual(tooMany.artifacts, []);
+  assert.equal(tooMany.issues[0].code, 'catalog-limit-exceeded');
+  assert.match(tooMany.issues[0].message, /JSON artifacts/);
+
+  const padding = `{${'x'.repeat(220 * 1024)}`;
+  const oversized = withTempCatalog(
+    {
+      'a.json': padding,
+      'b.json': padding,
+      'c.json': padding,
+      'd.json': padding,
+      'e.json': padding,
+    },
+    (directory) => load.loadNativeEvidenceDirectory(directory),
+  );
+  assert.equal(oversized.status, 'invalid');
+  assert.deepEqual(oversized.artifacts, []);
+  assert.equal(oversized.issues[0].code, 'catalog-limit-exceeded');
+  assert.match(oversized.issues[0].message, /byte ingest limit/);
+});
+
+test('filesystem listing, stat, and read failures become fail-closed catalog issues', () => {
+  const dangling = withTempCatalog({}, (directory) => {
+    symlinkSync(join(directory, 'missing-target.json'), join(directory, 'broken.json'));
+    return load.loadNativeEvidenceDirectory(directory);
+  });
+  assert.equal(dangling.status, 'invalid');
+  assert.deepEqual(dangling.artifacts, []);
+  assert.equal(dangling.issues.length, 1);
+  assert.equal(dangling.issues[0].code, 'catalog-io-error');
+  assert.match(dangling.issues[0].message, /stat/);
+
+  const sibling = cloneFixture('valid-cuda-synthetic.json');
+  sibling.recordStatus = 'measured';
+  sibling.id = 'visible-measured';
+  const listing = withTempCatalog({ 'visible-measured.json': JSON.stringify(sibling) }, (directory) => {
+    const nested = join(directory, 'nested');
+    mkdirSync(nested);
+    chmodSync(nested, 0);
+    try {
+      return load.loadNativeEvidenceDirectory(directory);
+    } finally {
+      chmodSync(nested, 0o755);
+    }
+  });
+  assert.equal(listing.status, 'invalid');
+  assert.deepEqual(listing.artifacts, []);
+  assert.equal(listing.issues.length, 1);
+  assert.equal(listing.issues[0].code, 'catalog-io-error');
+  assert.match(listing.issues[0].message, /list/);
+
+  const unread = withTempCatalog({ 'secret.json': '{"schema":1}' }, (directory) => {
+    chmodSync(join(directory, 'secret.json'), 0);
+    try {
+      return load.loadNativeEvidenceDirectory(directory);
+    } finally {
+      chmodSync(join(directory, 'secret.json'), 0o644);
+    }
+  });
+  assert.equal(unread.status, 'invalid');
+  assert.deepEqual(unread.artifacts, []);
+  assert.equal(unread.issues[0].code, 'catalog-io-error');
+  assert.match(unread.issues[0].message, /read/);
+
+  const cwd = mkdtempSync(join(tmpdir(), 'native-evidence-io-'));
+  try {
+    mkdirSync(join(cwd, 'src/content/native-evidence'), { recursive: true });
+    symlinkSync(
+      join(cwd, 'src/content/native-evidence/missing-target.json'),
+      join(cwd, 'src/content/native-evidence/broken.json'),
+    );
+    assert.throws(
+      () => catalog.loadPublishedNativeEvidence(cwd),
+      /failed closed[\s\S]*catalog-io-error/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test('execution origin labels distinguish live WASM from recorded CUDA/FPGA', () => {

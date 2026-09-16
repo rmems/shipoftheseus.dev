@@ -33,7 +33,9 @@ export type NativeEvidenceIssueCode =
   | 'invalid-artifact'
   | 'duplicate-id'
   | 'id-filename-mismatch'
-  | 'synthetic-not-publishable';
+  | 'synthetic-not-publishable'
+  | 'catalog-limit-exceeded'
+  | 'catalog-io-error';
 
 export type NativeEvidenceCatalogStatus = 'missing' | 'empty' | 'ok' | 'invalid';
 

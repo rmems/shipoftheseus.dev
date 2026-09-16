@@ -19,6 +19,8 @@ Published files live in `src/content/native-evidence/` and must parse as `shipof
 | Missing or empty catalog directory | Build succeeds. UI shows the empty recorded-evidence state. |
 | Valid measured artifacts | Render provenance, workload, hardware, units, capture method, and results/traces. |
 | Invalid JSON, unknown fields, missing provenance, missing capture method on measured artifacts, or filename/id mismatch | Build fails. No partial catalog is shown. |
+| Catalog discovery exceeds directory depth, JSON file count, or aggregate byte limits | Fail as `catalog-limit-exceeded`. |
+| Filesystem errors while listing, stating, or reading the catalog | Fail as `catalog-io-error`. No partial catalog is shown. |
 | `schemaVersion` other than `1` | Fail as `unsupported-version`. |
 | `recordStatus: "synthetic"` in the published catalog | Fail as `synthetic-not-publishable`. |
 
