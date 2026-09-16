@@ -1,0 +1,63 @@
+---
+import { STATIC_DEMO_STATUS } from '../runtime/demo-runtime';
+---
+<section class="demo-island section" aria-labelledby="demo-title" data-neuromorphic-demo>
+  <div class="demo-heading">
+    <p class="eyebrow">Neuromorphic demo</p>
+    <h2 id="demo-title">A still that keeps the network legible.</h2>
+    <p class="demo-copy">Sensory features are encoded as spikes and routed through a synaptic network. This static diagram is the product; a live WebGL view is only an enhancement when motion, graphics, and WebAssembly are available.</p>
+  </div>
+  <div class="demo-stage">
+    <figure class="demo-diagram" data-demo-diagram>
+      <svg viewBox="0 0 640 280" role="img" aria-labelledby="demo-diagram-title demo-diagram-desc">
+        <title id="demo-diagram-title">Static neuromorphic pipeline</title>
+        <desc id="demo-diagram-desc">Three stages from left to right: sensory input, spike encoding, and a small synaptic network. No animation is required to read the diagram.</desc>
+        <g fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="24" y="48" width="160" height="184" rx="6" />
+          <rect x="240" y="48" width="160" height="184" rx="6" />
+          <rect x="456" y="48" width="160" height="184" rx="6" />
+          <path d="M184 140H240" />
+          <path d="M400 140H456" />
+        </g>
+        <g fill="currentColor">
+          <circle cx="104" cy="108" r="9" />
+          <circle cx="104" cy="164" r="9" />
+          <circle cx="320" cy="92" r="9" />
+          <circle cx="320" cy="140" r="9" />
+          <circle cx="320" cy="188" r="9" />
+          <circle cx="516" cy="108" r="9" />
+          <circle cx="556" cy="140" r="9" />
+          <circle cx="516" cy="188" r="9" />
+        </g>
+        <g fill="none" stroke="currentColor" stroke-width="1.25">
+          <path d="M104 108C168 108 256 92 320 92" />
+          <path d="M104 164C168 164 256 188 320 188" />
+          <path d="M320 92C392 92 468 108 516 108" />
+          <path d="M320 140C392 140 468 140 556 140" />
+          <path d="M320 188C392 188 468 188 516 188" />
+        </g>
+        <g class="demo-diagram-labels" fill="currentColor" font-size="13">
+          <text x="104" y="228" text-anchor="middle">Sensory</text>
+          <text x="320" y="228" text-anchor="middle">Encoding</text>
+          <text x="536" y="228" text-anchor="middle">Network</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="demo-surface" data-demo-surface hidden></div>
+    <div class="demo-toolbar">
+      <button type="button" class="button button-secondary" data-demo-play hidden>Play animation</button>
+      <p class="demo-status" data-demo-status role="status" aria-live="polite">{STATIC_DEMO_STATUS}</p>
+    </div>
+    <noscript>
+      <p class="demo-status demo-status-noscript">JavaScript is required for the live visualization. Navigation and the rest of this page remain available.</p>
+    </noscript>
+  </div>
+</section>
+<script>
+  import { enhanceNeuromorphicDemos } from '../runtime/enhance-demo';
+  try {
+    enhanceNeuromorphicDemos();
+  } catch {
+    // Keep static navigation and explanatory content available.
+  }
+</script>
