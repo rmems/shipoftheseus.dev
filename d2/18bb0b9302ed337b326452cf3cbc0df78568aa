@@ -1,0 +1,30 @@
+src/runtime/neuromorphic-adapter.ts
+  s_f16f54b18a5a4b::t_158c01e04cda65 5-12,27,43,100-101,123
+crates/neuromorphic-adapter/tests/adapter_contract.rs
+  s_f16f54b18a5a4b::t_fc5af1d91a7be3 20-27
+  s_f16f54b18a5a4b::t_1a0d373b751b6d 35
+  s_f16f54b18a5a4b::t_31bf05705af870 28
+  s_f16f54b18a5a4b::t_3fba33e277fccc 55-58,67-82
+  s_f16f54b18a5a4b::t_556db4cbe4cd92 29-34,36
+crates/neuromorphic-adapter/src/lib.rs
+  s_f16f54b18a5a4b::t_712bf00a50557f 15,31,50,77,88-95,99,118,123-126,128-129,133-147,150-154,156,174,181-185,201-203,205-207,209-211,213-215,241-247,249-251
+test/neuromorphic-adapter.test.mjs
+  s_f16f54b18a5a4b::t_935b2288242073 53,180-185
+  s_f16f54b18a5a4b::t_08cd31041abf0e 22,75,116,153,178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d218bb0b9302ed337b326452cf3cbc0df78568aa",
+  "prompts": {},
+  "sessions": {
+    "s_f16f54b18a5a4b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a810-892a-72e3-8453-445e6d21e8f5",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
