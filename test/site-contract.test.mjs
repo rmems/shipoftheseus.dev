@@ -189,18 +189,16 @@ test('page metadata includes canonical and complete social sharing basics', () =
   assert.match(layout, /name="theme-color"/);
 });
 
-test('deployment readiness stays static and does not configure domains or redirects', () => {
+test('portfolio stays static without a repository hosting configuration', () => {
   const astroConfig = read('astro.config.mjs');
-  const hosting = JSON.parse(read('.openai/hosting.json'));
   const workflow = read('.github/workflows/quality.yml');
   const readme = read('README.md');
 
   assert.match(astroConfig, /output:\s*'static'/);
-  assert.equal(hosting.static.directory, 'dist');
   assert.match(workflow, /npm run validate/);
   assert.doesNotMatch(workflow, /deploy|wrangler|cloudflare/i);
   assert.match(readme, /hooks\.shipoftheseus\.dev/);
-  for (const path of ['public/_redirects', '_redirects', 'wrangler.toml', 'netlify.toml']) {
+  for (const path of ['.openai/hosting.json', 'public/_redirects', '_redirects', 'wrangler.toml', 'netlify.toml']) {
     assert.equal(existsSync(new URL(`../${path}`, import.meta.url)), false, `${path} requires explicit approval`);
   }
 });
