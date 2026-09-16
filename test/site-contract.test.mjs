@@ -101,6 +101,18 @@ test('editable project cards receive their ordinal from the rendered collection 
   assert.doesNotMatch(read('src/components/ProjectCard.astro'), /\.indexOf\(project\.slug\)/);
 });
 
+test('project cards expose configured external project links', () => {
+  const card = read('src/components/ProjectCard.astro');
+  const projects = read('src/data/projects.ts');
+  const styles = read('src/styles/global.css');
+
+  assert.match(projects, /links: \{ label: string; href: string \}\[\]/);
+  assert.match(card, /project\.links\.map/);
+  assert.match(card, /href=\{link\.href\}/);
+  assert.match(card, /\{link\.label\}/);
+  assert.match(styles, /\.project-external-link/);
+});
+
 test('supported Node versions match the locked build tooling', () => {
   const packageJson = JSON.parse(read('package.json'));
   const readme = read('README.md');

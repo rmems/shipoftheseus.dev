@@ -8,4 +8,5 @@ const { project, index } = Astro.props as { project: Project; index: number };
   <h3><a href={`/work/#${project.slug}`}>{project.name}</a></h3><p>{project.summary}</p>
   <ul class="technology-list" aria-label={`${project.name} technologies`}>{project.technologies.map((technology) => <li>{technology}</li>)}</ul>
   <a class="project-detail-link" href={`/work/#${project.slug}`}>Read the project brief <span aria-hidden="true">→</span></a>
+  {project.links.map((link) => <a class="project-external-link" href={link.href} target="_blank" rel="noreferrer">{link.label} <span aria-hidden="true">↗</span></a>)}
 </article>

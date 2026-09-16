@@ -265,7 +265,8 @@ code {
 }
 
 .text-link,
-.project-detail-link {
+.project-detail-link,
+.project-external-link {
   font-family: var(--mono);
   font-size: 0.7rem;
   font-weight: 650;
@@ -354,6 +355,7 @@ code {
 }
 
 .project-detail-link { margin-top: auto; }
+.project-external-link { margin-top: 0.65rem; }
 
 .focus-band {
   display: grid;
