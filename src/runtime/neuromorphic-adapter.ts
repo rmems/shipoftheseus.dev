@@ -80,7 +80,7 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     !(raw.topology_delays instanceof Uint16Array) ||
     raw.topology_rows.length < 2 ||
     raw.topology_rows[0] !== 0 ||
-    raw.topology_rows[raw.topology_rows.length - 1] !== raw.topology_targets.length ||
+    raw.topology_rows.at(-1) !== raw.topology_targets.length ||
     raw.topology_targets.length !== raw.topology_weights.length ||
     raw.topology_targets.length !== raw.topology_delays.length ||
     raw.membrane_potentials.length !== raw.topology_rows.length - 1 ||
