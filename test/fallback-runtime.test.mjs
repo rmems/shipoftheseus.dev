@@ -744,6 +744,67 @@ test('context loss after renderer create and before WASM init disposes the rende
   );
 });
 
+test('an after-init worker failure before WASM init settles does not resurrect live', async () => {
+  const events = [];
+  const wasmInit = deferred();
+  const captured = { onWorkerFailure: undefined };
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          events.push('renderer:create');
+          return trackingSession(events, 'renderer');
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init(options) {
+          events.push(`wasm:init:${options.useWorker}`);
+          captured.onWorkerFailure = options.onWorkerFailure;
+          await wasmInit.promise;
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => events.includes('wasm:init:true') && events.includes('renderer:create'));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(typeof captured.onWorkerFailure, 'function');
+  assert.equal(demo.getSnapshot().mode, 'initializing');
+
+  captured.onWorkerFailure('after-init');
+
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'worker-runtime-failed');
+  assert.equal(demo.getSnapshot().hasGraphicsSurface, false);
+  assert.ok(events.includes('renderer:dispose'));
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.includes('wasm:dispose'), false);
+
+  wasmInit.resolve();
+  await started;
+
+  assert.notEqual(demo.getSnapshot().mode, 'live');
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'worker-runtime-failed');
+  assert.equal(demo.getSnapshot().hasGraphicsSurface, false);
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+  assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.deepEqual(
+    events.filter((event) => event.startsWith('wasm:init') || event === 'renderer:dispose'),
+    ['wasm:init:true', 'renderer:dispose'],
+  );
+});
+
 function createFakeIsland() {
   const status = { textContent: runtime.STATIC_DEMO_STATUS };
   const play = {

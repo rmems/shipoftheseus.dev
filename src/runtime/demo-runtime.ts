@@ -854,15 +854,20 @@ export class DemoRuntime {
       return;
     }
 
+    this.generation += 1;
+    this.abortInitialization();
+
     if (this.rendererSession?.freeze) {
       this.rendererSession.freeze();
       this.wasmSession?.pause();
       this.clockPaused = true;
+      this.initializing = false;
       this.mode = 'frozen';
       this.reason = 'worker-runtime-failed';
       return;
     }
 
+    this.disposePartialGraphics();
     this.teardownSessions();
     this.mode = 'fallback';
     this.reason = 'worker-runtime-failed';
