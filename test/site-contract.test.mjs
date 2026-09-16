@@ -22,6 +22,7 @@ test('portfolio content model exposes the three named projects and clear publish
 test('every requested primary route is backed by an Astro page', () => {
   for (const route of [
     'src/pages/index.astro',
+    'src/pages/work.astro',
     'src/pages/about.astro',
     'src/pages/projects.astro',
     'src/pages/notes/index.astro',
@@ -36,7 +37,7 @@ test('the responsive stylesheet does not force horizontal scrolling on narrow sc
   const styles = read('src/styles/global.css');
 
   assert.doesNotMatch(styles, /min-width:320px/);
-  assert.match(styles, /@media\(max-width:360px\)/);
+  assert.match(styles, /@media\s*\(max-width:\s*360px\)/);
 });
 
 test('the static site does not depend on remotely hosted fonts', () => {
@@ -46,11 +47,25 @@ test('the static site does not depend on remotely hosted fonts', () => {
 test('publishing handoff values become live only when configured', () => {
   const contact = read('src/pages/contact.astro');
   const resume = read('src/pages/resume.astro');
+  const site = read('src/data/site.ts');
 
   assert.match(contact, /site\.email/);
   assert.match(contact, /mailto:\$\{site\.email\}/);
   assert.match(resume, /site\.resumePath/);
   assert.match(resume, /href=\{site\.resumePath\}/);
+  assert.match(site, /site\.resumePath \? \[\{ href: '\/resume\/', label: 'Résumé' \}\] : \[\]/);
+});
+
+test('the work page expands existing project data without unsupported outcomes or links', () => {
+  const work = read('src/pages/work.astro');
+  const projects = read('src/data/projects.ts');
+
+  assert.match(work, /projects\.map/);
+  assert.match(work, /Questions in view/);
+  assert.match(work, /Working areas/);
+  assert.match(projects, /questions: \[/);
+  assert.match(work, /intentionally avoid outcomes or links that are not ready to be supported publicly/);
+  assert.doesNotMatch(projects, /https?:\/\//);
 });
 
 test('public identity links use the verified profile destinations', () => {
@@ -88,6 +103,18 @@ test('editable project cards receive their ordinal from the rendered collection 
   assert.doesNotMatch(read('src/components/ProjectCard.astro'), /\.indexOf\(project\.slug\)/);
 });
 
+test('project cards expose configured external project links', () => {
+  const card = read('src/components/ProjectCard.astro');
+  const projects = read('src/data/projects.ts');
+  const styles = read('src/styles/global.css');
+
+  assert.match(projects, /links: \{ label: string; href: string \}\[\]/);
+  assert.match(card, /project\.links\.map/);
+  assert.match(card, /href=\{link\.href\}/);
+  assert.match(card, /\{link\.label\}/);
+  assert.match(styles, /\.project-external-link/);
+});
+
 test('supported Node versions match the locked build tooling', () => {
   const packageJson = JSON.parse(read('package.json'));
   const readme = read('README.md');
@@ -96,10 +123,36 @@ test('supported Node versions match the locked build tooling', () => {
   assert.match(readme, /20\.19\+.*22\.12\+/);
 });
 
-test('small text uses accessible muted and signal color tokens', () => {
-  assert.equal(existsSync(new URL('../src/styles/review-fixes.css', import.meta.url)), true);
-  const reviewFixes = read('src/styles/review-fixes.css');
+test('visual foundations use accessible tokens and honor reduced motion', () => {
+  const styles = read('src/styles/global.css');
 
-  assert.match(reviewFixes, /--muted:\s*#65655e/);
-  assert.match(reviewFixes, /--signal:\s*#a94422/);
+  assert.match(styles, /--muted:\s*#62635c/);
+  assert.match(styles, /--signal:\s*#a94422/);
+  assert.match(styles, /prefers-reduced-motion:\s*reduce/);
+  assert.match(styles, /:focus-visible/);
+});
+
+test('page metadata includes canonical and complete social sharing basics', () => {
+  const layout = read('src/layouts/BaseLayout.astro');
+
+  assert.match(layout, /property="og:url"/);
+  assert.match(layout, /property="og:image:alt"/);
+  assert.match(layout, /name="twitter:title"/);
+  assert.match(layout, /name="theme-color"/);
+});
+
+test('deployment readiness stays static and does not configure domains or redirects', () => {
+  const astroConfig = read('astro.config.mjs');
+  const hosting = JSON.parse(read('.openai/hosting.json'));
+  const workflow = read('.github/workflows/quality.yml');
+  const readme = read('README.md');
+
+  assert.match(astroConfig, /output:\s*'static'/);
+  assert.equal(hosting.static.directory, 'dist');
+  assert.match(workflow, /npm run validate/);
+  assert.doesNotMatch(workflow, /deploy|wrangler|cloudflare/i);
+  assert.match(readme, /hooks\.shipoftheseus\.dev/);
+  for (const path of ['public/_redirects', '_redirects', 'wrangler.toml', 'netlify.toml']) {
+    assert.equal(existsSync(new URL(`../${path}`, import.meta.url)), false, `${path} requires explicit approval`);
+  }
 });

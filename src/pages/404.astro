@@ -1,0 +1,12 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="Page not found" description="The requested page could not be found.">
+  <section class="resume-panel" aria-labelledby="not-found-title">
+    <p class="eyebrow">404 · Page not found</p>
+    <h1 id="not-found-title">This part has been replaced.</h1>
+    <p>The requested route is not part of the current site. Return to the portfolio to continue exploring the work.</p>
+    <a class="button button-primary" href="/work/">View selected work <span aria-hidden="true">→</span></a>
+  </section>
+</BaseLayout>
