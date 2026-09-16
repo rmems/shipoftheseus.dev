@@ -4,8 +4,13 @@ import { EMPTY_NATIVE_EVIDENCE_COPY } from '../native-evidence/types';
 import {
   artifactCommitUrl,
   artifactSourceBlobUrl,
+  displayCaptureMethod,
   formatResultValue,
+  formatWorkloadParameterValue,
   nativeEvidenceKindLabel,
+  sortedWorkloadParameterEntries,
+  TRACE_PREVIEW_LIMIT,
+  tracePreviewCaption,
 } from '../native-evidence/view';
 import type { NativeEvidenceArtifact, NativeEvidenceCatalog } from '../native-evidence/types';
 
@@ -48,7 +53,22 @@ function artifactHeading(artifact: NativeEvidenceArtifact): string {
               </div>
               <div>
                 <dt>Workload</dt>
-                <dd>{artifact.workload.name}</dd>
+                <dd>
+                  <p class="native-evidence-workload-name" data-evidence-workload-name>{artifact.workload.name}</p>
+                  {artifact.workload.description ? (
+                    <p class="native-evidence-workload-description" data-evidence-workload-description>{artifact.workload.description}</p>
+                  ) : null}
+                  {artifact.workload.parameters ? (
+                    <dl class="native-evidence-parameters" data-evidence-workload-parameters>
+                      {sortedWorkloadParameterEntries(artifact.workload.parameters).map(([name, value]) => (
+                        <div>
+                          <dt>{name}</dt>
+                          <dd>{formatWorkloadParameterValue(value)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
+                </dd>
               </div>
               <div>
                 <dt>Source</dt>
@@ -69,53 +89,60 @@ function artifactHeading(artifact: NativeEvidenceArtifact): string {
               {artifact.provenance.captureCommand ? (
                 <div>
                   <dt>Capture</dt>
-                  <dd><code data-evidence-capture>{artifact.provenance.captureCommand}</code></dd>
+                  <dd><code data-evidence-capture>{displayCaptureMethod(artifact.provenance.captureCommand)}</code></dd>
                 </div>
               ) : null}
             </dl>
             {artifact.results && artifact.results.length > 0 ? (
-              <table class="native-evidence-results">
-                <caption>Recorded metrics</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Metric</th>
-                    <th scope="col">Value</th>
-                    <th scope="col">Unit</th>
-                    <th scope="col">Statistic</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {artifact.results.map((result) => (
+              <div class="native-evidence-table-wrap">
+                <table class="native-evidence-results">
+                  <caption>Recorded metrics</caption>
+                  <thead>
                     <tr>
-                      <th scope="row">{result.name}</th>
-                      <td>{formatResultValue(result.value)}</td>
-                      <td>{result.unit}</td>
-                      <td>{result.statistic ?? '—'}</td>
+                      <th scope="col">Metric</th>
+                      <th scope="col">Value</th>
+                      <th scope="col">Unit</th>
+                      <th scope="col">Statistic</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {artifact.results.map((result) => (
+                      <tr>
+                        <th scope="row">{result.name}</th>
+                        <td>{formatResultValue(result.value)}</td>
+                        <td>{result.unit}</td>
+                        <td>{result.statistic ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : null}
             {artifact.traces && artifact.traces.length > 0 ? (
-              <table class="native-evidence-traces">
-                <caption>Recorded hardware trace ({artifact.traces.length} events)</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Time (ns)</th>
-                    <th scope="col">Neuron</th>
-                    <th scope="col">Event</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {artifact.traces.slice(0, 12).map((event) => (
+              <div class="native-evidence-table-wrap">
+                <table class="native-evidence-traces">
+                  <caption>{tracePreviewCaption(artifact.traces.length)}</caption>
+                  <thead>
                     <tr>
-                      <td>{event.timeNs}</td>
-                      <td>{event.neuronId}</td>
-                      <td>{event.event}</td>
+                      <th scope="col">Time (ns)</th>
+                      <th scope="col">Neuron</th>
+                      <th scope="col">Event</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {artifact.traces.slice(0, TRACE_PREVIEW_LIMIT).map((event) => (
+                      <tr>
+                        <td>{event.timeNs}</td>
+                        <td>{event.neuronId}</td>
+                        <td>{event.event}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p class="native-evidence-trace-source">
+                  <a href={artifactSourceBlobUrl(artifact)} target="_blank" rel="noreferrer">Full versioned capture</a>
+                </p>
+              </div>
             ) : null}
             <p class="native-evidence-kind-note">{artifactHeading(artifact)}</p>
           </article>

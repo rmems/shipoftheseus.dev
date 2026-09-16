@@ -548,10 +548,44 @@ button.button {
   overflow-wrap: anywhere;
 }
 
+.native-evidence-workload-name,
+.native-evidence-workload-description {
+  margin: 0;
+}
+
+.native-evidence-workload-description {
+  margin-top: 0.45rem;
+}
+
+.native-evidence-parameters {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.65rem 0 0;
+}
+
+.native-evidence-parameters div {
+  display: grid;
+  grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+  gap: 0.45rem;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.native-evidence-parameters dt,
+.native-evidence-parameters dd {
+  overflow-wrap: anywhere;
+}
+
+.native-evidence-table-wrap {
+  max-width: 100%;
+  margin-top: 1.2rem;
+  overflow-x: auto;
+}
+
 .native-evidence-results,
 .native-evidence-traces {
   width: 100%;
-  margin-top: 1.2rem;
+  margin-top: 0;
   border-collapse: collapse;
 }
 
@@ -576,6 +610,14 @@ button.button {
   border-bottom: 1px solid var(--line);
   text-align: left;
   font-size: 0.92rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.native-evidence-trace-source {
+  margin: 0.7rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
 }
 
 .native-evidence-kind-note {
@@ -761,6 +803,7 @@ button.button {
   .case-study-detail { gap: 2rem; }
   .note-entry { grid-template-columns: 1fr; gap: 1rem; }
   .native-evidence-provenance div { grid-template-columns: 1fr; gap: 0.3rem; }
+  .native-evidence-parameters div { grid-template-columns: 1fr; gap: 0.2rem; }
   .contact-panel > * { grid-template-columns: 1fr auto; gap: 0.3rem; }
   .contact-panel strong { grid-column: 1; grid-row: 2; }
   .contact-panel span:last-child { grid-column: 2; grid-row: 1 / 3; }

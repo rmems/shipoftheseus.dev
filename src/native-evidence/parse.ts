@@ -26,7 +26,7 @@ const MAX_PARAMETERS = 32;
 const ARTIFACT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SOURCE_REVISION = /^[a-f0-9]{40}$/;
 const SOURCE_PATH = /^(?!\/)(?!.*\.\.)[A-Za-z0-9._+-]+(?:\/[A-Za-z0-9._+-]+)*$/;
-const CRATE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const CRATE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const CAPTURED_AT =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/;
 const UNIT = /^[^\s](?:.*[^\s])?$/;

@@ -43,4 +43,4 @@ Those names belong in provenance strings and documentation, not in `package.json
 
 ## Honesty
 
-Empty evidence is a valid, preferred state until a measured capture exists. Invented numbers, example latencies, or marketing claims must not be checked in as recorded hardware results.
+Empty evidence is a valid, preferred state until a measured capture exists. Invented numbers, example latencies, or marketing claims must not be checked in as recorded hardware results. The UI renders workload names, descriptions, and parameters, and a bounded display-safe capture method. Raw `captureCommand` text stays in the versioned artifact and is never copied into public HTML.

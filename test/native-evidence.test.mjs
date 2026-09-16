@@ -452,6 +452,12 @@ test('the live demo and recorded evidence surfaces keep distinct labels and rema
   assert.match(evidenceUi, /data-evidence-empty/);
   assert.match(evidenceUi, /EMPTY_NATIVE_EVIDENCE_COPY/);
   assert.match(evidenceUi, /data-evidence-capture/);
+  assert.match(evidenceUi, /displayCaptureMethod/);
+  assert.match(evidenceUi, /data-evidence-workload-description/);
+  assert.match(evidenceUi, /data-evidence-workload-parameters/);
+  assert.match(evidenceUi, /tracePreviewCaption/);
+  assert.match(evidenceUi, /Full versioned capture/);
+  assert.doesNotMatch(evidenceUi, /\{artifact\.provenance\.captureCommand\}/);
   assert.match(evidencePage, /loadPublishedNativeEvidence/);
   assert.doesNotMatch(home, /NativeEvidence/);
   assert.doesNotMatch(home, /loadPublishedNativeEvidence/);
@@ -583,7 +589,80 @@ test('recorded metric formatting never renders a finite nonzero value as zero', 
   assert.notEqual(view.formatResultValue(0.00001), '0');
   assert.notEqual(view.formatResultValue(-0.00001), '0');
   assert.notEqual(Number(view.formatResultValue(0.00001)), 0);
-  assert.match(view.formatResultValue(0.00001), /e/i);
+  assert.equal(view.formatResultValue(0.00014), '0.00014');
+  assert.equal(view.formatResultValue(1.00001), '1.00001');
+
+  const roundTrips = [1, 1.25, 0, 0.00001, -0.00001, 0.00014, 1.00001, -12.5, 1e-7, 1e21, Number.MAX_SAFE_INTEGER];
+  for (const value of roundTrips) {
+    assert.equal(Number(view.formatResultValue(value).replaceAll(',', '')), value);
+  }
+});
+
+test('crate versions accept SemVer build metadata', () => {
+  const accepted = ['0.2.0', '1.2.3-alpha.1', '1.2.3+cuda.12', '1.2.3-alpha.1+build.7'];
+  for (const crateVersion of accepted) {
+    const artifact = cloneFixture('valid-cuda-synthetic.json');
+    artifact.provenance.crateVersion = crateVersion;
+    const parsed = evidence.parseNativeEvidenceValue(artifact);
+    assert.equal(parsed.ok, true, crateVersion);
+    assert.equal(parsed.artifact.provenance.crateVersion, crateVersion);
+  }
+
+  const rejected = ['1.2', '1.2.3+', '1.2.3-', '1.2.3+_build'];
+  for (const crateVersion of rejected) {
+    const artifact = cloneFixture('valid-cuda-synthetic.json');
+    artifact.provenance.crateVersion = crateVersion;
+    const parsed = evidence.parseNativeEvidenceValue(artifact);
+    assert.equal(parsed.ok, false, crateVersion);
+    assert.match(parsed.issue.message, /crateVersion/);
+  }
+});
+
+test('public capture labels stay display-safe and omit secrets or local paths', () => {
+  assert.equal(
+    view.displayCaptureMethod('cargo run --example benchmark --features bench,cuda'),
+    'cargo · example benchmark · features bench,cuda',
+  );
+
+  const secret = 'TOKEN=ghp_secret cargo run --example benchmark --features bench,cuda -- /home/ubuntu/.ssh/id_rsa';
+  const displayed = view.displayCaptureMethod(secret);
+  assert.equal(displayed, 'Recorded native capture');
+  assert.doesNotMatch(displayed, /ghp_secret/);
+  assert.doesNotMatch(displayed, /TOKEN=/);
+  assert.doesNotMatch(displayed, /\/home\//);
+  assert.doesNotMatch(displayed, /id_rsa/);
+
+  const evidenceUi = readSource('../src/components/NativeEvidence.astro');
+  assert.match(evidenceUi, /displayCaptureMethod\(artifact\.provenance\.captureCommand\)/);
+  assert.doesNotMatch(evidenceUi, /<code data-evidence-capture>\{artifact\.provenance\.captureCommand\}<\/code>/);
+});
+
+test('trace captions disclose preview truncation and preserve a path to the full capture', () => {
+  assert.equal(view.TRACE_PREVIEW_LIMIT, 12);
+  assert.equal(view.tracePreviewCaption(3), 'Recorded hardware trace (3 events)');
+  assert.equal(
+    view.tracePreviewCaption(13),
+    'Recorded hardware trace preview (showing first 12 of 13 events)',
+  );
+
+  const css = readSource('../src/styles/global.css');
+  assert.match(css, /\.native-evidence-table-wrap/);
+  assert.match(css, /\.native-evidence-results th,[\s\S]*overflow-wrap: anywhere/);
+});
+
+test('workload parameter formatting is deterministic and exhaustive', () => {
+  assert.deepEqual(
+    view.sortedWorkloadParameterEntries({ iterations: 100, neurons: 4096, fused: true }),
+    [
+      ['fused', true],
+      ['iterations', 100],
+      ['neurons', 4096],
+    ],
+  );
+  assert.equal(view.formatWorkloadParameterValue('sm_120'), 'sm_120');
+  assert.equal(view.formatWorkloadParameterValue(4096), '4096');
+  assert.equal(view.formatWorkloadParameterValue(true), 'true');
+  assert.equal(view.formatWorkloadParameterValue(false), 'false');
 });
 
 test('the browser package graph does not include native CUDA, FPGA, or IPC dependencies', () => {
