@@ -19,14 +19,19 @@ function connectedSeams({
 } = {}) {
   const wasmCalls = [];
   const rendererEvents = [];
+  const rendererCreateOptions = [];
+  const wasmDisposeCount = { value: 0 };
 
   return {
     wasmCalls,
     rendererEvents,
+    rendererCreateOptions,
+    wasmDisposeCount,
     seams: {
       renderer: {
-        async create() {
+        async create(options) {
           rendererEvents.push('create');
+          rendererCreateOptions.push(options);
           if (rendererFail) {
             throw Object.assign(new Error('renderer failed'), { code: 'renderer-error' });
           }
@@ -63,7 +68,9 @@ function connectedSeams({
           }
 
           return {
-            dispose() {},
+            dispose() {
+              wasmDisposeCount.value += 1;
+            },
             pause() {},
             resume() {},
           };
@@ -101,6 +108,20 @@ test('reduced-motion keeps the static representation until an explicit play acti
   assert.equal(live.playLabel, 'Pause animation');
   assert.match(live.status, /camera motion stays off/i);
   assert.deepEqual(wasmCalls, [true]);
+});
+
+test('the renderer create seam receives camera motion disabled under reduced motion', async () => {
+  const { seams, rendererCreateOptions } = connectedSeams();
+  const demo = runtime.createDemoRuntime({
+    capabilities: { ...capable, prefersReducedMotion: true },
+    seams,
+    inViewport: true,
+  });
+
+  await demo.play();
+
+  assert.deepEqual(rendererCreateOptions, [{ cameraMotionEnabled: false }]);
+  assert.equal(demo.getSnapshot().cameraMotionEnabled, false);
 });
 
 test('a capable viewport auto-starts only when reduced motion is not requested', async () => {
@@ -374,4 +395,233 @@ test('runtime sources do not add a WebGPU fallback or a local simulator', () => 
   assert.doesNotMatch(files, /webgpu/i);
   assert.doesNotMatch(files, /navigator\.gpu/);
   assert.doesNotMatch(files, /spikeTrain|fakeNeuron|toySnn|simulateNetwork/i);
+});
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function waitFor(predicate, attempts = 30) {
+  for (let index = 0; index < attempts; index += 1) {
+    if (predicate()) {
+      return;
+    }
+    await Promise.resolve();
+  }
+  throw new Error('timed out waiting for runtime condition');
+}
+
+function trackingSession(events, label) {
+  return {
+    dispose() {
+      events.push(`${label}:dispose`);
+    },
+    pause() {
+      events.push(`${label}:pause`);
+    },
+    resume() {
+      events.push(`${label}:resume`);
+    },
+    freeze() {
+      events.push(`${label}:freeze`);
+    },
+  };
+}
+
+test('context loss during a deferred init keeps fallback after the pending create settles', async () => {
+  const rendererEvents = [];
+  const rendererCreate = deferred();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          rendererEvents.push('create');
+          await rendererCreate.promise;
+          return trackingSession(rendererEvents, 'renderer');
+        },
+        disposePartial() {
+          rendererEvents.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init() {
+          return trackingSession(rendererEvents, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => rendererEvents.includes('create'));
+  demo.reportContextLost();
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'webgl-context-lost');
+
+  rendererCreate.resolve();
+  await started;
+
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'webgl-context-lost');
+  assert.equal(demo.getSnapshot().hasGraphicsSurface, false);
+  assert.ok(rendererEvents.includes('disposePartial'));
+  assert.ok(rendererEvents.includes('renderer:dispose'));
+});
+
+test('a pending worker failure event retries once on the main thread without leaking the retry', async () => {
+  const events = [];
+  const workerInit = deferred();
+  const mainInit = deferred();
+  const wasmCalls = [];
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          return trackingSession(events, 'renderer');
+        },
+      },
+      wasm: {
+        async init({ useWorker }) {
+          wasmCalls.push(useWorker);
+          if (useWorker) {
+            return workerInit.promise;
+          }
+          return mainInit.promise;
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => wasmCalls.includes(true));
+  const reported = demo.reportWorkerFailure('before-init');
+  const mainSession = trackingSession(events, 'main');
+  const workerSession = trackingSession(events, 'worker');
+  mainInit.resolve(mainSession);
+  await reported;
+  workerInit.resolve(workerSession);
+  await started;
+
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.deepEqual(wasmCalls, [true, false]);
+  assert.ok(events.includes('worker:dispose'));
+  assert.equal(events.includes('main:dispose'), false);
+  demo.dispose();
+  assert.ok(events.includes('main:dispose'));
+});
+
+test('Play-Pause-Play resumes the same renderer and WASM sessions', async () => {
+  const { seams, rendererEvents, wasmCalls, wasmDisposeCount } = connectedSeams();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  assert.equal(demo.getSnapshot().mode, 'live');
+  await demo.play();
+  assert.equal(demo.getSnapshot().mode, 'awaiting-play');
+  await demo.play();
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+  assert.deepEqual(wasmCalls, [true]);
+  assert.equal(rendererEvents.filter((event) => event === 'dispose').length, 0);
+  assert.equal(wasmDisposeCount.value, 0);
+  assert.ok(rendererEvents.includes('pause'));
+  assert.ok(rendererEvents.includes('resume'));
+
+  demo.dispose();
+  assert.equal(rendererEvents.filter((event) => event === 'dispose').length, 1);
+  assert.equal(wasmDisposeCount.value, 1);
+});
+
+test('a deferred init that hides the document pauses instead of becoming live', async () => {
+  const events = [];
+  const rendererCreate = deferred();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          events.push('renderer:create');
+          await rendererCreate.promise;
+          return trackingSession(events, 'renderer');
+        },
+      },
+      wasm: {
+        async init() {
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+    documentHidden: false,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => events.includes('renderer:create'));
+  demo.setDocumentHidden(true);
+  rendererCreate.resolve();
+  await started;
+
+  assert.equal(demo.getSnapshot().mode, 'awaiting-play');
+  assert.equal(demo.getSnapshot().cameraMotionEnabled, false);
+  assert.ok(events.includes('renderer:pause'));
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 0);
+
+  demo.setDocumentHidden(false);
+  await waitFor(() => demo.getSnapshot().mode === 'live');
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.ok(events.includes('renderer:resume'));
+  assert.equal(events.filter((event) => event === 'renderer:create').length, 1);
+});
+
+test('a deferred init that leaves the viewport pauses instead of becoming live', async () => {
+  const events = [];
+  const rendererCreate = deferred();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          events.push('renderer:create');
+          await rendererCreate.promise;
+          return trackingSession(events, 'renderer');
+        },
+      },
+      wasm: {
+        async init() {
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => events.includes('renderer:create'));
+  demo.setInViewport(false);
+  rendererCreate.resolve();
+  await started;
+
+  assert.equal(demo.getSnapshot().mode, 'awaiting-play');
+  assert.equal(demo.getSnapshot().cameraMotionEnabled, false);
+  assert.ok(events.includes('renderer:pause'));
+  assert.equal(events.filter((event) => event === 'renderer:create').length, 1);
+
+  demo.setInViewport(true);
+  await waitFor(() => demo.getSnapshot().mode === 'live');
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.ok(events.includes('renderer:resume'));
+  assert.equal(events.filter((event) => event === 'renderer:create').length, 1);
 });

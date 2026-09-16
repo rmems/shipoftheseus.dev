@@ -58,6 +58,7 @@ export function bindDemoIsland(root: HTMLElement): BoundIsland {
     runtime.reportContextLost();
     paint();
   };
+  const contextLostCapture = { capture: true } as const;
 
   const dispose = () => {
     if (disposed) {
@@ -69,7 +70,7 @@ export function bindDemoIsland(root: HTMLElement): BoundIsland {
     document.removeEventListener('visibilitychange', onVisibility);
     document.removeEventListener('astro:before-swap', dispose);
     window.removeEventListener('pagehide', dispose);
-    root.removeEventListener('webglcontextlost', onContextLost);
+    root.removeEventListener('webglcontextlost', onContextLost, contextLostCapture);
     observer?.disconnect();
     runtime.dispose();
   };
@@ -78,7 +79,7 @@ export function bindDemoIsland(root: HTMLElement): BoundIsland {
   document.addEventListener('visibilitychange', onVisibility);
   document.addEventListener('astro:before-swap', dispose);
   window.addEventListener('pagehide', dispose);
-  root.addEventListener('webglcontextlost', onContextLost, { capture: true });
+  root.addEventListener('webglcontextlost', onContextLost, contextLostCapture);
 
   const observer =
     'IntersectionObserver' in window
