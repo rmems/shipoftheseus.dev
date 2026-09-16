@@ -1312,6 +1312,107 @@ test('a WASM failure does not wait for a hung renderer create', async () => {
   assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
 });
 
+test('an immediate renderer failure disposes an immediately successful WASM session once', async () => {
+  const events = [];
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          events.push('renderer:create');
+          throw Object.assign(new Error('renderer failed'), { code: 'renderer-error' });
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init() {
+          events.push('wasm:init');
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'renderer-error');
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
+});
+
+test('an immediate WASM failure disposes an immediately successful renderer session once', async () => {
+  const events = [];
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          events.push('renderer:create');
+          return trackingSession(events, 'renderer');
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init() {
+          events.push('wasm:init');
+          throw Object.assign(new Error('wasm failed'), { code: 'wasm-init-failed' });
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'wasm-init-failed');
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+});
+
+test('context loss one microtask into concurrent init disposes each session once', async () => {
+  const events = [];
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          events.push('renderer:create');
+          await Promise.resolve();
+          return trackingSession(events, 'renderer');
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init() {
+          events.push('wasm:init');
+          await Promise.resolve();
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => events.includes('renderer:create') && events.includes('wasm:init'));
+  await Promise.resolve();
+  demo.reportContextLost();
+  await started;
+
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'webgl-context-lost');
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+  assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
+});
+
 test('dispose during pending renderer create aborts work and cleans up once', async () => {
   const events = [];
   const rendererCreate = deferred();
@@ -1559,6 +1660,45 @@ test('reduced motion during pending init requires explicit Play and disables cam
   assert.equal(live.reason, 'reduced-motion');
   assert.equal(live.cameraMotionEnabled, false);
   assert.equal(events.filter((event) => event.startsWith('create:')).length, 1);
+});
+
+test('pending-init reduced-motion recreates a no-setter renderer created camera-enabled', async () => {
+  const createOptions = [];
+  const rendererCreate = deferred();
+  const wasmInit = deferred();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create(options) {
+          createOptions.push(options.cameraMotionEnabled);
+          await rendererCreate.promise;
+          const session = trackingSession([], 'renderer');
+          delete session.setCameraMotionEnabled;
+          return session;
+        },
+      },
+      wasm: {
+        async init() {
+          await wasmInit.promise;
+          return trackingSession([], 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => createOptions.length === 1);
+  demo.setPrefersReducedMotion(true);
+  rendererCreate.resolve();
+  wasmInit.resolve();
+  await started;
+
+  assert.notEqual(demo.getSnapshot().mode, 'live');
+  assert.equal(demo.getSnapshot().mode, 'awaiting-play');
+  assert.equal(demo.getSnapshot().reason, 'reduced-motion');
+  assert.deepEqual(createOptions, [true, false]);
 });
 
 test('Play paints initializing immediately, then the live surface after settlement', async () => {

@@ -644,22 +644,12 @@ export class DemoRuntime {
       };
 
       const dropRenderer = (session: RendererSession | null) => {
-        if (this.pendingRendererSession !== null && this.pendingRendererSession === session) {
-          this.pendingRendererSession.dispose();
-          this.pendingRendererSession = null;
-        } else {
-          session?.dispose();
-        }
+        this.releaseOwnedRenderer(session);
         this.disposePartialGraphics();
       };
 
       const dropWasm = (session: WasmSession | null) => {
-        if (this.pendingWasmSession !== null && this.pendingWasmSession === session) {
-          this.pendingWasmSession.dispose();
-          this.pendingWasmSession = null;
-        } else {
-          session?.dispose();
-        }
+        this.releaseOwnedWasm(session);
       };
 
       const failNow = (reason: ReasonCode) => {
@@ -742,6 +732,40 @@ export class DemoRuntime {
     return this.disposed || this.mode === 'frozen' || this.mode === 'fallback';
   }
 
+  private releaseOwnedRenderer(session: RendererSession | null): void {
+    if (session === null) {
+      return;
+    }
+
+    if (this.pendingRendererSession === session) {
+      this.pendingRendererSession.dispose();
+      this.pendingRendererSession = null;
+      return;
+    }
+
+    if (this.rendererSession === session) {
+      this.rendererSession.dispose();
+      this.rendererSession = null;
+    }
+  }
+
+  private releaseOwnedWasm(session: WasmSession | null): void {
+    if (session === null) {
+      return;
+    }
+
+    if (this.pendingWasmSession === session) {
+      this.pendingWasmSession.dispose();
+      this.pendingWasmSession = null;
+      return;
+    }
+
+    if (this.wasmSession === session) {
+      this.wasmSession.dispose();
+      this.wasmSession = null;
+    }
+  }
+
   private failClosed(reason: ReasonCode): void {
     if (this.initializationClosed()) {
       return;
@@ -765,8 +789,8 @@ export class DemoRuntime {
     }
 
     if (this.initializationClosed()) {
-      rendererAttempt.session?.dispose();
-      wasmAttempt.session?.dispose();
+      this.releaseOwnedRenderer(rendererAttempt.session);
+      this.releaseOwnedWasm(wasmAttempt.session);
       this.pendingRendererSession = null;
       this.pendingWasmSession = null;
       this.initializing = false;
@@ -880,9 +904,10 @@ export class DemoRuntime {
   }
 
   private async tryRenderer(seam: RendererSeam): Promise<SessionAttempt<RendererSession>> {
+    const cameraMotionEnabled = this.cameraMotionPolicy();
     try {
       const session = await seam.create({
-        cameraMotionEnabled: this.cameraMotionPolicy(),
+        cameraMotionEnabled,
         signal: this.initSignal(),
         onRendererError: () => this.handleRendererError(),
       });
@@ -899,7 +924,7 @@ export class DemoRuntime {
       }
 
       this.pendingRendererSession = session;
-      this.rendererCameraMotionEnabled = this.cameraMotionPolicy();
+      this.rendererCameraMotionEnabled = cameraMotionEnabled;
       return { session, error: null };
     } catch (error) {
       if (this.initializationCanceled()) {
