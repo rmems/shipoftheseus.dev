@@ -1,6 +1,6 @@
 # Native CUDA and FPGA evidence (ADR-0002)
 
-- **Status:** accepted for V1
+- **Status:** accepted as a V2 evidence catalog on `/evidence/`; not ingested on the V1 homepage
 - **Decision date:** 2026-09-16
 - **Scope:** GitHub #18 / Linear RM-1655
 
