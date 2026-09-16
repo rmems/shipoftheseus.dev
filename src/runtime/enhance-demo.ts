@@ -26,6 +26,7 @@ function viewElements(root: HTMLElement): DemoViewElements {
     status: requiredElement<HTMLElement>(root, '[data-demo-status]'),
     play: requiredElement<HTMLButtonElement>(root, '[data-demo-play]'),
     surface: requiredElement<HTMLElement>(root, '[data-demo-surface]'),
+    origin: requiredElement<HTMLElement>(root, '[data-demo-origin]'),
   };
 }
 

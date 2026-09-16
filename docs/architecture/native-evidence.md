@@ -8,7 +8,7 @@
 
 Native-only `myelin-accelerator` CUDA execution and FPGA/SNN hardware paths are represented as **versioned, machine-readable artifacts**. They are ingested at build time, labeled `RECORDED · CUDA/FPGA`, and never compiled, imported, or executed in the browser bundle.
 
-The live neuromorphic island remains a separate `LIVE · Rust/WASM` path. The two surfaces may appear on the same page, but the UI must not imply that CUDA, FPGA tooling, native IPC, ZeroMQ, HDF5, or hardware runtimes run in WebAssembly.
+The neuromorphic island may show `LIVE · Rust/WASM` only after a verified adapter-backed runtime is actually running. Static HTML, missing adapters, failed WASM, and reduced-motion/awaiting-play states use `STATIC · diagram` or `UNAVAILABLE · Rust/WASM`. Recorded CUDA and FPGA captures stay on a separate `RECORDED · CUDA/FPGA` path. The two surfaces may appear on the same page, but the UI must not imply that CUDA, FPGA tooling, native IPC, ZeroMQ, HDF5, or hardware runtimes run in WebAssembly.
 
 ## Artifact envelope
 
@@ -17,8 +17,8 @@ Published files live in `src/content/native-evidence/` and must parse as `shipof
 | Input | Behavior |
 | --- | --- |
 | Missing or empty catalog directory | Build succeeds. UI shows the empty recorded-evidence state. |
-| Valid measured artifacts | Render provenance, workload, hardware, units, and results/traces. |
-| Invalid JSON, unknown fields, missing provenance, or filename/id mismatch | Build fails. No partial catalog is shown. |
+| Valid measured artifacts | Render provenance, workload, hardware, units, capture method, and results/traces. |
+| Invalid JSON, unknown fields, missing provenance, missing capture method on measured artifacts, or filename/id mismatch | Build fails. No partial catalog is shown. |
 | `schemaVersion` other than `1` | Fail as `unsupported-version`. |
 | `recordStatus: "synthetic"` in the published catalog | Fail as `synthetic-not-publishable`. |
 

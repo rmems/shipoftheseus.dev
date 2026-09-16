@@ -66,6 +66,12 @@ function artifactHeading(artifact: NativeEvidenceArtifact): string {
                 <dt>Captured</dt>
                 <dd><time datetime={artifact.capturedAt}>{artifact.capturedAt}</time></dd>
               </div>
+              {artifact.provenance.captureCommand ? (
+                <div>
+                  <dt>Capture</dt>
+                  <dd><code data-evidence-capture>{artifact.provenance.captureCommand}</code></dd>
+                </div>
+              ) : null}
             </dl>
             {artifact.results && artifact.results.length > 0 ? (
               <table class="native-evidence-results">

@@ -108,6 +108,7 @@ test('reduced-motion keeps the static representation until an explicit play acti
   assert.equal(waiting.playEnabled, true);
   assert.equal(waiting.playLabel, 'Play animation');
   assert.equal(waiting.cameraMotionEnabled, false);
+  assert.equal(runtime.demoExecutionOrigin(waiting), 'static-diagram');
   assert.match(waiting.status, /Play animation/);
   assert.deepEqual(wasmCalls, []);
 
@@ -115,6 +116,7 @@ test('reduced-motion keeps the static representation until an explicit play acti
   const live = demo.getSnapshot();
 
   assert.equal(live.mode, 'live');
+  assert.equal(runtime.demoExecutionOrigin(live), 'live-wasm');
   assert.equal(live.cameraMotionEnabled, false);
   assert.equal(live.playLabel, 'Pause animation');
   assert.match(live.status, /camera motion stays off/i);
@@ -324,6 +326,7 @@ test('missing renderer/WASM seams stay on the static representation', async () =
   const snapshot = demo.getSnapshot();
 
   assert.equal(snapshot.reason, 'adapter-unavailable');
+  assert.equal(runtime.demoExecutionOrigin(snapshot), 'unavailable-wasm');
   assert.equal(snapshot.playVisible, false);
   assert.match(snapshot.status, /not connected yet/);
 });
@@ -346,6 +349,7 @@ test('applyDemoView exposes status, play affordance, and reason for assistive te
     status: { textContent: '' },
     play: { hidden: true, disabled: false, textContent: '' },
     surface: { hidden: true },
+    origin: { textContent: 'STATIC · diagram', dataset: { origin: 'static' } },
   };
 
   runtime.applyDemoView(
@@ -371,6 +375,57 @@ test('applyDemoView exposes status, play affordance, and reason for assistive te
   assert.equal(elements.play.textContent, 'Play animation');
   assert.equal(elements.surface.hidden, true);
   assert.match(elements.status.textContent, /Play animation/);
+  assert.equal(elements.origin.textContent, 'STATIC · diagram');
+  assert.equal(elements.origin.dataset.origin, 'static');
+});
+
+test('LIVE origin is reserved for a verified adapter-backed live runtime', () => {
+  const live = {
+    mode: 'live',
+    reason: 'ok',
+    status: 'Live visualization is running.',
+    liveControlsEnabled: true,
+    playVisible: true,
+    playEnabled: true,
+    playLabel: 'Pause animation',
+    cameraMotionEnabled: true,
+    freezeFrame: false,
+    hasGraphicsSurface: true,
+  };
+  const origin = { textContent: 'STATIC · diagram', dataset: { origin: 'static' } };
+
+  assert.equal(runtime.demoExecutionOrigin({ mode: 'static', reason: 'ok' }), 'static-diagram');
+  assert.equal(runtime.demoExecutionOrigin({ mode: 'awaiting-play', reason: 'reduced-motion' }), 'static-diagram');
+  assert.equal(runtime.demoExecutionOrigin({ mode: 'initializing', reason: 'ok' }), 'static-diagram');
+  assert.equal(runtime.demoExecutionOrigin({ mode: 'frozen', reason: 'worker-runtime-failed' }), 'static-diagram');
+  assert.equal(runtime.demoExecutionOrigin({ mode: 'fallback', reason: 'adapter-unavailable' }), 'unavailable-wasm');
+  assert.equal(runtime.demoExecutionOrigin({ mode: 'fallback', reason: 'no-wasm' }), 'unavailable-wasm');
+  assert.equal(runtime.demoExecutionOrigin({ mode: 'fallback', reason: 'wasm-init-failed' }), 'unavailable-wasm');
+  assert.equal(runtime.demoExecutionOrigin({ mode: 'live', reason: 'ok' }), 'live-wasm');
+  assert.equal(runtime.demoExecutionOrigin({ mode: 'live', reason: 'reduced-motion' }), 'live-wasm');
+  assert.equal(runtime.getDemoSeams().renderer, undefined);
+  assert.equal(runtime.getDemoSeams().wasm, undefined);
+
+  runtime.applyDemoView(live, {
+    root: { dataset: {} },
+    status: { textContent: '' },
+    play: { hidden: true, disabled: false, textContent: '' },
+    origin,
+  });
+  assert.equal(origin.textContent, 'LIVE · Rust/WASM');
+  assert.equal(origin.dataset.origin, 'live');
+
+  runtime.applyDemoView(
+    { ...live, mode: 'fallback', reason: 'adapter-unavailable', playVisible: false, playEnabled: false },
+    {
+      root: { dataset: {} },
+      status: { textContent: '' },
+      play: { hidden: true, disabled: false, textContent: '' },
+      origin,
+    },
+  );
+  assert.equal(origin.textContent, 'UNAVAILABLE · Rust/WASM');
+  assert.equal(origin.dataset.origin, 'unavailable');
 });
 
 test('WebGL detection never probes WebGPU and capability hosts can fail closed', () => {
@@ -980,10 +1035,12 @@ function createFakeIsland() {
     },
   };
   const surface = { hidden: true };
+  const origin = { textContent: 'STATIC · diagram', dataset: { origin: 'static' } };
   const elements = {
     '[data-demo-status]': status,
     '[data-demo-play]': play,
     '[data-demo-surface]': surface,
+    '[data-demo-origin]': origin,
   };
   const root = {
     dataset: {},
@@ -994,7 +1051,7 @@ function createFakeIsland() {
     removeEventListener() {},
   };
 
-  return { root, status, play, surface };
+  return { root, status, play, surface, origin };
 }
 
 function installBindingHost({ reducedMotion = false } = {}) {
@@ -1102,12 +1159,14 @@ test('binding paints the live surface after deferred init from a viewport return
     documentHidden: false,
   });
 
-  await withBoundDemo({ demo }, async ({ root, status, play, surface }) => {
+  await withBoundDemo({ demo }, async ({ root, status, play, surface, origin }) => {
     assert.equal(root.dataset.mode, 'initializing');
     assert.equal(play.hidden, false);
     assert.equal(play.disabled, true);
     assert.equal(play.textContent, 'Play animation');
     assert.equal(surface.hidden, true);
+    assert.equal(origin.textContent, 'STATIC · diagram');
+    assert.equal(origin.dataset.origin, 'static');
     assert.equal(demo.getSnapshot().mode, 'initializing');
 
     wasmInit.resolve();
@@ -1120,6 +1179,8 @@ test('binding paints the live surface after deferred init from a viewport return
     assert.equal(play.disabled, false);
     assert.equal(play.textContent, 'Pause animation');
     assert.match(status.textContent, /Live visualization is running/);
+    assert.equal(origin.textContent, 'LIVE · Rust/WASM');
+    assert.equal(origin.dataset.origin, 'live');
     assert.equal(demo.getSnapshot().hasGraphicsSurface, true);
   });
 });

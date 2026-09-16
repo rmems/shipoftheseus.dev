@@ -2,6 +2,8 @@ export const NATIVE_EVIDENCE_SCHEMA_ID = 'shipoftheseus.native-evidence';
 export const NATIVE_EVIDENCE_SCHEMA_VERSION = 1;
 
 export const LIVE_ORIGIN_LABEL = 'LIVE · Rust/WASM';
+export const STATIC_ORIGIN_LABEL = 'STATIC · diagram';
+export const UNAVAILABLE_ORIGIN_LABEL = 'UNAVAILABLE · Rust/WASM';
 export const RECORDED_ORIGIN_LABEL = 'RECORDED · CUDA/FPGA';
 
 export const EMPTY_NATIVE_EVIDENCE_COPY =
@@ -46,6 +48,7 @@ export interface NativeEvidenceProvenance {
   sourcePath: string;
   crateName?: string;
   crateVersion?: string;
+  /** Required and non-empty when recordStatus is "measured". */
   captureCommand?: string;
 }
 

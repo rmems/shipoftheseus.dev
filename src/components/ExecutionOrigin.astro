@@ -3,10 +3,11 @@ import { executionOriginData, executionOriginLabel, type ExecutionOrigin } from 
 
 interface Props {
   origin: ExecutionOrigin;
+  runtimeBound?: boolean;
 }
 
-const { origin } = Astro.props;
+const { origin, runtimeBound = false } = Astro.props;
 const label = executionOriginLabel(origin);
 const dataOrigin = executionOriginData(origin);
 ---
-<p class="execution-origin" data-origin={dataOrigin}>{label}</p>
+<p class="execution-origin" data-origin={dataOrigin} data-demo-origin={runtimeBound ? true : undefined}>{label}</p>

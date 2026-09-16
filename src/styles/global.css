@@ -458,6 +458,12 @@ button.button {
   border-color: var(--signal);
 }
 
+.execution-origin[data-origin='static'],
+.execution-origin[data-origin='unavailable'] {
+  color: var(--muted);
+  border-color: var(--line-strong);
+}
+
 .demo-heading .execution-origin,
 .native-evidence-heading .execution-origin {
   margin-bottom: 1.15rem;

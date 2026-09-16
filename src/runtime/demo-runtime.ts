@@ -1,3 +1,5 @@
+import { executionOriginData, executionOriginLabel, type ExecutionOrigin } from '../native-evidence/view';
+
 export const STATIC_DEMO_STATUS =
   'The static diagram explains the neuromorphic demo. The live visualization is an optional enhancement.';
 
@@ -111,6 +113,12 @@ export interface DemoViewElements {
   };
   surface?: {
     hidden: boolean;
+  };
+  origin?: {
+    textContent: string | null;
+    dataset: {
+      origin?: string;
+    };
   };
 }
 
@@ -251,6 +259,43 @@ function combineFailureReasons(rendererError: ReasonCode | null, wasmError: Reas
   return rendererError ?? wasmError ?? 'unavailable';
 }
 
+export function demoExecutionOrigin(
+  snapshot: Pick<DemoSnapshot, 'mode' | 'reason'>,
+): Exclude<ExecutionOrigin, 'recorded-cuda-fpga'> {
+  switch (snapshot.mode) {
+    case 'live':
+      return 'live-wasm';
+    case 'static':
+    case 'awaiting-play':
+    case 'initializing':
+    case 'frozen':
+    case 'fallback':
+      break;
+    default:
+      return assertNever(snapshot.mode);
+  }
+
+  switch (snapshot.reason) {
+    case 'adapter-unavailable':
+    case 'no-wasm':
+    case 'wasm-init-failed':
+    case 'worker-unavailable':
+    case 'worker-init-failed':
+    case 'unavailable':
+      return 'unavailable-wasm';
+    case 'worker-runtime-failed':
+      return snapshot.mode === 'frozen' ? 'static-diagram' : 'unavailable-wasm';
+    case 'ok':
+    case 'reduced-motion':
+    case 'no-webgl':
+    case 'webgl-context-lost':
+    case 'renderer-error':
+      return 'static-diagram';
+    default:
+      return assertNever(snapshot.reason);
+  }
+}
+
 export function applyDemoView(snapshot: DemoSnapshot, elements: DemoViewElements): void {
   elements.root.dataset.mode = snapshot.mode;
   elements.root.dataset.reason = snapshot.reason;
@@ -260,6 +305,11 @@ export function applyDemoView(snapshot: DemoSnapshot, elements: DemoViewElements
   elements.play.textContent = snapshot.playLabel;
   if (elements.surface) {
     elements.surface.hidden = !snapshot.hasGraphicsSurface;
+  }
+  if (elements.origin) {
+    const origin = demoExecutionOrigin(snapshot);
+    elements.origin.textContent = executionOriginLabel(origin);
+    elements.origin.dataset.origin = executionOriginData(origin);
   }
 }
 

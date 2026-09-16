@@ -1,6 +1,8 @@
 import {
   LIVE_ORIGIN_LABEL,
   RECORDED_ORIGIN_LABEL,
+  STATIC_ORIGIN_LABEL,
+  UNAVAILABLE_ORIGIN_LABEL,
   type NativeEvidenceArtifact,
   type NativeEvidenceKind,
 } from './types';
@@ -9,12 +11,16 @@ function assertNever(value: never, label: string): never {
   throw new Error(`Unhandled ${label}: ${String(value)}`);
 }
 
-export type ExecutionOrigin = 'live-wasm' | 'recorded-cuda-fpga';
+export type ExecutionOrigin = 'live-wasm' | 'static-diagram' | 'unavailable-wasm' | 'recorded-cuda-fpga';
 
 export function executionOriginLabel(origin: ExecutionOrigin): string {
   switch (origin) {
     case 'live-wasm':
       return LIVE_ORIGIN_LABEL;
+    case 'static-diagram':
+      return STATIC_ORIGIN_LABEL;
+    case 'unavailable-wasm':
+      return UNAVAILABLE_ORIGIN_LABEL;
     case 'recorded-cuda-fpga':
       return RECORDED_ORIGIN_LABEL;
     default:
@@ -22,10 +28,14 @@ export function executionOriginLabel(origin: ExecutionOrigin): string {
   }
 }
 
-export function executionOriginData(origin: ExecutionOrigin): 'live' | 'recorded' {
+export function executionOriginData(origin: ExecutionOrigin): 'live' | 'static' | 'unavailable' | 'recorded' {
   switch (origin) {
     case 'live-wasm':
       return 'live';
+    case 'static-diagram':
+      return 'static';
+    case 'unavailable-wasm':
+      return 'unavailable';
     case 'recorded-cuda-fpga':
       return 'recorded';
     default:

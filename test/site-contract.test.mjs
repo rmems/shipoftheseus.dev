@@ -150,12 +150,16 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   assert.match(island, /aria-live="polite"/);
   assert.match(island, /role="status"/);
   assert.match(island, /Static neuromorphic pipeline/);
-  assert.match(island, /origin="live-wasm"/);
+  assert.match(island, /origin="static-diagram"/);
+  assert.match(island, /runtimeBound/);
+  assert.doesNotMatch(island, /origin="live-wasm"/);
+  assert.doesNotMatch(island, /LIVE · Rust\/WASM/);
   assert.match(read('src/components/ExecutionOrigin.astro'), /executionOriginLabel/);
   assert.match(read('src/native-evidence/types.ts'), /LIVE · Rust\/WASM/);
   assert.match(island, /href="\/evidence\/"/);
   assert.match(island, /data-demo-play hidden/);
   assert.match(enhance, /IntersectionObserver/);
+  assert.match(enhance, /data-demo-origin/);
   assert.match(enhance, /astro:before-swap/);
   assert.match(enhance, /visibilitychange/);
   assert.match(enhance, /setInViewport\(visible\)\.then\(paint\)/);

@@ -197,7 +197,7 @@ export function parseNativeEvidenceValue(
     return fail('invalid-artifact', 'capturedAt must be an ISO-8601 UTC timestamp.', options.path);
   }
 
-  const provenance = parseProvenance(value.provenance, options.path);
+  const provenance = parseProvenance(value.provenance, recordStatusResult.status, options.path);
   if (!provenance.ok) {
     return provenance;
   }
@@ -300,6 +300,7 @@ function parseRecordStatus(
 
 function parseProvenance(
   value: unknown,
+  recordStatus: NativeEvidenceRecordStatus,
   path?: string,
 ): { ok: true; provenance: NativeEvidenceProvenance } | ParseFailure {
   if (!isRecord(value)) {
@@ -343,7 +344,16 @@ function parseProvenance(
     provenance.crateVersion = value.crateVersion;
   }
 
-  if ('captureCommand' in value) {
+  if (recordStatus === 'measured') {
+    if (!nonEmptyString(value.captureCommand, 240)) {
+      return fail(
+        'invalid-artifact',
+        'Measured artifacts require a non-empty provenance.captureCommand.',
+        path,
+      );
+    }
+    provenance.captureCommand = value.captureCommand;
+  } else if ('captureCommand' in value) {
     if (!nonEmptyString(value.captureCommand, 240)) {
       return fail('invalid-artifact', 'provenance.captureCommand must be a non-empty string when present.', path);
     }

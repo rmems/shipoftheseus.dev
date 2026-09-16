@@ -141,6 +141,33 @@ test('synthetic catalogs can load when explicitly allowed and measured catalogs 
   assert.equal(duplicate.issues[0].code, 'duplicate-id');
 });
 
+test('measured artifacts fail closed without a capture method', () => {
+  const missing = evidence.parseNativeEvidenceJson(readFixture('invalid-measured-missing-capture.json'));
+  assert.equal(missing.ok, false);
+  assert.equal(missing.issue.code, 'invalid-artifact');
+  assert.match(missing.issue.message, /captureCommand/);
+
+  const emptyCommand = JSON.parse(readFixture('valid-cuda-synthetic.json'));
+  emptyCommand.recordStatus = 'measured';
+  emptyCommand.id = 'valid-cuda-measured';
+  emptyCommand.provenance.captureCommand = '';
+  const empty = evidence.parseNativeEvidenceValue(emptyCommand);
+  assert.equal(empty.ok, false);
+  assert.equal(empty.issue.code, 'invalid-artifact');
+  assert.match(empty.issue.message, /captureCommand/);
+
+  const published = withTempCatalog(
+    { 'invalid-measured-missing-capture.json': readFixture('invalid-measured-missing-capture.json') },
+    (directory) => load.loadNativeEvidenceDirectory(directory, { allowSynthetic: false }),
+  );
+  assert.equal(published.status, 'invalid');
+  assert.deepEqual(published.artifacts, []);
+  assert.equal(
+    published.issues.some((issue) => issue.code === 'invalid-artifact' && /captureCommand/.test(issue.message)),
+    true,
+  );
+});
+
 test('measured artifacts load from a catalog and synthetic files stay unpublished', () => {
   const measured = JSON.parse(readFixture('valid-cuda-synthetic.json'));
   measured.recordStatus = 'measured';
@@ -153,6 +180,10 @@ test('measured artifacts load from a catalog and synthetic files stay unpublishe
   assert.equal(published.status, 'ok');
   assert.equal(published.artifacts[0].id, 'valid-cuda-measured');
   assert.equal(published.artifacts[0].recordStatus, 'measured');
+  assert.equal(
+    published.artifacts[0].provenance.captureCommand,
+    'cargo run --example benchmark --features bench,cuda',
+  );
 
   const mismatch = evidence.parseNativeEvidenceJson(readFixture('valid-cuda-synthetic.json'), {
     path: 'other-name.json',
@@ -183,7 +214,12 @@ test('the published site catalog is empty until a measured artifact exists', () 
 
 test('execution origin labels distinguish live WASM from recorded CUDA/FPGA', () => {
   assert.equal(view.executionOriginLabel('live-wasm'), 'LIVE · Rust/WASM');
+  assert.equal(view.executionOriginLabel('static-diagram'), 'STATIC · diagram');
+  assert.equal(view.executionOriginLabel('unavailable-wasm'), 'UNAVAILABLE · Rust/WASM');
   assert.equal(view.executionOriginLabel('recorded-cuda-fpga'), 'RECORDED · CUDA/FPGA');
+  assert.equal(view.executionOriginData('live-wasm'), 'live');
+  assert.equal(view.executionOriginData('static-diagram'), 'static');
+  assert.equal(view.executionOriginData('unavailable-wasm'), 'unavailable');
   assert.equal(view.nativeEvidenceKindLabel('cuda-benchmark'), 'CUDA benchmark');
   assert.equal(view.nativeEvidenceKindLabel('fpga-snn-trace'), 'FPGA/SNN trace');
 });
@@ -193,13 +229,19 @@ test('the live demo and recorded evidence surfaces keep distinct labels and rema
   const evidenceUi = readSource('../src/components/NativeEvidence.astro');
   const evidencePage = readSource('../src/pages/evidence.astro');
   const home = readSource('../src/pages/index.astro');
+  const enhance = readSource('../src/runtime/enhance-demo.ts');
 
-  assert.match(demo, /origin="live-wasm"/);
+  assert.match(demo, /origin="static-diagram"/);
+  assert.match(demo, /runtimeBound/);
+  assert.doesNotMatch(demo, /origin="live-wasm"/);
+  assert.doesNotMatch(demo, /LIVE · Rust\/WASM/);
   assert.match(demo, /href="\/evidence\/"/);
   assert.doesNotMatch(demo, /client:only/);
+  assert.doesNotMatch(enhance, /provideDemoSeams/);
   assert.match(evidenceUi, /origin="recorded-cuda-fpga"/);
   assert.match(evidenceUi, /data-evidence-empty/);
   assert.match(evidenceUi, /EMPTY_NATIVE_EVIDENCE_COPY/);
+  assert.match(evidenceUi, /data-evidence-capture/);
   assert.match(evidencePage, /loadPublishedNativeEvidence/);
   assert.match(home, /NativeEvidence/);
   assert.match(home, /loadPublishedNativeEvidence/);
