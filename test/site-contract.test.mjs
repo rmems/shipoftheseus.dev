@@ -153,6 +153,8 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   assert.match(enhance, /visibilitychange/);
   assert.match(enhance, /setInViewport\(visible\)\.then\(paint\)/);
   assert.match(enhance, /setDocumentHidden\(document\.hidden\)\.then\(paint\)/);
+  assert.match(enhance, /onSnapshotChange\(paint\)/);
+  assert.match(read('src/runtime/demo-runtime.ts'), /onWorkerFailure:/);
   assert.match(enhance, /removeEventListener\('webglcontextlost', onContextLost, contextLostCapture\)/);
   assert.match(enhance, /addEventListener\('webglcontextlost', onContextLost, contextLostCapture\)/);
   assert.doesNotMatch(island, /client:only/);

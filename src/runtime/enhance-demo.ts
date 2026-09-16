@@ -47,6 +47,7 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
       applyDemoView(boundRuntime.getSnapshot(), elements);
     }
   };
+  const unsubscribeSnapshot = boundRuntime.onSnapshotChange(paint);
 
   const onPlay = () => {
     void boundRuntime.play().then(paint);
@@ -68,6 +69,7 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
     }
 
     disposed = true;
+    unsubscribeSnapshot();
     play.removeEventListener('click', onPlay);
     document.removeEventListener('visibilitychange', onVisibility);
     document.removeEventListener('astro:before-swap', dispose);

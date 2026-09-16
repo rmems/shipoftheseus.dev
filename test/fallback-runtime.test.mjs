@@ -426,7 +426,7 @@ async function waitFor(predicate, attempts = 30) {
   throw new Error('timed out waiting for runtime condition');
 }
 
-function trackingSession(events, label) {
+function trackingSession(events, label, { freeze = true } = {}) {
   return {
     dispose() {
       events.push(`${label}:dispose`);
@@ -437,9 +437,11 @@ function trackingSession(events, label) {
     resume() {
       events.push(`${label}:resume`);
     },
-    freeze() {
-      events.push(`${label}:freeze`);
-    },
+    freeze: freeze
+      ? () => {
+          events.push(`${label}:freeze`);
+        }
+      : undefined,
   };
 }
 
@@ -831,6 +833,127 @@ test('binding paints the live surface after deferred init from a viewport return
     assert.equal(play.textContent, 'Pause animation');
     assert.match(status.textContent, /Live visualization is running/);
     assert.equal(demo.getSnapshot().hasGraphicsSurface, true);
+  } finally {
+    binding?.dispose();
+    restoreHost();
+  }
+});
+
+function workerAwareSeams({ freeze = true } = {}) {
+  const wasmCalls = [];
+  const events = [];
+  const captured = { onWorkerFailure: undefined };
+  return {
+    wasmCalls,
+    events,
+    captured,
+    seams: {
+      renderer: {
+        async create() {
+          return trackingSession(events, 'renderer', { freeze });
+        },
+      },
+      wasm: {
+        async init(options) {
+          wasmCalls.push(options.useWorker);
+          captured.onWorkerFailure = options.onWorkerFailure;
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+  };
+}
+
+test('binding freezes the live surface when the WASM seam reports after-init worker failure', async () => {
+  const { seams, wasmCalls, events, captured } = workerAwareSeams({ freeze: true });
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: false,
+    documentHidden: false,
+  });
+
+  const { root, status, play, surface } = createFakeIsland();
+  const restoreHost = installBindingHost();
+  let binding;
+
+  try {
+    binding = enhance.bindDemoIsland(root, demo);
+    await waitFor(() => root.dataset.mode === 'live');
+
+    assert.equal(typeof captured.onWorkerFailure, 'function');
+    assert.deepEqual(wasmCalls, [true]);
+    assert.equal(play.disabled, false);
+    assert.equal(surface.hidden, false);
+
+    captured.onWorkerFailure('after-init');
+    await waitFor(() => root.dataset.mode === 'frozen');
+
+    assert.equal(root.dataset.mode, 'frozen');
+    assert.equal(root.dataset.reason, 'worker-runtime-failed');
+    assert.equal(play.hidden, true);
+    assert.equal(play.disabled, true);
+    assert.equal(surface.hidden, false);
+    assert.match(status.textContent, /last valid frame/);
+    assert.ok(events.includes('renderer:freeze'));
+    assert.deepEqual(wasmCalls, [true]);
+
+    captured.onWorkerFailure('after-init');
+    captured.onWorkerFailure('before-init');
+    await Promise.resolve();
+    assert.equal(root.dataset.mode, 'frozen');
+    assert.deepEqual(wasmCalls, [true]);
+    assert.equal(events.filter((event) => event === 'renderer:freeze').length, 1);
+
+    binding.dispose();
+    binding = undefined;
+    captured.onWorkerFailure('after-init');
+    captured.onWorkerFailure('before-init');
+    await Promise.resolve();
+    assert.deepEqual(wasmCalls, [true]);
+    assert.equal(events.filter((event) => event === 'renderer:freeze').length, 1);
+    assert.equal(demo.getSnapshot().mode, 'frozen');
+  } finally {
+    binding?.dispose();
+    restoreHost();
+  }
+});
+
+test('binding returns to the static diagram when a post-init worker failure cannot freeze', async () => {
+  const { seams, wasmCalls, captured } = workerAwareSeams({ freeze: false });
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: false,
+    documentHidden: false,
+  });
+
+  const { root, status, play, surface } = createFakeIsland();
+  const restoreHost = installBindingHost();
+  let binding;
+
+  try {
+    binding = enhance.bindDemoIsland(root, demo);
+    await waitFor(() => root.dataset.mode === 'live');
+    assert.deepEqual(wasmCalls, [true]);
+
+    captured.onWorkerFailure('after-init');
+    await waitFor(() => root.dataset.mode === 'fallback');
+
+    assert.equal(root.dataset.mode, 'fallback');
+    assert.equal(root.dataset.reason, 'worker-runtime-failed');
+    assert.equal(play.hidden, true);
+    assert.equal(play.disabled, true);
+    assert.equal(surface.hidden, true);
+    assert.match(status.textContent, /static diagram remains available/);
+    assert.deepEqual(wasmCalls, [true]);
+
+    binding.dispose();
+    binding = undefined;
+    captured.onWorkerFailure('after-init');
+    captured.onWorkerFailure('before-init');
+    await Promise.resolve();
+    assert.deepEqual(wasmCalls, [true]);
   } finally {
     binding?.dispose();
     restoreHost();

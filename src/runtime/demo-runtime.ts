@@ -66,8 +66,13 @@ export interface RendererSeam {
   disposePartial?: () => void;
 }
 
+export interface WasmInitOptions {
+  useWorker: boolean;
+  onWorkerFailure: (phase: WorkerFailurePhase) => void;
+}
+
 export interface WasmSeam {
-  init: (options: { useWorker: boolean }) => Promise<WasmSession>;
+  init: (options: WasmInitOptions) => Promise<WasmSession>;
 }
 
 export interface DemoSeams {
@@ -264,6 +269,7 @@ export class DemoRuntime {
   private initPromise: Promise<void> | null = null;
   private wasmRetryPromise: Promise<SessionAttempt<WasmSession>> | null = null;
   private partialGraphicsDisposed = false;
+  private readonly snapshotListeners = new Set<() => void>();
 
   constructor(options: CreateDemoRuntimeOptions) {
     this.capabilities = options.capabilities;
@@ -380,6 +386,10 @@ export class DemoRuntime {
   }
 
   async reportWorkerFailure(phase: WorkerFailurePhase): Promise<void> {
+    if (this.disposed || this.mode === 'frozen' || this.mode === 'fallback') {
+      return;
+    }
+
     switch (phase) {
       case 'before-init':
         if (this.initCompleted) {
@@ -396,9 +406,17 @@ export class DemoRuntime {
     }
   }
 
+  onSnapshotChange(listener: () => void): () => void {
+    this.snapshotListeners.add(listener);
+    return () => {
+      this.snapshotListeners.delete(listener);
+    };
+  }
+
   dispose(): void {
     this.disposed = true;
     this.generation += 1;
+    this.snapshotListeners.clear();
     this.teardownSessions();
     this.mode = this.mode === 'frozen' ? 'frozen' : 'static';
   }
@@ -590,7 +608,7 @@ export class DemoRuntime {
 
     if (this.capabilities.worker) {
       try {
-        const session = await seam.init({ useWorker: true });
+        const session = await seam.init(this.wasmInitOptions(true));
         if (this.wasmRetryPromise !== null) {
           session.dispose();
           return this.wasmRetryPromise;
@@ -609,6 +627,31 @@ export class DemoRuntime {
     return this.beginMainThreadRetry(seam, { code: 'worker-unavailable' });
   }
 
+  private wasmInitOptions(useWorker: boolean): WasmInitOptions {
+    return {
+      useWorker,
+      onWorkerFailure: (phase) => this.handleWorkerFailure(phase),
+    };
+  }
+
+  private handleWorkerFailure(phase: WorkerFailurePhase): void {
+    if (this.disposed) {
+      return;
+    }
+
+    void this.reportWorkerFailure(phase).then(() => {
+      if (!this.disposed) {
+        this.emitSnapshotChange();
+      }
+    });
+  }
+
+  private emitSnapshotChange(): void {
+    for (const listener of this.snapshotListeners) {
+      listener();
+    }
+  }
+
   private beginMainThreadRetry(seam: WasmSeam, error: unknown): Promise<SessionAttempt<WasmSession>> {
     if (this.wasmRetryPromise === null) {
       this.wasmRetryPromise = this.retryWasm(seam, error);
@@ -620,7 +663,7 @@ export class DemoRuntime {
   private async retryWasm(seam: WasmSeam, error: unknown): Promise<SessionAttempt<WasmSession>> {
     this.workerRetryUsed = true;
     try {
-      return { session: await seam.init({ useWorker: false }), error: null };
+      return { session: await seam.init(this.wasmInitOptions(false)), error: null };
     } catch (retryError) {
       return {
         session: null,
@@ -660,6 +703,10 @@ export class DemoRuntime {
   }
 
   private freezeOrFallback(): void {
+    if (this.disposed || this.mode === 'frozen' || this.mode === 'fallback') {
+      return;
+    }
+
     if (this.rendererSession?.freeze) {
       this.rendererSession.freeze();
       this.wasmSession?.pause?.();
