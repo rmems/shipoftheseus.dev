@@ -1,0 +1,18 @@
+[package]
+name = "neuromorphic-adapter"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+axon-encoder = { git = "https://github.com/Limen-Neural/axon-encoder.git", rev = "a56276746569e5ecaa78e50882064858835b2438", default-features = false, features = ["serde", "wasm-js"] }
+corpus-ipc = { git = "https://github.com/Limen-Neural/corpus-ipc.git", rev = "d99e6544d7925dc0ccfe69fdff372352b0a9d041", default-features = false }
+kinetic-signals = { git = "https://github.com/rmems/kinetic-signals.git", rev = "e829a0d5826c0d1175b8878b024a69ce4e1d538b" }
+js-sys = "=0.3.103"
+neuromod = { git = "https://github.com/Limen-Neural/neuromod.git", rev = "3fe526116683d7392e309760c017afe8a934619c", default-features = false, features = ["wasm-js"] }
+synaptic-wiring = "=0.3.0"
+wasm-bindgen = "=0.2.126"

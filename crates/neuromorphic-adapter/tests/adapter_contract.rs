@@ -1,0 +1,36 @@
+use neuromorphic_adapter::BrowserRuntime;
+
+#[test]
+fn a_seeded_runtime_preserves_topology_provenance_and_advances_deterministically() {
+    let mut left = BrowserRuntime::new(9).expect("the fixed browser topology is valid");
+    let mut right = BrowserRuntime::new(9).expect("the fixed browser topology is valid");
+
+    left.input(1, &[1.0, 0.0, 0.5, 0.25]).expect("input is accepted");
+    right.input(1, &[1.0, 0.0, 0.5, 0.25]).expect("input is accepted");
+    let left_state = left.step().expect("runtime can advance one tick");
+    let right_state = right.step().expect("runtime can advance one tick");
+
+    assert_eq!(left_state.contract_version, 1);
+    assert_eq!(left_state.completed_step, 1);
+    assert_eq!(left_state.topology_digest, right_state.topology_digest);
+    assert_eq!(left_state.spike_neurons, right_state.spike_neurons);
+    assert_eq!(left_state.membrane_potentials, right_state.membrane_potentials);
+    assert!(left_state.topology_rows.len() > 1);
+    assert_eq!(left_state.topology_targets.len(), left_state.topology_weights.len());
+    assert_eq!(left_state.topology_targets.len(), left_state.topology_delays.len());
+}
+
+#[test]
+fn input_sequences_are_monotonic_and_state_is_a_value_snapshot() {
+    let mut runtime = BrowserRuntime::new(7).expect("the fixed browser topology is valid");
+    runtime.input(5, &[0.1, 0.2, 0.3]).expect("first input is accepted");
+    assert!(runtime.input(5, &[0.4]).is_err());
+
+    let before = runtime.state();
+    runtime.step().expect("runtime can advance one tick");
+    let after = runtime.state();
+
+    assert_eq!(before.completed_step, 0);
+    assert_eq!(after.completed_step, 1);
+    assert_eq!(after.last_sequence, 5);
+}
