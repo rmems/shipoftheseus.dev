@@ -1439,6 +1439,77 @@ test('enabling reduced motion during a live session requires explicit Play witho
   assert.deepEqual(wasmCalls, [true]);
 });
 
+test('explicit Play after a live reduced-motion flip keeps camera motion off on the same renderer', async () => {
+  const { seams, rendererEvents, rendererCreateOptions, wasmCalls } = connectedSeams();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.equal(rendererCreateOptions[0].cameraMotionEnabled, true);
+  assert.equal(demo.getSnapshot().cameraMotionEnabled, true);
+
+  demo.setPrefersReducedMotion(true);
+  assert.equal(demo.getSnapshot().mode, 'awaiting-play');
+  assert.equal(demo.getSnapshot().reason, 'reduced-motion');
+  assert.ok(rendererEvents.includes('camera:off'));
+
+  await demo.play();
+  const live = demo.getSnapshot();
+  const cameraEvents = rendererEvents.filter((event) => event === 'camera:on' || event === 'camera:off');
+  assert.equal(live.mode, 'live');
+  assert.equal(live.reason, 'reduced-motion');
+  assert.equal(live.cameraMotionEnabled, false);
+  assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(cameraEvents.at(-1), 'camera:off');
+  assert.deepEqual(wasmCalls, [true]);
+});
+
+test('Play after reduced-motion recreates a renderer that cannot update camera motion', async () => {
+  const events = [];
+  const createOptions = [];
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create(options) {
+          createOptions.push(options.cameraMotionEnabled);
+          events.push(`create:${options.cameraMotionEnabled}`);
+          const session = trackingSession(events, 'renderer');
+          delete session.setCameraMotionEnabled;
+          return session;
+        },
+      },
+      wasm: {
+        async init() {
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.deepEqual(createOptions, [true]);
+
+  demo.setPrefersReducedMotion(true);
+  assert.equal(demo.getSnapshot().mode, 'awaiting-play');
+  assert.equal(events.includes('renderer:camera:off'), false);
+
+  await demo.play();
+  const live = demo.getSnapshot();
+  assert.equal(live.mode, 'live');
+  assert.equal(live.reason, 'reduced-motion');
+  assert.equal(live.cameraMotionEnabled, false);
+  assert.deepEqual(createOptions, [true, false]);
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+});
+
 test('reduced motion during pending init requires explicit Play and disables camera motion', async () => {
   const events = [];
   const rendererCreate = deferred();
