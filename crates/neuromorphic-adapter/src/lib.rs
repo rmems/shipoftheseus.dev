@@ -12,6 +12,7 @@ use wasm_bindgen::prelude::*;
 
 pub const CONTRACT_VERSION: u32 = 1;
 const CHANNEL_COUNT: usize = 16;
+const STATUS_OK: &str = "ok";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrowserState {
@@ -27,6 +28,7 @@ pub struct BrowserState {
     pub topology_delays: Vec<u16>,
     pub topology_digest: String,
     pub protocol_wire_version: u32,
+    pub error_status: String,
 }
 
 /// Deterministic, browser-safe composition of the audited V1 crate surfaces.
@@ -45,6 +47,7 @@ pub struct BrowserRuntime {
     topology_weights: Vec<f32>,
     topology_delays: Vec<u16>,
     topology_digest: String,
+    last_error_status: String,
 }
 
 impl BrowserRuntime {
@@ -71,6 +74,7 @@ impl BrowserRuntime {
             topology_weights,
             topology_delays,
             topology_digest,
+            last_error_status: STATUS_OK.to_owned(),
         })
     }
 
@@ -81,12 +85,18 @@ impl BrowserRuntime {
     /// spikes are queued, so each logical `step` advances `synaptic-wiring`
     /// exactly once before it advances `neuromod` with a seeded RNG.
     pub fn input(&mut self, sequence: u64, samples: &[f32]) -> Result<(), String> {
-        if self.last_sequence.is_some_and(|previous| sequence <= previous) {
-            return Err("input sequence must be strictly increasing after the first input".into());
+        if self
+            .last_sequence
+            .is_some_and(|previous| sequence <= previous)
+        {
+            return self.fail(
+                "input-sequence-not-increasing",
+                "input sequence must be strictly increasing after the first input",
+            );
         }
 
         if samples.iter().any(|sample| !sample.is_finite()) {
-            return Err("input samples must be finite".into());
+            return self.fail("input-non-finite-samples", "input samples must be finite");
         }
         let raw: Vec<f64> = samples.iter().map(|sample| f64::from(*sample)).collect();
         let stats = compute_signal_stats(&raw);
@@ -105,27 +115,45 @@ impl BrowserRuntime {
             *pending |= spike;
         }
         self.last_sequence = Some(sequence);
+        self.last_error_status = STATUS_OK.to_owned();
         Ok(())
     }
 
     pub fn step(&mut self) -> Result<BrowserState, String> {
-        let source_spikes = std::mem::replace(
-            &mut self.pending_source_spikes,
-            vec![false; CHANNEL_COUNT],
-        );
-        let currents = self
-            .mesh
-            .propagate(&source_spikes)
-            .map_err(|error| format!("could not propagate encoded spikes: {error}"))?;
-        let spikes = self
-            .network
-            .step_with_rng(&currents, &NeuroModulators::default(), &mut self.rng)
-            .map_err(|error| format!("could not advance neuromod: {error:?}"))?;
-        self.last_spikes = spikes
+        let source_spikes =
+            std::mem::replace(&mut self.pending_source_spikes, vec![false; CHANNEL_COUNT]);
+        let currents = match self.mesh.propagate(&source_spikes) {
+            Ok(currents) => currents,
+            Err(error) => {
+                return self.fail(
+                    "step-propagation-failed",
+                    format!("could not propagate encoded spikes: {error}"),
+                );
+            }
+        };
+        let spikes =
+            match self
+                .network
+                .step_with_rng(&currents, &NeuroModulators::default(), &mut self.rng)
+            {
+                Ok(spikes) => spikes,
+                Err(error) => {
+                    return self.fail(
+                        "step-neuromod-failed",
+                        format!("could not advance neuromod: {error:?}"),
+                    );
+                }
+            };
+        self.last_spikes = match spikes
             .into_iter()
             .map(|neuron| u32::try_from(neuron).map_err(|_| "spike index exceeds u32"))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(spikes) => spikes,
+            Err(error) => return self.fail("step-spike-index-out-of-range", error),
+        };
         self.completed_step += 1;
+        self.last_error_status = STATUS_OK.to_owned();
         Ok(self.state())
     }
 
@@ -143,11 +171,17 @@ impl BrowserRuntime {
             topology_delays: self.topology_delays.clone(),
             topology_digest: self.topology_digest.clone(),
             protocol_wire_version: WireCompatibility::CURRENT,
+            error_status: self.last_error_status.clone(),
         }
     }
 
     pub fn mesh_tick(&self) -> u64 {
         self.mesh.tick()
+    }
+
+    fn fail<T>(&mut self, status: &str, message: impl Into<String>) -> Result<T, String> {
+        self.last_error_status = status.to_owned();
+        Err(message.into())
     }
 }
 
@@ -164,13 +198,21 @@ pub struct WasmState {
 #[wasm_bindgen]
 impl WasmState {
     #[wasm_bindgen(getter)]
-    pub fn contract_version(&self) -> u32 { self.state.contract_version }
+    pub fn contract_version(&self) -> u32 {
+        self.state.contract_version
+    }
     #[wasm_bindgen(getter)]
-    pub fn seed(&self) -> u64 { self.state.seed }
+    pub fn seed(&self) -> u64 {
+        self.state.seed
+    }
     #[wasm_bindgen(getter)]
-    pub fn completed_step(&self) -> u64 { self.state.completed_step }
+    pub fn completed_step(&self) -> u64 {
+        self.state.completed_step
+    }
     #[wasm_bindgen(getter)]
-    pub fn last_sequence(&self) -> u64 { self.state.last_sequence }
+    pub fn last_sequence(&self) -> u64 {
+        self.state.last_sequence
+    }
     #[wasm_bindgen(getter)]
     pub fn membrane_potentials(&self) -> js_sys::Float32Array {
         js_sys::Float32Array::from(self.state.membrane_potentials.as_slice())
@@ -196,9 +238,17 @@ impl WasmState {
         js_sys::Uint16Array::from(self.state.topology_delays.as_slice())
     }
     #[wasm_bindgen(getter)]
-    pub fn topology_digest(&self) -> String { self.state.topology_digest.clone() }
+    pub fn topology_digest(&self) -> String {
+        self.state.topology_digest.clone()
+    }
     #[wasm_bindgen(getter)]
-    pub fn protocol_wire_version(&self) -> u32 { self.state.protocol_wire_version }
+    pub fn protocol_wire_version(&self) -> u32 {
+        self.state.protocol_wire_version
+    }
+    #[wasm_bindgen(getter)]
+    pub fn error_status(&self) -> String {
+        self.state.error_status.clone()
+    }
 }
 
 #[wasm_bindgen]
@@ -234,7 +284,9 @@ impl WasmAdapter {
             .runtime
             .as_ref()
             .ok_or_else(|| JsValue::from_str("the Rust/WASM runtime has been disposed"))?;
-        Ok(WasmState { state: runtime.state() })
+        Ok(WasmState {
+            state: runtime.state(),
+        })
     }
 
     pub fn dispose(&mut self) {

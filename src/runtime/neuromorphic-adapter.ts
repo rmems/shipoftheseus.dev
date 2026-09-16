@@ -2,6 +2,14 @@
 export const NEUROMORPHIC_CONTRACT_VERSION = 1;
 export const CORPUS_IPC_WIRE_VERSION = 1;
 const MAX_U64 = (1n << 64n) - 1n;
+const RUNTIME_ERROR_STATUSES = new Set([
+  'ok',
+  'input-sequence-not-increasing',
+  'input-non-finite-samples',
+  'step-propagation-failed',
+  'step-neuromod-failed',
+  'step-spike-index-out-of-range',
+]);
 
 export interface NeuromorphicState {
   contractVersion: number;
@@ -16,6 +24,7 @@ export interface NeuromorphicState {
   topologyDelays: Uint16Array;
   topologyDigest: string;
   protocolWireVersion: number;
+  errorStatus: string;
 }
 
 interface RawWasmState {
@@ -31,6 +40,7 @@ interface RawWasmState {
   topology_delays: Uint16Array;
   topology_digest: string;
   protocol_wire_version: number;
+  error_status: string;
 }
 
 interface RawWasmAdapter {
@@ -87,6 +97,8 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     typeof raw.topology_digest !== 'string' ||
     !raw.topology_digest.trim() ||
     raw.protocol_wire_version !== CORPUS_IPC_WIRE_VERSION ||
+    typeof raw.error_status !== 'string' ||
+    !RUNTIME_ERROR_STATUSES.has(raw.error_status) ||
     !allFinite(raw.membrane_potentials) ||
     !allFinite(raw.topology_weights) ||
     !isMonotonicTopologyRows(raw.topology_rows) ||
@@ -108,6 +120,7 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     topologyDelays: new Uint16Array(raw.topology_delays),
     topologyDigest: raw.topology_digest,
     protocolWireVersion: raw.protocol_wire_version,
+    errorStatus: raw.error_status,
   };
 }
 

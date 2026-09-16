@@ -19,6 +19,7 @@ test('the browser bridge copies typed-array snapshots and preserves lossless u64
     topology_delays: new Uint16Array([0]),
     topology_digest: 'test-digest',
     protocol_wire_version: 1,
+    error_status: 'ok',
   };
   const adapter = await runtime.initNeuromorphicAdapter(
     async () => ({
@@ -49,6 +50,7 @@ test('the browser bridge copies typed-array snapshots and preserves lossless u64
 
   assert.equal(first.seed, 2n ** 63n + 1n);
   assert.equal(first.lastSequence, 2n ** 63n + 2n);
+  assert.equal(first.errorStatus, 'ok');
   assert.equal(first.membranePotentials[0], 0.25);
   assert.equal(second.membranePotentials[0], 99);
   assert.notEqual(first.membranePotentials.buffer, second.membranePotentials.buffer);
@@ -70,6 +72,7 @@ test('the browser bridge fails closed after disposal and rejects invalid u64 sta
     topology_delays: new Uint16Array(),
     topology_digest: 'invalid',
     protocol_wire_version: 1,
+    error_status: 'ok',
   };
   const adapter = await runtime.initNeuromorphicAdapter(
     async () => ({
@@ -110,6 +113,7 @@ test('the browser bridge rejects malformed typed arrays and topology shapes', as
     topology_delays: new Uint16Array(),
     topology_digest: 'digest',
     protocol_wire_version: 1,
+    error_status: 'ok',
   };
   const adapter = await runtime.initNeuromorphicAdapter(
     async () => ({
@@ -146,6 +150,7 @@ test('the browser bridge rejects a non-object state and out-of-range topology ta
     topology_delays: new Uint16Array([0]),
     topology_digest: 'digest',
     protocol_wire_version: 1,
+    error_status: 'ok',
   }];
   for (const state of states) {
     const adapter = await runtime.initNeuromorphicAdapter(
@@ -170,9 +175,14 @@ test('the browser bridge rejects out-of-range u64 values and non-string digests'
     membrane_potentials: new Float32Array([0]), spike_neurons: new Uint32Array(),
     topology_rows: new Uint32Array([0, 0]), topology_targets: new Uint32Array(),
     topology_weights: new Float32Array(), topology_delays: new Uint16Array(),
-    topology_digest: 'digest', protocol_wire_version: 1,
+    topology_digest: 'digest', protocol_wire_version: 1, error_status: 'ok',
   };
-  for (const state of [{ ...base, seed: -1n }, { ...base, completed_step: 1n << 64n }, { ...base, topology_digest: null }]) {
+  for (const state of [
+    { ...base, seed: -1n },
+    { ...base, completed_step: 1n << 64n },
+    { ...base, topology_digest: null },
+    { ...base, error_status: 'unrecognized-status' },
+  ]) {
     const adapter = await runtime.initNeuromorphicAdapter(async () => ({ async default() {}, WasmAdapter: { init() { return { input() {}, step() { return state; }, state() { return state; }, dispose() {} }; } } }), 1n);
     assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
   }
