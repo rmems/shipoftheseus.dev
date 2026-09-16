@@ -162,3 +162,18 @@ test('the browser bridge rejects a non-object state and out-of-range topology ta
     assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
   }
 });
+
+test('the browser bridge rejects out-of-range u64 values and non-string digests', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const base = {
+    contract_version: 1, seed: 1n, completed_step: 0n, last_sequence: 0n,
+    membrane_potentials: new Float32Array([0]), spike_neurons: new Uint32Array(),
+    topology_rows: new Uint32Array([0, 0]), topology_targets: new Uint32Array(),
+    topology_weights: new Float32Array(), topology_delays: new Uint16Array(),
+    topology_digest: 'digest', protocol_wire_version: 1,
+  };
+  for (const state of [{ ...base, seed: -1n }, { ...base, completed_step: 1n << 64n }, { ...base, topology_digest: null }]) {
+    const adapter = await runtime.initNeuromorphicAdapter(async () => ({ async default() {}, WasmAdapter: { init() { return { input() {}, step() { return state; }, state() { return state; }, dispose() {} }; } } }), 1n);
+    assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
+  }
+});

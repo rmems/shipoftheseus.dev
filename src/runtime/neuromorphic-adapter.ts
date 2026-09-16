@@ -1,6 +1,7 @@
 /** Browser-safe bridge for the generated `neuromorphic-adapter` WASM package. */
 export const NEUROMORPHIC_CONTRACT_VERSION = 1;
 export const CORPUS_IPC_WIRE_VERSION = 1;
+const MAX_U64 = (1n << 64n) - 1n;
 
 export interface NeuromorphicState {
   contractVersion: number;
@@ -68,6 +69,9 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     typeof raw.seed !== 'bigint' ||
     typeof raw.completed_step !== 'bigint' ||
     typeof raw.last_sequence !== 'bigint' ||
+    !isU64(raw.seed) ||
+    !isU64(raw.completed_step) ||
+    !isU64(raw.last_sequence) ||
     !(raw.membrane_potentials instanceof Float32Array) ||
     !(raw.spike_neurons instanceof Uint32Array) ||
     !(raw.topology_rows instanceof Uint32Array) ||
@@ -80,6 +84,7 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     raw.topology_targets.length !== raw.topology_weights.length ||
     raw.topology_targets.length !== raw.topology_delays.length ||
     raw.membrane_potentials.length !== raw.topology_rows.length - 1 ||
+    typeof raw.topology_digest !== 'string' ||
     !raw.topology_digest.trim() ||
     raw.protocol_wire_version !== CORPUS_IPC_WIRE_VERSION ||
     !allFinite(raw.membrane_potentials) ||
@@ -104,6 +109,10 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     topologyDigest: raw.topology_digest,
     protocolWireVersion: raw.protocol_wire_version,
   };
+}
+
+function isU64(value: bigint): boolean {
+  return value >= 0n && value <= MAX_U64;
 }
 
 function allFinite(values: Float32Array): boolean {

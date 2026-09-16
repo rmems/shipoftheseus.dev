@@ -5,7 +5,7 @@
 
 use axon_encoder::prelude::{DeltaEncoder, Encoder};
 use corpus_ipc::WireCompatibility;
-use kinetic_signals::compute_signal_stats;
+use kinetic_signals::{ZScore, compute_signal_stats};
 use neuromod::{NeuroModulators, SeedableRng, SpikingNetwork, StdRng};
 use synaptic_wiring::{SynapticMesh, topology::generate_small_world};
 use wasm_bindgen::prelude::*;
@@ -93,7 +93,7 @@ impl BrowserRuntime {
         let scale = stats.variance.sqrt().max(0.001);
         let mut features = vec![0.0_f32; CHANNEL_COUNT];
         for (index, sample) in raw.iter().take(CHANNEL_COUNT).enumerate() {
-            features[index] = (((*sample - stats.mean) / scale).abs() as f32).min(1.0);
+            features[index] = (ZScore::compute(*sample, stats.mean, scale).abs() as f32).min(1.0);
         }
 
         let encoded = self.encoder.encode_step(&features);
