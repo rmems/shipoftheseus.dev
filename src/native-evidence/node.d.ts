@@ -1,3 +1,4 @@
+/** Minimal Node declarations for build-time catalog ingest. Not a browser API. */
 declare module 'node:fs' {
   export function existsSync(path: string): boolean;
   export function readdirSync(
