@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join } from 'node:path';
-import { parseNativeEvidenceJson } from './parse';
+import { compareCapturedAt, parseNativeEvidenceJson } from './parse';
 import type {
   LoadNativeEvidenceOptions,
   NativeEvidenceArtifact,
@@ -121,8 +121,8 @@ export function loadNativeEvidenceDirectory(
   }
 
   parsed.sort((left, right) => {
-    const byDate = right.capturedAt.localeCompare(left.capturedAt);
-    return byDate !== 0 ? byDate : left.id.localeCompare(right.id);
+    const byDate = compareCapturedAt(right.capturedAt, left.capturedAt);
+    return byDate !== 0 ? byDate : left.id.localeCompare(right.id, 'en');
   });
 
   return {

@@ -27,7 +27,7 @@ const SOURCE_REVISION = /^[a-f0-9]{40}$/;
 const SOURCE_PATH = /^(?!\/)(?!.*\.\.)[A-Za-z0-9._+-]+(?:\/[A-Za-z0-9._+-]+)*$/;
 const CRATE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const CAPTURED_AT =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/;
 const UNIT = /^[^\s](?:.*[^\s])?$/;
 
 const ARTIFACT_KEYS = new Set([
@@ -255,12 +255,95 @@ function parseTitleAndSummary(
   return { ok: true, title: value.title, summary: summary.text };
 }
 
+interface CapturedInstant {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  nanoseconds: number;
+}
+
+function isGregorianLeapYear(year: number): boolean {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+function daysInMonth(year: number, month: number): number {
+  switch (month) {
+    case 1:
+    case 3:
+    case 5:
+    case 7:
+    case 8:
+    case 10:
+    case 12:
+      return 31;
+    case 4:
+    case 6:
+    case 9:
+    case 11:
+      return 30;
+    case 2:
+      return isGregorianLeapYear(year) ? 29 : 28;
+    default:
+      return 0;
+  }
+}
+
+function parseCapturedInstant(value: string): CapturedInstant | null {
+  const match = CAPTURED_AT.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const fraction = match[7] ?? '';
+  const monthDays = daysInMonth(year, month);
+
+  if (monthDays === 0 || day < 1 || day > monthDays || hour > 23 || minute > 59 || second > 59) {
+    return null;
+  }
+
+  return {
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    nanoseconds: Number(`${fraction}000000000`.slice(0, 9)),
+  };
+}
+
 function parseCapturedAt(value: unknown, path?: string): { ok: true; capturedAt: string } | ParseFailure {
-  if (typeof value === 'string' && CAPTURED_AT.test(value) && !Number.isNaN(Date.parse(value))) {
+  if (typeof value === 'string' && parseCapturedInstant(value) !== null) {
     return { ok: true, capturedAt: value };
   }
 
   return fail('invalid-artifact', 'capturedAt must be an ISO-8601 UTC timestamp.', path);
+}
+
+export function compareCapturedAt(left: string, right: string): number {
+  const leftInstant = parseCapturedInstant(left);
+  const rightInstant = parseCapturedInstant(right);
+  if (leftInstant === null || rightInstant === null) {
+    return left.localeCompare(right, 'en');
+  }
+
+  const fields = ['year', 'month', 'day', 'hour', 'minute', 'second', 'nanoseconds'] as const;
+  for (const field of fields) {
+    if (leftInstant[field] !== rightInstant[field]) {
+      return leftInstant[field] < rightInstant[field] ? -1 : 1;
+    }
+  }
+
+  return 0;
 }
 
 function parseArtifactEnvelope(
@@ -920,9 +1003,21 @@ function parseTraceEvent(
 }
 
 export function isGitHubRepositoryUrl(value: string): boolean {
+  if (!value.startsWith('https://github.com/')) {
+    return false;
+  }
+
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.search || url.hash) {
+    if (
+      url.protocol !== 'https:' ||
+      url.hostname !== 'github.com' ||
+      url.username !== '' ||
+      url.password !== '' ||
+      url.port !== '' ||
+      url.search !== '' ||
+      url.hash !== ''
+    ) {
       return false;
     }
     const parts = url.pathname.replace(/\.git$/, '').split('/').filter(Boolean);

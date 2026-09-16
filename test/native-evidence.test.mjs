@@ -259,8 +259,90 @@ test('the live demo and recorded evidence surfaces keep distinct labels and rema
   assert.match(evidenceUi, /EMPTY_NATIVE_EVIDENCE_COPY/);
   assert.match(evidenceUi, /data-evidence-capture/);
   assert.match(evidencePage, /loadPublishedNativeEvidence/);
-  assert.match(home, /NativeEvidence/);
-  assert.match(home, /loadPublishedNativeEvidence/);
+  assert.doesNotMatch(home, /NativeEvidence/);
+  assert.doesNotMatch(home, /loadPublishedNativeEvidence/);
+  assert.match(readSource('../src/data/site.ts'), /href: '\/evidence\/'/);
+});
+
+test('impossible calendar dates fail closed and fractional instants sort newest first', () => {
+  const impossibleDay = cloneFixture('valid-cuda-synthetic.json');
+  impossibleDay.capturedAt = '2026-02-31T12:00:00Z';
+  const february31 = evidence.parseNativeEvidenceValue(impossibleDay);
+  assert.equal(Number.isNaN(Date.parse('2026-02-31T12:00:00Z')), false);
+  assert.equal(february31.ok, false);
+  assert.equal(february31.issue.code, 'invalid-artifact');
+  assert.match(february31.issue.message, /capturedAt/);
+
+  const nonLeap = cloneFixture('valid-cuda-synthetic.json');
+  nonLeap.capturedAt = '2025-02-29T00:00:00Z';
+  assert.equal(evidence.parseNativeEvidenceValue(nonLeap).ok, false);
+
+  const validLeap = cloneFixture('valid-cuda-synthetic.json');
+  validLeap.capturedAt = '2024-02-29T00:00:00Z';
+  assert.equal(evidence.parseNativeEvidenceValue(validLeap).ok, true);
+
+  const april31 = cloneFixture('valid-cuda-synthetic.json');
+  april31.capturedAt = '2026-04-31T12:00:00Z';
+  assert.equal(evidence.parseNativeEvidenceValue(april31).ok, false);
+
+  const early = cloneFixture('valid-cuda-synthetic.json');
+  early.id = 'early';
+  early.capturedAt = '2026-09-16T12:00:00Z';
+  const mid = cloneFixture('valid-cuda-synthetic.json');
+  mid.id = 'mid';
+  mid.capturedAt = '2026-09-16T12:00:00.1Z';
+  const late = cloneFixture('valid-cuda-synthetic.json');
+  late.id = 'late';
+  late.capturedAt = '2026-09-16T12:00:00.100000001Z';
+  const sameA = cloneFixture('valid-cuda-synthetic.json');
+  sameA.id = 'same-a';
+  sameA.capturedAt = '2026-09-16T12:00:00.1Z';
+  const sameB = cloneFixture('valid-cuda-synthetic.json');
+  sameB.id = 'same-b';
+  sameB.capturedAt = '2026-09-16T12:00:00.100Z';
+
+  assert.equal(evidence.compareCapturedAt(early.capturedAt, mid.capturedAt), -1);
+  assert.equal(evidence.compareCapturedAt(mid.capturedAt, late.capturedAt), -1);
+  assert.equal(evidence.compareCapturedAt(sameA.capturedAt, sameB.capturedAt), 0);
+
+  const ordered = withTempCatalog(
+    {
+      'early.json': JSON.stringify(early),
+      'mid.json': JSON.stringify(mid),
+      'late.json': JSON.stringify(late),
+      'same-a.json': JSON.stringify(sameA),
+      'same-b.json': JSON.stringify(sameB),
+    },
+    (directory) => load.loadNativeEvidenceDirectory(directory, { allowSynthetic: true }),
+  );
+  assert.equal(ordered.status, 'ok');
+  assert.deepEqual(
+    ordered.artifacts.map((artifact) => artifact.id),
+    ['late', 'mid', 'same-a', 'same-b', 'early'],
+  );
+});
+
+test('credentialed and ported GitHub provenance URLs fail closed', () => {
+  const artifact = cloneFixture('valid-cuda-synthetic.json');
+  const invalid = [
+    'https://user@github.com/Limen-Neural/myelin-accelerator',
+    'https://user:token@github.com/Limen-Neural/myelin-accelerator',
+    'https://github.com:443/Limen-Neural/myelin-accelerator',
+    'https://github.com:8080/Limen-Neural/myelin-accelerator',
+  ];
+
+  for (const sourceRepository of invalid) {
+    artifact.provenance.sourceRepository = sourceRepository;
+    const parsed = evidence.parseNativeEvidenceValue(artifact);
+    assert.equal(evidence.isGitHubRepositoryUrl(sourceRepository), false, sourceRepository);
+    assert.equal(parsed.ok, false, sourceRepository);
+    assert.match(parsed.issue.message, /sourceRepository/);
+  }
+
+  assert.equal(
+    evidence.isGitHubRepositoryUrl('https://github.com/Limen-Neural/myelin-accelerator'),
+    true,
+  );
 });
 
 test('trace timestamps and neuron ids reject integers above MAX_SAFE_INTEGER', () => {

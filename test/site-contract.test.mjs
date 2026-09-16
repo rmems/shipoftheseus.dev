@@ -141,8 +141,9 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   const enhance = read('src/runtime/enhance-demo.ts');
 
   assert.match(page, /NeuromorphicDemo/);
-  assert.match(page, /NativeEvidence/);
-  assert.match(page, /loadPublishedNativeEvidence/);
+  assert.doesNotMatch(page, /NativeEvidence/);
+  assert.doesNotMatch(page, /loadPublishedNativeEvidence/);
+  assert.match(read('src/data/site.ts'), /href: '\/evidence\/'/);
   assert.match(island, /data-neuromorphic-demo/);
   assert.match(island, /aria-labelledby="demo-title"/);
   assert.match(island, /<noscript>/);

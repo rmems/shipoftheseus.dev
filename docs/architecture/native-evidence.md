@@ -8,7 +8,7 @@
 
 Native-only `myelin-accelerator` CUDA execution and FPGA/SNN hardware paths are represented as **versioned, machine-readable artifacts**. They are ingested at build time, labeled `RECORDED · CUDA/FPGA`, and never compiled, imported, or executed in the browser bundle.
 
-The neuromorphic island may show `LIVE · Rust/WASM` only after a verified adapter-backed runtime is actually running. Static HTML, missing adapters, failed WASM, and reduced-motion/awaiting-play states use `STATIC · diagram` or `UNAVAILABLE · Rust/WASM`. Recorded CUDA and FPGA captures stay on a separate `RECORDED · CUDA/FPGA` path. The two surfaces may appear on the same page, but the UI must not imply that CUDA, FPGA tooling, native IPC, ZeroMQ, HDF5, or hardware runtimes run in WebAssembly.
+The neuromorphic island may show `LIVE · Rust/WASM` only after a verified adapter-backed runtime is actually running. Static HTML, missing adapters, failed WASM, and reduced-motion/awaiting-play states use `STATIC · diagram` or `UNAVAILABLE · Rust/WASM`. Recorded CUDA and FPGA captures live on `/evidence/` as `RECORDED · CUDA/FPGA`. The homepage demo and primary navigation may link there; they must not ingest or render the catalog, and the UI must not imply that CUDA, FPGA tooling, native IPC, ZeroMQ, HDF5, or hardware runtimes run in WebAssembly.
 
 ## Artifact envelope
 
@@ -28,7 +28,7 @@ A raw `myelin-accelerator` `benchmark_results.json` document is not an evidence 
 
 ## Browser boundary
 
-The evidence page and homepage component are static Astro. They read JSON through Node during the site build. They must not depend on:
+The evidence page is static Astro. It reads JSON through Node during the site build. It must not depend on:
 
 - `myelin-accelerator` or `myelin-accelerator/cuda`
 - `cust`, NVCC, or CUDA runtimes
