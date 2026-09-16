@@ -128,7 +128,9 @@ test('the renderer create seam receives camera motion disabled under reduced mot
 
   await demo.play();
 
-  assert.deepEqual(rendererCreateOptions, [{ cameraMotionEnabled: false }]);
+  assert.equal(rendererCreateOptions[0].cameraMotionEnabled, false);
+  assert.equal(typeof rendererCreateOptions[0].onRendererError, 'function');
+  assert.equal(rendererCreateOptions[0].signal.aborted, false);
   assert.equal(demo.getSnapshot().cameraMotionEnabled, false);
 });
 
@@ -711,7 +713,9 @@ test('context loss after renderer create and before WASM init disposes the rende
   });
 
   const started = demo.startIfAllowed();
-  await waitFor(() => events.includes('wasm:init'));
+  await waitFor(() => events.includes('wasm:init') && events.includes('renderer:create'));
+  await Promise.resolve();
+  await Promise.resolve();
   assert.ok(events.includes('renderer:create'));
   assert.equal(events.includes('renderer:dispose'), false);
   assert.equal(demo.getSnapshot().mode, 'initializing');
@@ -746,8 +750,17 @@ function createFakeIsland() {
     hidden: true,
     disabled: false,
     textContent: 'Play animation',
-    addEventListener() {},
-    removeEventListener() {},
+    clickHandler: undefined,
+    addEventListener(type, handler) {
+      if (type === 'click') {
+        play.clickHandler = handler;
+      }
+    },
+    removeEventListener(type, handler) {
+      if (type === 'click' && play.clickHandler === handler) {
+        play.clickHandler = undefined;
+      }
+    },
   };
   const surface = { hidden: true };
   const elements = {
@@ -767,24 +780,64 @@ function createFakeIsland() {
   return { root, status, play, surface };
 }
 
-function installBindingHost() {
+function installBindingHost({ reducedMotion = false } = {}) {
   const previousDocument = globalThis.document;
   const previousWindow = globalThis.window;
+  const windowListeners = new Map();
+  const motionListeners = new Set();
+  const motionQuery = {
+    matches: reducedMotion,
+    addEventListener(type, handler) {
+      if (type === 'change') {
+        motionListeners.add(handler);
+      }
+    },
+    removeEventListener(type, handler) {
+      motionListeners.delete(handler);
+    },
+  };
   const document = {
     hidden: false,
     addEventListener() {},
     removeEventListener() {},
   };
-  const window = {
-    addEventListener() {},
-    removeEventListener() {},
+  const windowObject = {
+    addEventListener(type, handler) {
+      const list = windowListeners.get(type) ?? [];
+      list.push(handler);
+      windowListeners.set(type, list);
+    },
+    removeEventListener(type, handler) {
+      windowListeners.set(
+        type,
+        (windowListeners.get(type) ?? []).filter((item) => item !== handler),
+      );
+    },
+    matchMedia() {
+      return motionQuery;
+    },
   };
   globalThis.document = document;
-  globalThis.window = window;
-  return () => {
+  globalThis.window = windowObject;
+  const restore = () => {
     globalThis.document = previousDocument;
     globalThis.window = previousWindow;
   };
+  restore.dispatchWindow = (type, event) => {
+    for (const handler of windowListeners.get(type) ?? []) {
+      handler(event);
+    }
+  };
+  restore.listenerCount = (type) => (windowListeners.get(type) ?? []).length;
+  restore.motionQuery = motionQuery;
+  restore.motionListenerCount = () => motionListeners.size;
+  restore.dispatchMotion = (matches) => {
+    motionQuery.matches = matches;
+    for (const handler of [...motionListeners]) {
+      handler({ matches });
+    }
+  };
+  return restore;
 }
 
 test('binding paints the live surface after deferred init from a viewport return', async () => {
@@ -849,7 +902,9 @@ function workerAwareSeams({ freeze = true } = {}) {
     captured,
     seams: {
       renderer: {
-        async create() {
+        async create(options) {
+          captured.onRendererError = options.onRendererError;
+          captured.signal = options.signal;
           return trackingSession(events, 'renderer', { freeze });
         },
       },
@@ -954,6 +1009,333 @@ test('binding returns to the static diagram when a post-init worker failure cann
     captured.onWorkerFailure('before-init');
     await Promise.resolve();
     assert.deepEqual(wasmCalls, [true]);
+  } finally {
+    binding?.dispose();
+    restoreHost();
+  }
+});
+
+test('graphics and WASM initialization start independently', async () => {
+  const events = [];
+  const rendererCreate = deferred();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          events.push('renderer:start');
+          await rendererCreate.promise;
+          events.push('renderer:done');
+          return trackingSession(events, 'renderer');
+        },
+      },
+      wasm: {
+        async init() {
+          events.push('wasm:start');
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => events.includes('wasm:start') && events.includes('renderer:start'));
+  assert.equal(events.includes('renderer:done'), false);
+  assert.equal(demo.getSnapshot().mode, 'initializing');
+
+  rendererCreate.resolve();
+  await started;
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.ok(events.indexOf('wasm:start') < events.indexOf('renderer:done'));
+});
+
+test('dispose during pending renderer create aborts work and cleans up once', async () => {
+  const events = [];
+  const rendererCreate = deferred();
+  const captured = { signal: undefined };
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create(options) {
+          captured.signal = options.signal;
+          events.push('renderer:create');
+          await rendererCreate.promise;
+          return trackingSession(events, 'renderer');
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init(options) {
+          events.push('wasm:init');
+          await new Promise((_, reject) => {
+            const fail = () => {
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+            };
+            if (options.signal.aborted) {
+              fail();
+              return;
+            }
+            options.signal.addEventListener('abort', fail, { once: true });
+          });
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => captured.signal !== undefined && events.includes('wasm:init'));
+  demo.dispose();
+
+  assert.equal(captured.signal.aborted, true);
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(demo.getSnapshot().mode, 'static');
+
+  rendererCreate.resolve();
+  await started;
+
+  assert.equal(demo.getSnapshot().mode, 'static');
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+  assert.equal(demo.getSnapshot().hasGraphicsSurface, false);
+});
+
+test('a live session that cannot pause fails closed', async () => {
+  const rendererEvents = [];
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          return {
+            dispose() {
+              rendererEvents.push('dispose');
+            },
+          };
+        },
+        disposePartial() {
+          rendererEvents.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init() {
+          return trackingSession([], 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  const snapshot = demo.getSnapshot();
+
+  assert.equal(snapshot.mode, 'fallback');
+  assert.equal(snapshot.reason, 'renderer-error');
+  assert.equal(snapshot.playEnabled, false);
+  assert.equal(rendererEvents.filter((event) => event === 'disposePartial').length, 1);
+  assert.ok(rendererEvents.includes('dispose'));
+});
+
+test('enabling reduced motion during a live session requires explicit Play without rebuilding', async () => {
+  const { seams, rendererEvents, wasmCalls } = connectedSeams();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.equal(demo.getSnapshot().cameraMotionEnabled, true);
+
+  demo.setPrefersReducedMotion(true);
+  const paused = demo.getSnapshot();
+  assert.equal(paused.mode, 'awaiting-play');
+  assert.equal(paused.reason, 'reduced-motion');
+  assert.equal(paused.cameraMotionEnabled, false);
+  assert.equal(paused.playEnabled, true);
+  assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+  assert.deepEqual(wasmCalls, [true]);
+
+  demo.setPrefersReducedMotion(false);
+  const gated = demo.getSnapshot();
+  assert.equal(gated.mode, 'awaiting-play');
+  assert.equal(gated.reason, 'ok');
+  assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+
+  await demo.play();
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.equal(demo.getSnapshot().cameraMotionEnabled, true);
+  assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+  assert.deepEqual(wasmCalls, [true]);
+});
+
+test('Play paints initializing immediately, then the live surface after settlement', async () => {
+  const rendererCreate = deferred();
+  const demo = runtime.createDemoRuntime({
+    capabilities: { ...capable, prefersReducedMotion: true },
+    seams: {
+      renderer: {
+        async create() {
+          await rendererCreate.promise;
+          return trackingSession([], 'renderer');
+        },
+      },
+      wasm: {
+        async init() {
+          return trackingSession([], 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+    documentHidden: false,
+  });
+
+  const { root, play, surface } = createFakeIsland();
+  const restoreHost = installBindingHost({ reducedMotion: true });
+  let binding;
+
+  try {
+    binding = enhance.bindDemoIsland(root, demo);
+    await waitFor(() => root.dataset.mode === 'awaiting-play');
+    assert.equal(play.disabled, false);
+    assert.equal(play.textContent, 'Play animation');
+
+    play.clickHandler();
+    assert.equal(root.dataset.mode, 'initializing');
+    assert.equal(play.disabled, true);
+    assert.equal(play.textContent, 'Play animation');
+    assert.equal(surface.hidden, true);
+
+    rendererCreate.resolve();
+    await waitFor(() => root.dataset.mode === 'live');
+    assert.equal(play.disabled, false);
+    assert.equal(play.textContent, 'Pause animation');
+    assert.equal(surface.hidden, false);
+  } finally {
+    binding?.dispose();
+    restoreHost();
+  }
+});
+
+test('persisted pagehide pauses the island and pageshow restores it without disposing', async () => {
+  const { seams, rendererEvents } = connectedSeams();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: false,
+    documentHidden: false,
+  });
+
+  const { root, play } = createFakeIsland();
+  const restoreHost = installBindingHost();
+  let binding;
+
+  try {
+    binding = enhance.bindDemoIsland(root, demo);
+    await waitFor(() => root.dataset.mode === 'live');
+    assert.equal(restoreHost.listenerCount('pagehide'), 1);
+    assert.equal(restoreHost.listenerCount('pageshow'), 1);
+
+    restoreHost.dispatchWindow('pagehide', { persisted: true });
+    assert.equal(root.dataset.mode, 'live');
+    assert.equal(demo.getSnapshot().cameraMotionEnabled, false);
+    assert.equal(play.clickHandler !== undefined, true);
+    assert.equal(restoreHost.listenerCount('pagehide'), 1);
+
+    restoreHost.dispatchWindow('pageshow', { persisted: true });
+    await waitFor(() => demo.getSnapshot().cameraMotionEnabled === true);
+    assert.equal(root.dataset.mode, 'live');
+    assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+
+    restoreHost.dispatchWindow('pagehide', { persisted: false });
+    assert.equal(restoreHost.listenerCount('pagehide'), 0);
+    assert.equal(restoreHost.listenerCount('pageshow'), 0);
+    assert.equal(restoreHost.motionListenerCount(), 0);
+    assert.equal(play.clickHandler, undefined);
+    assert.equal(demo.getSnapshot().mode, 'static');
+  } finally {
+    binding?.dispose();
+    restoreHost();
+  }
+});
+
+test('binding fails closed when the renderer seam reports a runtime error', async () => {
+  const { seams, captured } = workerAwareSeams();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: false,
+    documentHidden: false,
+  });
+
+  const { root, status, play, surface } = createFakeIsland();
+  const restoreHost = installBindingHost();
+  let binding;
+
+  try {
+    binding = enhance.bindDemoIsland(root, demo);
+    await waitFor(() => root.dataset.mode === 'live');
+    assert.equal(typeof captured.onRendererError, 'function');
+
+    captured.onRendererError();
+    await waitFor(() => root.dataset.mode === 'fallback');
+    assert.equal(root.dataset.reason, 'renderer-error');
+    assert.equal(play.hidden, true);
+    assert.equal(play.disabled, true);
+    assert.equal(surface.hidden, true);
+    assert.match(status.textContent, /renderer stopped/i);
+
+    binding.dispose();
+    binding = undefined;
+    captured.onRendererError();
+    await Promise.resolve();
+    assert.equal(demo.getSnapshot().mode, 'static');
+  } finally {
+    binding?.dispose();
+    restoreHost();
+  }
+});
+
+test('reduced-motion media query changes update the live gate and the listener is removed', async () => {
+  const { seams, rendererEvents } = connectedSeams();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: false,
+    documentHidden: false,
+  });
+
+  const { root, play } = createFakeIsland();
+  const restoreHost = installBindingHost();
+  let binding;
+
+  try {
+    binding = enhance.bindDemoIsland(root, demo);
+    await waitFor(() => root.dataset.mode === 'live');
+    assert.equal(restoreHost.motionListenerCount(), 1);
+
+    restoreHost.dispatchMotion(true);
+    assert.equal(root.dataset.mode, 'awaiting-play');
+    assert.equal(root.dataset.reason, 'reduced-motion');
+    assert.equal(play.disabled, false);
+    assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+
+    restoreHost.dispatchMotion(false);
+    assert.equal(root.dataset.mode, 'awaiting-play');
+    assert.equal(root.dataset.reason, 'ok');
+    assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+
+    binding.dispose();
+    binding = undefined;
+    assert.equal(restoreHost.motionListenerCount(), 0);
+    restoreHost.dispatchMotion(true);
+    assert.equal(demo.getSnapshot().mode, 'static');
   } finally {
     binding?.dispose();
     restoreHost();

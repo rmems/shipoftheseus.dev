@@ -46,19 +46,21 @@ export interface WebGlContext {
 
 export interface RendererSession {
   dispose: () => void;
-  pause?: () => void;
-  resume?: () => void;
+  pause: () => void;
+  resume: () => void;
   freeze?: () => void;
 }
 
 export interface WasmSession {
   dispose: () => void;
-  pause?: () => void;
-  resume?: () => void;
+  pause: () => void;
+  resume: () => void;
 }
 
 export interface RendererCreateOptions {
   cameraMotionEnabled: boolean;
+  signal: AbortSignal;
+  onRendererError: () => void;
 }
 
 export interface RendererSeam {
@@ -68,6 +70,7 @@ export interface RendererSeam {
 
 export interface WasmInitOptions {
   useWorker: boolean;
+  signal: AbortSignal;
   onWorkerFailure: (phase: WorkerFailurePhase) => void;
 }
 
@@ -122,6 +125,12 @@ interface SessionAttempt<T> {
   error: ReasonCode | null;
 }
 
+interface PauseResume {
+  dispose: () => void;
+  pause?: unknown;
+  resume?: unknown;
+}
+
 const REASON_SET = new Set<string>(REASON_CODES);
 
 let seamProvider: () => DemoSeams = () => ({});
@@ -140,6 +149,10 @@ export function isReasonCode(value: unknown): value is ReasonCode {
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled demo runtime variant: ${String(value)}`);
+}
+
+function canPauseAndResume(session: PauseResume): boolean {
+  return typeof session.pause === 'function' && typeof session.resume === 'function';
 }
 
 export function detectCapabilities(host: CapabilityHost = globalThis): Capabilities {
@@ -252,6 +265,7 @@ function seamsAreConnected(seams: DemoSeams): boolean {
 export class DemoRuntime {
   private readonly capabilities: Capabilities;
   private readonly seams: DemoSeams;
+  private prefersReducedMotion: boolean;
   private mode: DemoMode = 'static';
   private reason: ReasonCode = 'ok';
   private inViewport: boolean;
@@ -266,14 +280,17 @@ export class DemoRuntime {
   private rendererSession: RendererSession | null = null;
   private wasmSession: WasmSession | null = null;
   private pendingRendererSession: RendererSession | null = null;
+  private pendingWasmSession: WasmSession | null = null;
   private initPromise: Promise<void> | null = null;
   private wasmRetryPromise: Promise<SessionAttempt<WasmSession>> | null = null;
   private partialGraphicsDisposed = false;
+  private initAbort: AbortController | null = null;
   private readonly snapshotListeners = new Set<() => void>();
 
   constructor(options: CreateDemoRuntimeOptions) {
     this.capabilities = options.capabilities;
     this.seams = options.seams ?? {};
+    this.prefersReducedMotion = options.capabilities.prefersReducedMotion;
     this.inViewport = options.inViewport ?? false;
     this.documentHidden = options.documentHidden ?? false;
     this.syncFromCapabilities();
@@ -284,7 +301,7 @@ export class DemoRuntime {
     const playVisible = canLive && this.mode !== 'frozen' && this.mode !== 'fallback';
     const playEnabled =
       playVisible && !this.initializing && (this.mode === 'awaiting-play' || this.mode === 'live' || this.mode === 'static');
-    const cameraMotionEnabled = this.mode === 'live' && !this.capabilities.prefersReducedMotion && !this.clockPaused;
+    const cameraMotionEnabled = this.mode === 'live' && !this.prefersReducedMotion && !this.clockPaused;
     const snapshot: DemoSnapshot = {
       mode: this.mode,
       reason: this.reason,
@@ -316,7 +333,7 @@ export class DemoRuntime {
       return;
     }
 
-    if (this.capabilities.prefersReducedMotion) {
+    if (this.prefersReducedMotion) {
       this.mode = 'awaiting-play';
       this.reason = 'reduced-motion';
       return;
@@ -341,7 +358,7 @@ export class DemoRuntime {
     if (this.mode === 'live') {
       this.pauseClock('user');
       this.mode = 'awaiting-play';
-      this.reason = this.capabilities.prefersReducedMotion ? 'reduced-motion' : 'ok';
+      this.reason = this.prefersReducedMotion ? 'reduced-motion' : 'ok';
       return;
     }
 
@@ -375,6 +392,28 @@ export class DemoRuntime {
     }
 
     return this.startIfAllowed();
+  }
+
+  setPrefersReducedMotion(prefersReducedMotion: boolean): void {
+    if (this.disposed || this.mode === 'frozen' || this.mode === 'fallback') {
+      return;
+    }
+
+    this.prefersReducedMotion = prefersReducedMotion;
+    if (prefersReducedMotion && this.mode === 'live') {
+      this.pauseClock('user');
+      this.mode = 'awaiting-play';
+      this.reason = 'reduced-motion';
+      return;
+    }
+
+    if (this.mode === 'awaiting-play') {
+      this.reason = prefersReducedMotion ? 'reduced-motion' : 'ok';
+    }
+
+    if (this.mode === 'live') {
+      this.reason = 'ok';
+    }
   }
 
   reportContextLost(): void {
@@ -416,6 +455,10 @@ export class DemoRuntime {
   dispose(): void {
     this.disposed = true;
     this.generation += 1;
+    this.abortInitialization();
+    if (this.initializing) {
+      this.disposePartialGraphics();
+    }
     this.snapshotListeners.clear();
     this.teardownSessions();
     this.mode = this.mode === 'frozen' ? 'frozen' : 'static';
@@ -454,7 +497,7 @@ export class DemoRuntime {
       return;
     }
 
-    if (this.capabilities.prefersReducedMotion) {
+    if (this.prefersReducedMotion) {
       this.mode = 'awaiting-play';
       this.reason = 'reduced-motion';
       return;
@@ -465,7 +508,7 @@ export class DemoRuntime {
   }
 
   private cameraMotionPolicy(): boolean {
-    return !this.capabilities.prefersReducedMotion;
+    return !this.prefersReducedMotion;
   }
 
   private async initialize(): Promise<void> {
@@ -502,23 +545,48 @@ export class DemoRuntime {
     this.initializing = true;
     this.mode = 'initializing';
     this.partialGraphicsDisposed = false;
+    this.initAbort = new AbortController();
     const generation = ++this.generation;
+    const rendererSeam = this.seams.renderer;
+    const wasmSeam = this.seams.wasm;
 
-    const rendererAttempt = await this.tryRenderer(this.seams.renderer);
-    this.pendingRendererSession = rendererAttempt.session;
-    if (this.discardIfStale(generation, null)) {
+    const rendererPromise = this.tryRenderer(rendererSeam).then((attempt) => {
+      if (!this.isCurrentGeneration(generation)) {
+        if (this.pendingRendererSession === attempt.session) {
+          this.pendingRendererSession?.dispose();
+          this.pendingRendererSession = null;
+        }
+        this.disposePartialGraphics();
+        return attempt;
+      }
+
+      this.pendingRendererSession = attempt.session;
+      return attempt;
+    });
+
+    const wasmPromise = this.tryWasm(wasmSeam).then((attempt) => {
+      if (!this.isCurrentGeneration(generation)) {
+        if (this.pendingWasmSession === attempt.session) {
+          this.pendingWasmSession?.dispose();
+          this.pendingWasmSession = null;
+        }
+        return attempt;
+      }
+
+      this.pendingWasmSession = attempt.session;
+      return attempt;
+    });
+
+    const [rendererAttempt, wasmAttempt] = await Promise.all([rendererPromise, wasmPromise]);
+    if (this.discardIfStale(generation)) {
       return;
     }
 
-    const wasmAttempt = await this.tryWasm(this.seams.wasm);
-    if (this.discardIfStale(generation, wasmAttempt.session)) {
-      return;
-    }
-
-    if (rendererAttempt.error || wasmAttempt.error) {
+    if (rendererAttempt.error || wasmAttempt.error || !rendererAttempt.session || !wasmAttempt.session) {
       rendererAttempt.session?.dispose();
       wasmAttempt.session?.dispose();
       this.pendingRendererSession = null;
+      this.pendingWasmSession = null;
       this.disposePartialGraphics();
       this.rendererSession = null;
       this.wasmSession = null;
@@ -531,6 +599,7 @@ export class DemoRuntime {
     this.rendererSession = rendererAttempt.session;
     this.wasmSession = wasmAttempt.session;
     this.pendingRendererSession = null;
+    this.pendingWasmSession = null;
     this.initCompleted = true;
     this.initializing = false;
     this.promoteToLive();
@@ -540,14 +609,15 @@ export class DemoRuntime {
     return !this.disposed && generation === this.generation;
   }
 
-  private discardIfStale(generation: number, wasmSession: WasmSession | null): boolean {
+  private discardIfStale(generation: number): boolean {
     if (this.isCurrentGeneration(generation)) {
       return false;
     }
 
     this.pendingRendererSession?.dispose();
     this.pendingRendererSession = null;
-    wasmSession?.dispose();
+    this.pendingWasmSession?.dispose();
+    this.pendingWasmSession = null;
     this.disposePartialGraphics();
     this.initializing = false;
     return true;
@@ -562,6 +632,22 @@ export class DemoRuntime {
     this.seams.renderer?.disposePartial?.();
   }
 
+  private abortInitialization(): void {
+    this.initAbort?.abort();
+  }
+
+  private initSignal(): AbortSignal {
+    if (this.initAbort === null) {
+      this.initAbort = new AbortController();
+    }
+
+    return this.initAbort.signal;
+  }
+
+  private initializationCanceled(): boolean {
+    return this.disposed || Boolean(this.initAbort?.signal.aborted);
+  }
+
   private promoteToLive(): void {
     if (this.disposed || !this.initCompleted || this.rendererSession === null || this.wasmSession === null) {
       return;
@@ -569,21 +655,21 @@ export class DemoRuntime {
 
     if (this.documentHidden || !this.inViewport) {
       if (!this.clockPaused) {
-        this.rendererSession.pause?.();
-        this.wasmSession.pause?.();
+        this.rendererSession.pause();
+        this.wasmSession.pause();
         this.clockPaused = true;
       }
       this.mode = 'awaiting-play';
-      this.reason = this.capabilities.prefersReducedMotion ? 'reduced-motion' : 'ok';
+      this.reason = this.prefersReducedMotion ? 'reduced-motion' : 'ok';
       return;
     }
 
     const shouldResume = this.clockPaused;
     this.mode = 'live';
-    this.reason = this.capabilities.prefersReducedMotion ? 'reduced-motion' : 'ok';
+    this.reason = this.prefersReducedMotion ? 'reduced-motion' : 'ok';
     if (shouldResume) {
-      this.rendererSession.resume?.();
-      this.wasmSession.resume?.();
+      this.rendererSession.resume();
+      this.wasmSession.resume();
     }
     this.clockPaused = false;
     this.userPaused = false;
@@ -591,11 +677,30 @@ export class DemoRuntime {
 
   private async tryRenderer(seam: RendererSeam): Promise<SessionAttempt<RendererSession>> {
     try {
-      return {
-        session: await seam.create({ cameraMotionEnabled: this.cameraMotionPolicy() }),
-        error: null,
-      };
+      const session = await seam.create({
+        cameraMotionEnabled: this.cameraMotionPolicy(),
+        signal: this.initSignal(),
+        onRendererError: () => this.handleRendererError(),
+      });
+      if (this.initializationCanceled()) {
+        session.dispose();
+        this.disposePartialGraphics();
+        return { session: null, error: null };
+      }
+
+      if (!canPauseAndResume(session)) {
+        session.dispose();
+        this.disposePartialGraphics();
+        return { session: null, error: 'renderer-error' };
+      }
+
+      this.pendingRendererSession = session;
+      return { session, error: null };
     } catch (error) {
+      if (this.initializationCanceled()) {
+        return { session: null, error: null };
+      }
+
       this.disposePartialGraphics();
       return { session: null, error: reasonFromError(error, 'renderer-error') };
     }
@@ -614,8 +719,21 @@ export class DemoRuntime {
           return this.wasmRetryPromise;
         }
 
-        return { session, error: null };
+        if (this.initializationCanceled()) {
+          session.dispose();
+          return { session: null, error: null };
+        }
+
+        const accepted = this.acceptWasmSession(session);
+        if (accepted.session) {
+          this.pendingWasmSession = accepted.session;
+        }
+        return accepted;
       } catch (error) {
+        if (this.initializationCanceled()) {
+          return { session: null, error: null };
+        }
+
         if (this.wasmRetryPromise !== null || (!this.initCompleted && !this.workerRetryUsed)) {
           return this.beginMainThreadRetry(seam, error);
         }
@@ -630,8 +748,18 @@ export class DemoRuntime {
   private wasmInitOptions(useWorker: boolean): WasmInitOptions {
     return {
       useWorker,
+      signal: this.initSignal(),
       onWorkerFailure: (phase) => this.handleWorkerFailure(phase),
     };
+  }
+
+  private acceptWasmSession(session: WasmSession): SessionAttempt<WasmSession> {
+    if (canPauseAndResume(session)) {
+      return { session, error: null };
+    }
+
+    session.dispose();
+    return { session: null, error: 'wasm-init-failed' };
   }
 
   private handleWorkerFailure(phase: WorkerFailurePhase): void {
@@ -644,6 +772,15 @@ export class DemoRuntime {
         this.emitSnapshotChange();
       }
     });
+  }
+
+  private handleRendererError(): void {
+    if (this.disposed) {
+      return;
+    }
+
+    this.reportRendererError();
+    this.emitSnapshotChange();
   }
 
   private emitSnapshotChange(): void {
@@ -663,8 +800,18 @@ export class DemoRuntime {
   private async retryWasm(seam: WasmSeam, error: unknown): Promise<SessionAttempt<WasmSession>> {
     this.workerRetryUsed = true;
     try {
-      return { session: await seam.init(this.wasmInitOptions(false)), error: null };
+      const session = await seam.init(this.wasmInitOptions(false));
+      if (this.initializationCanceled()) {
+        session.dispose();
+        return { session: null, error: null };
+      }
+
+      return this.acceptWasmSession(session);
     } catch (retryError) {
+      if (this.initializationCanceled()) {
+        return { session: null, error: null };
+      }
+
       return {
         session: null,
         error: reasonFromError(retryError, reasonFromError(error, 'wasm-init-failed')),
@@ -709,7 +856,7 @@ export class DemoRuntime {
 
     if (this.rendererSession?.freeze) {
       this.rendererSession.freeze();
-      this.wasmSession?.pause?.();
+      this.wasmSession?.pause();
       this.clockPaused = true;
       this.mode = 'frozen';
       this.reason = 'worker-runtime-failed';
@@ -723,6 +870,7 @@ export class DemoRuntime {
 
   private failGraphics(reason: ReasonCode): void {
     this.generation += 1;
+    this.abortInitialization();
     this.disposePartialGraphics();
     this.teardownSessions();
     this.mode = 'fallback';
@@ -734,8 +882,13 @@ export class DemoRuntime {
       return;
     }
 
-    this.rendererSession?.pause?.();
-    this.wasmSession?.pause?.();
+    if (this.rendererSession === null || this.wasmSession === null) {
+      this.failGraphics('renderer-error');
+      return;
+    }
+
+    this.rendererSession.pause();
+    this.wasmSession.pause();
     this.clockPaused = true;
     if (origin === 'user') {
       this.userPaused = true;
@@ -745,6 +898,8 @@ export class DemoRuntime {
   private teardownSessions(): void {
     this.pendingRendererSession?.dispose();
     this.pendingRendererSession = null;
+    this.pendingWasmSession?.dispose();
+    this.pendingWasmSession = null;
     this.rendererSession?.dispose();
     this.wasmSession?.dispose();
     this.rendererSession = null;

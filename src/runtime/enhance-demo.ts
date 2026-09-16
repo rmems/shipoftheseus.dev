@@ -29,6 +29,14 @@ function viewElements(root: HTMLElement): DemoViewElements {
   };
 }
 
+function motionQueryList(host: Window): MediaQueryList | undefined {
+  if (typeof host.matchMedia !== 'function') {
+    return undefined;
+  }
+
+  return host.matchMedia('(prefers-reduced-motion: reduce)');
+}
+
 export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundIsland {
   const boundRuntime =
     runtime ??
@@ -40,6 +48,7 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
     });
   const elements = viewElements(root);
   const play = requiredElement<HTMLButtonElement>(root, '[data-demo-play]');
+  const motionQuery = motionQueryList(window);
   let disposed = false;
 
   const paint = () => {
@@ -50,7 +59,9 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
   const unsubscribeSnapshot = boundRuntime.onSnapshotChange(paint);
 
   const onPlay = () => {
-    void boundRuntime.play().then(paint);
+    const pending = boundRuntime.play();
+    paint();
+    void pending.then(paint);
   };
 
   const onVisibility = () => {
@@ -63,6 +74,28 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
   };
   const contextLostCapture = { capture: true } as const;
 
+  const onPageHide = (event: Event) => {
+    if ('persisted' in event && event.persisted) {
+      void boundRuntime.setDocumentHidden(true).then(paint);
+      return;
+    }
+
+    dispose();
+  };
+
+  const onPageShow = () => {
+    if (disposed) {
+      return;
+    }
+
+    void boundRuntime.setDocumentHidden(document.hidden).then(paint);
+  };
+
+  const onMotionChange = (event: MediaQueryListEvent) => {
+    boundRuntime.setPrefersReducedMotion(event.matches);
+    paint();
+  };
+
   const dispose = () => {
     if (disposed) {
       return;
@@ -73,7 +106,9 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
     play.removeEventListener('click', onPlay);
     document.removeEventListener('visibilitychange', onVisibility);
     document.removeEventListener('astro:before-swap', dispose);
-    window.removeEventListener('pagehide', dispose);
+    window.removeEventListener('pagehide', onPageHide);
+    window.removeEventListener('pageshow', onPageShow);
+    motionQuery?.removeEventListener('change', onMotionChange);
     root.removeEventListener('webglcontextlost', onContextLost, contextLostCapture);
     observer?.disconnect();
     boundRuntime.dispose();
@@ -82,7 +117,9 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
   play.addEventListener('click', onPlay);
   document.addEventListener('visibilitychange', onVisibility);
   document.addEventListener('astro:before-swap', dispose);
-  window.addEventListener('pagehide', dispose);
+  window.addEventListener('pagehide', onPageHide);
+  window.addEventListener('pageshow', onPageShow);
+  motionQuery?.addEventListener('change', onMotionChange);
   root.addEventListener('webglcontextlost', onContextLost, contextLostCapture);
 
   const observer =
