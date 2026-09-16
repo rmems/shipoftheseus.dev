@@ -54,6 +54,9 @@ function connectedSeams({
                   rendererEvents.push('freeze');
                 }
               : undefined,
+            setCameraMotionEnabled(enabled) {
+              rendererEvents.push(enabled ? 'camera:on' : 'camera:off');
+            },
           };
         },
         disposePartial() {
@@ -444,6 +447,9 @@ function trackingSession(events, label, { freeze = true } = {}) {
           events.push(`${label}:freeze`);
         }
       : undefined,
+    setCameraMotionEnabled(enabled) {
+      events.push(`${label}:camera:${enabled ? 'on' : 'off'}`);
+    },
   };
 }
 
@@ -1210,6 +1216,102 @@ test('graphics and WASM initialization start independently', async () => {
   assert.ok(events.indexOf('wasm:start') < events.indexOf('renderer:done'));
 });
 
+test('a renderer failure does not wait for a hung WASM init', async () => {
+  const events = [];
+  const wasmHang = deferred();
+  const captured = { signal: undefined };
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          events.push('renderer:create');
+          throw Object.assign(new Error('renderer failed'), { code: 'renderer-error' });
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init(options) {
+          events.push('wasm:init');
+          captured.signal = options.signal;
+          await new Promise((resolve) => {
+            options.signal.addEventListener('abort', () => events.push('wasm:abort'), { once: true });
+            wasmHang.promise.then(resolve);
+          });
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => demo.getSnapshot().mode === 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'renderer-error');
+  assert.equal(captured.signal.aborted, true);
+  assert.ok(events.includes('wasm:abort'));
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.includes('wasm:dispose'), false);
+
+  wasmHang.resolve();
+  await started;
+  await waitFor(() => events.includes('wasm:dispose'));
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'renderer-error');
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
+});
+
+test('a WASM failure does not wait for a hung renderer create', async () => {
+  const events = [];
+  const rendererHang = deferred();
+  const captured = { signal: undefined };
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create(options) {
+          events.push('renderer:create');
+          captured.signal = options.signal;
+          await new Promise((resolve) => {
+            options.signal.addEventListener('abort', () => events.push('renderer:abort'), { once: true });
+            rendererHang.promise.then(resolve);
+          });
+          return trackingSession(events, 'renderer');
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init() {
+          events.push('wasm:init');
+          throw Object.assign(new Error('wasm failed'), { code: 'wasm-init-failed' });
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => demo.getSnapshot().mode === 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'wasm-init-failed');
+  assert.equal(captured.signal.aborted, true);
+  assert.ok(events.includes('renderer:abort'));
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.includes('renderer:dispose'), false);
+
+  rendererHang.resolve();
+  await started;
+  await waitFor(() => events.includes('renderer:dispose'));
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'wasm-init-failed');
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+});
+
 test('dispose during pending renderer create aborts work and cleans up once', async () => {
   const events = [];
   const rendererCreate = deferred();
@@ -1320,6 +1422,7 @@ test('enabling reduced motion during a live session requires explicit Play witho
   assert.equal(paused.cameraMotionEnabled, false);
   assert.equal(paused.playEnabled, true);
   assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+  assert.ok(rendererEvents.includes('camera:off'));
   assert.deepEqual(wasmCalls, [true]);
 
   demo.setPrefersReducedMotion(false);
@@ -1332,7 +1435,59 @@ test('enabling reduced motion during a live session requires explicit Play witho
   assert.equal(demo.getSnapshot().mode, 'live');
   assert.equal(demo.getSnapshot().cameraMotionEnabled, true);
   assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+  assert.ok(rendererEvents.includes('camera:on'));
   assert.deepEqual(wasmCalls, [true]);
+});
+
+test('reduced motion during pending init requires explicit Play and disables camera motion', async () => {
+  const events = [];
+  const rendererCreate = deferred();
+  const wasmInit = deferred();
+  const captured = { cameraMotionEnabled: undefined };
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create(options) {
+          captured.cameraMotionEnabled = options.cameraMotionEnabled;
+          events.push(`create:${options.cameraMotionEnabled}`);
+          await rendererCreate.promise;
+          return trackingSession(events, 'renderer');
+        },
+      },
+      wasm: {
+        async init() {
+          events.push('wasm:init');
+          await wasmInit.promise;
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => events.includes('create:true') && events.includes('wasm:init'));
+  demo.setPrefersReducedMotion(true);
+  rendererCreate.resolve();
+  wasmInit.resolve();
+  await started;
+
+  const parked = demo.getSnapshot();
+  assert.notEqual(parked.mode, 'live');
+  assert.equal(parked.mode, 'awaiting-play');
+  assert.equal(parked.reason, 'reduced-motion');
+  assert.equal(parked.cameraMotionEnabled, false);
+  assert.equal(captured.cameraMotionEnabled, true);
+  assert.ok(events.includes('renderer:camera:off'));
+  assert.equal(events.filter((event) => event.startsWith('create:')).length, 1);
+
+  await demo.play();
+  const live = demo.getSnapshot();
+  assert.equal(live.mode, 'live');
+  assert.equal(live.reason, 'reduced-motion');
+  assert.equal(live.cameraMotionEnabled, false);
+  assert.equal(events.filter((event) => event.startsWith('create:')).length, 1);
 });
 
 test('Play paints initializing immediately, then the live surface after settlement', async () => {
@@ -1356,7 +1511,7 @@ test('Play paints initializing immediately, then the live surface after settleme
     documentHidden: false,
   });
 
-  const { root, play, surface } = createFakeIsland();
+  const { root, play, surface, status } = createFakeIsland();
   const restoreHost = installBindingHost({ reducedMotion: true });
   let binding;
 
@@ -1371,6 +1526,7 @@ test('Play paints initializing immediately, then the live surface after settleme
     assert.equal(play.disabled, true);
     assert.equal(play.textContent, 'Play animation');
     assert.equal(surface.hidden, true);
+    assert.match(status.textContent, /Starting the live visualization/);
 
     rendererCreate.resolve();
     await waitFor(() => root.dataset.mode === 'live');
