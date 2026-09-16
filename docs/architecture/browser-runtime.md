@@ -91,8 +91,9 @@ state(instance) -> StateView
   the worker in V1.
 - Every `u64` in the contract, including seed, sequence, and logical-step values,
   crosses the JavaScript boundary as lossless `bigint`, never as JavaScript
-  `number`. Serialization into canonical envelopes uses an exact fixed-width
-  representation defined by `corpus-ipc`, not a floating-point conversion.
+  `number`. Canonical `corpus-ipc` JSON envelopes are encoded and decoded
+  entirely inside Rust via `corpus-ipc`; `u64` values are exposed to JavaScript
+  only as `bigint`, never through JavaScript `Number` or JavaScript JSON parsing.
 - Same adapter/upstream revisions, contract version, configuration, ordered
   inputs, seed, and step count must produce byte-equivalent exported state.
   Tests use fixed golden seeds. Any intentional determinism break requires a
