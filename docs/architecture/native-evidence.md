@@ -22,6 +22,7 @@ Published files live in `src/content/native-evidence/` and must parse as `shipof
 | Catalog discovery exceeds directory depth, JSON file count, or aggregate byte limits | Fail as `catalog-limit-exceeded`. |
 | Filesystem errors while listing, stating, or reading the catalog | Fail as `catalog-io-error`. No partial catalog is shown. |
 | Catalog root is a symlink, or a catalog JSON path is a symlink or non-regular file | Fail as `catalog-io-error`. Discovery never follows links out of the catalog. |
+| Nested measured artifacts | Accepted within discovery limits. `Full versioned capture` links the catalog-relative discovered path, not a reconstructed `id.json` basename. |
 | `schemaVersion` other than `1` | Fail as `unsupported-version`. |
 | `recordStatus: "synthetic"` in the published catalog | Fail as `synthetic-not-publishable`. |
 

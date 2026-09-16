@@ -92,6 +92,8 @@ interface NativeEvidenceBase {
   recordStatus: NativeEvidenceRecordStatus;
   provenance: NativeEvidenceProvenance;
   workload: NativeEvidenceWorkload;
+  /** Catalog-relative POSIX path assigned by ingest. Not a JSON field. */
+  catalogPath?: string;
 }
 
 export interface CudaBenchmarkArtifact extends NativeEvidenceBase {

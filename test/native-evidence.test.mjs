@@ -308,6 +308,32 @@ test('catalog discovery fails closed when depth, file count, or aggregate bytes 
   assert.match(oversized.issues[0].message, /byte ingest limit/);
 });
 
+test('nested measured artifacts keep their catalog-relative capture URL', () => {
+  const measured = cloneFixture('valid-cuda-synthetic.json');
+  measured.recordStatus = 'measured';
+  measured.id = 'nested-cuda-measured';
+  const loaded = withTempCatalog(
+    { 'cuda/v1/nested-cuda-measured.json': JSON.stringify(measured) },
+    (directory) => load.loadNativeEvidenceDirectory(directory),
+  );
+
+  assert.equal(loaded.status, 'ok');
+  assert.equal(loaded.artifacts.length, 1);
+  assert.equal(loaded.artifacts[0].catalogPath, 'cuda/v1/nested-cuda-measured.json');
+  assert.equal(
+    view.artifactCatalogPath(loaded.artifacts[0]),
+    `${types.NATIVE_EVIDENCE_CATALOG_DIR}/cuda/v1/nested-cuda-measured.json`,
+  );
+  assert.equal(
+    view.artifactCatalogBlobUrl(loaded.artifacts[0]),
+    `${view.PORTFOLIO_REPOSITORY_URL}/blob/${view.PORTFOLIO_DEFAULT_REF}/${types.NATIVE_EVIDENCE_CATALOG_DIR}/cuda/v1/nested-cuda-measured.json`,
+  );
+  assert.notEqual(
+    view.artifactCatalogPath(loaded.artifacts[0]),
+    `${types.NATIVE_EVIDENCE_CATALOG_DIR}/${loaded.artifacts[0].id}.json`,
+  );
+});
+
 test('filesystem listing, stat, and read failures become fail-closed catalog issues', () => {
   const dangling = withTempCatalog({}, (directory) => {
     symlinkSync(join(directory, 'missing-target.json'), join(directory, 'broken.json'));
@@ -735,6 +761,22 @@ test('workload parameter formatting is deterministic and exhaustive', () => {
   assert.equal(view.formatWorkloadParameterValue(4096), '4096');
   assert.equal(view.formatWorkloadParameterValue(true), 'true');
   assert.equal(view.formatWorkloadParameterValue(false), 'false');
+});
+
+test('accepted workload parameters survive reserved keys', () => {
+  const artifact = cloneFixture('valid-cuda-synthetic.json');
+  artifact.workload.parameters = JSON.parse('{"neurons":4096,"__proto__":"own-key"}');
+  const parsed = evidence.parseNativeEvidenceValue(artifact);
+  assert.equal(parsed.ok, true);
+  const parameters = parsed.artifact.workload.parameters;
+  assert.equal(Object.getPrototypeOf(parameters), null);
+  assert.equal(Object.prototype.hasOwnProperty.call(parameters, '__proto__'), true);
+  assert.equal(parameters.neurons, 4096);
+  assert.equal(parameters['__proto__'], 'own-key');
+  assert.deepEqual(view.sortedWorkloadParameterEntries(parameters), [
+    ['__proto__', 'own-key'],
+    ['neurons', 4096],
+  ]);
 });
 
 test('the browser package graph does not include native CUDA, FPGA, or IPC dependencies', () => {

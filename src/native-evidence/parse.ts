@@ -743,13 +743,18 @@ function parseWorkloadParameters(
     return fail('invalid-artifact', 'workload.parameters must contain between 1 and 32 entries when present.', path);
   }
 
-  const parameters: Record<string, NativeEvidenceParameterValue> = {};
+  const parameters = Object.create(null) as Record<string, NativeEvidenceParameterValue>;
   for (const [key, parameter] of entries) {
     const parsed = parseWorkloadParameter(key, parameter, path);
     if (!parsed.ok) {
       return parsed;
     }
-    parameters[key] = parsed.parameter;
+    Object.defineProperty(parameters, key, {
+      value: parsed.parameter,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
 
   return { ok: true, parameters };

@@ -1,5 +1,5 @@
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { extname, join, relative } from 'node:path';
 import { compareCapturedAt, parseNativeEvidenceJson } from './parse';
 import type {
   LoadNativeEvidenceOptions,
@@ -247,7 +247,22 @@ function inspectCatalogDirectory(directory: string): NativeEvidenceCatalog | und
   return undefined;
 }
 
+function catalogRelativePath(directory: string, filePath: string): string | NativeEvidenceIssue {
+  const relativePath = relative(directory, filePath).replaceAll('\\', '/');
+  if (
+    relativePath === '' ||
+    relativePath === '..' ||
+    relativePath.startsWith('../') ||
+    relativePath.startsWith('/')
+  ) {
+    return catalogIssue('catalog-io-error', 'Native evidence artifact path escaped the catalog root.', filePath);
+  }
+
+  return relativePath;
+}
+
 function ingestDiscoveredFile(
+  directory: string,
   file: CatalogFile,
   options: Required<Pick<LoadNativeEvidenceOptions, 'allowSynthetic' | 'requireIdMatchesFilename'>>,
   parsed: NativeEvidenceArtifact[],
@@ -258,6 +273,12 @@ function ingestDiscoveredFile(
     issues.push(
       catalogIssue('invalid-artifact', `Artifact exceeds the ${MAX_ARTIFACT_BYTES} byte ingest limit.`, file.path),
     );
+    return;
+  }
+
+  const catalogPath = catalogRelativePath(directory, file.path);
+  if (typeof catalogPath !== 'string') {
+    issues.push(catalogPath);
     return;
   }
 
@@ -298,7 +319,7 @@ function ingestDiscoveredFile(
   }
 
   seenIds.set(result.artifact.id, file.path);
-  parsed.push(result.artifact);
+  parsed.push({ ...result.artifact, catalogPath });
 }
 
 export function loadNativeEvidenceDirectory(
@@ -325,7 +346,7 @@ export function loadNativeEvidenceDirectory(
   const seenIds = new Map<string, string>();
 
   for (const file of listed.files) {
-    ingestDiscoveredFile(file, { allowSynthetic, requireIdMatchesFilename }, parsed, issues, seenIds);
+    ingestDiscoveredFile(directory, file, { allowSynthetic, requireIdMatchesFilename }, parsed, issues, seenIds);
   }
 
   if (issues.length > 0) {

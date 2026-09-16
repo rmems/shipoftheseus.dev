@@ -64,7 +64,8 @@ export function artifactSourceBlobUrl(artifact: NativeEvidenceArtifact): string 
 }
 
 export function artifactCatalogPath(artifact: NativeEvidenceArtifact): string {
-  return `${NATIVE_EVIDENCE_CATALOG_DIR}/${artifact.id}.json`;
+  const relativePath = artifact.catalogPath ?? `${artifact.id}.json`;
+  return `${NATIVE_EVIDENCE_CATALOG_DIR}/${relativePath}`;
 }
 
 export function artifactCatalogBlobUrl(artifact: NativeEvidenceArtifact): string {
