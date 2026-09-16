@@ -309,7 +309,7 @@ export class DemoRuntime {
       playVisible && !this.initializing && (this.mode === 'awaiting-play' || this.mode === 'live' || this.mode === 'static');
     const cameraMotionEnabled = this.mode === 'live' && !this.prefersReducedMotion && !this.clockPaused;
     const snapshot: DemoSnapshot = {
-      mode: this.mode,
+      mode: this.initializing ? 'initializing' : this.mode,
       reason: this.reason,
       status: '',
       liveControlsEnabled: playVisible,
@@ -564,6 +564,7 @@ export class DemoRuntime {
 
   private beginRendererAllocation(): void {
     this.initializing = true;
+    this.mode = 'initializing';
     this.partialGraphicsDisposed = false;
     if (this.initAbort === null || this.initAbort.signal.aborted) {
       this.initAbort = new AbortController();
@@ -856,22 +857,29 @@ export class DemoRuntime {
     this.initCompleted = true;
     this.initializing = false;
 
-    if (this.prefersReducedMotion) {
-      if (!(await this.ensureRendererCameraMotion(false))) {
+    if (!(await this.ensureRendererCameraMotion(this.cameraMotionPolicy()))) {
+      return;
+    }
+
+    if (this.initializationClosed() || this.rendererSession === null || this.wasmSession === null) {
+      return;
+    }
+
+    if (this.rendererCameraMotionEnabled !== this.cameraMotionPolicy()) {
+      if (!(await this.ensureRendererCameraMotion(this.cameraMotionPolicy()))) {
         return;
       }
       if (this.initializationClosed() || this.rendererSession === null || this.wasmSession === null) {
         return;
       }
+    }
+
+    if (this.prefersReducedMotion) {
       this.rendererSession.pause();
       this.wasmSession.pause();
       this.clockPaused = true;
       this.mode = 'awaiting-play';
       this.reason = 'reduced-motion';
-      return;
-    }
-
-    if (!(await this.ensureRendererCameraMotion(true))) {
       return;
     }
 

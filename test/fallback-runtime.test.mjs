@@ -1701,6 +1701,56 @@ test('pending-init reduced-motion recreates a no-setter renderer created camera-
   assert.deepEqual(createOptions, [true, false]);
 });
 
+test('auto-init does not stay reduced-motion gated after a false-true-false camera replacement', async () => {
+  const createOptions = [];
+  const firstCreate = deferred();
+  const replacement = deferred();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create(options) {
+          createOptions.push(options.cameraMotionEnabled);
+          if (createOptions.length === 1) {
+            await firstCreate.promise;
+          } else if (createOptions.length === 2) {
+            await replacement.promise;
+          }
+          const session = trackingSession([], 'renderer');
+          delete session.setCameraMotionEnabled;
+          return session;
+        },
+      },
+      wasm: {
+        async init() {
+          return trackingSession([], 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => createOptions.length === 1);
+  assert.deepEqual(createOptions, [true]);
+
+  demo.setPrefersReducedMotion(true);
+  firstCreate.resolve();
+  await waitFor(() => createOptions.length === 2);
+  assert.deepEqual(createOptions, [true, false]);
+
+  demo.setPrefersReducedMotion(false);
+  replacement.resolve();
+  await started;
+
+  const snapshot = demo.getSnapshot();
+  assert.deepEqual(createOptions, [true, false, true]);
+  assert.equal(createOptions.at(-1), true);
+  assert.equal(snapshot.mode, 'live');
+  assert.equal(snapshot.reason, 'ok');
+  assert.equal(snapshot.cameraMotionEnabled, true);
+});
+
 test('a main-thread WASM retry is disposed once when the renderer fails immediately', async () => {
   const events = [];
   const wasmCalls = [];
@@ -1885,6 +1935,73 @@ test('Play paints initializing immediately, then the live surface after settleme
     assert.equal(play.disabled, false);
     assert.equal(play.textContent, 'Pause animation');
     assert.equal(surface.hidden, false);
+  } finally {
+    binding?.dispose();
+    restoreHost();
+  }
+});
+
+test('Play during a no-setter camera replacement paints initializing status', async () => {
+  const replacement = deferred();
+  const createOptions = [];
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create(options) {
+          createOptions.push(options.cameraMotionEnabled);
+          if (createOptions.length > 1) {
+            await replacement.promise;
+          }
+          const session = trackingSession([], 'renderer');
+          delete session.setCameraMotionEnabled;
+          return session;
+        },
+      },
+      wasm: {
+        async init() {
+          return trackingSession([], 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+    documentHidden: false,
+  });
+
+  const { root, play, surface, status } = createFakeIsland();
+  const restoreHost = installBindingHost();
+  let binding;
+
+  try {
+    binding = enhance.bindDemoIsland(root, demo);
+    await waitFor(() => root.dataset.mode === 'live');
+    assert.deepEqual(createOptions, [true]);
+    assert.equal(play.disabled, false);
+    assert.equal(surface.hidden, false);
+
+    restoreHost.dispatchMotion(true);
+    assert.equal(root.dataset.mode, 'awaiting-play');
+    assert.equal(root.dataset.reason, 'reduced-motion');
+    assert.equal(play.disabled, false);
+    assert.match(status.textContent, /Motion is paused/);
+
+    play.clickHandler();
+    assert.equal(root.dataset.mode, 'initializing');
+    assert.equal(demo.getSnapshot().mode, 'initializing');
+    assert.equal(demo.getSnapshot().playEnabled, false);
+    assert.equal(play.disabled, true);
+    assert.equal(play.textContent, 'Play animation');
+    assert.equal(surface.hidden, true);
+    assert.match(status.textContent, /Starting the live visualization/);
+
+    replacement.resolve();
+    await waitFor(() => root.dataset.mode === 'live');
+    assert.equal(root.dataset.reason, 'reduced-motion');
+    assert.equal(play.disabled, false);
+    assert.equal(play.textContent, 'Pause animation');
+    assert.equal(surface.hidden, false);
+    assert.equal(demo.getSnapshot().cameraMotionEnabled, false);
+    assert.deepEqual(createOptions, [true, false]);
   } finally {
     binding?.dispose();
     restoreHost();
