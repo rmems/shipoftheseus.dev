@@ -1,0 +1,11 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { site } from '../data/site';
+const profiles = [
+  { label: 'GitHub', href: site.social.github, detail: '@rmems' },
+  { label: 'LinkedIn', href: site.social.linkedin, detail: 'Raul Cardenas Montoya' },
+  { label: 'Hugging Face', href: site.social.huggingface, detail: '@rmems' },
+];
+const hasPublicEmail = Boolean(site.email);
+---
+<BaseLayout title="Contact"><section class="page-intro compact" aria-labelledby="contact-title"><p class="eyebrow">Contact</p><h1 id="contact-title">Start with the work.</h1><p>For a technical conversation, collaboration, or question about a project, the public profile links below are the best starting point.</p></section><section class="contact-panel" aria-label="Contact links">{profiles.map((profile) => <a href={profile.href} target="_blank" rel="noreferrer"><span>{profile.label}</span><strong>{profile.detail}</strong><span aria-hidden="true">↗</span></a>)}{hasPublicEmail ? <a href={`mailto:${site.email}`}><span>Email</span><strong>{site.email}</strong><span aria-hidden="true">↗</span></a> : <div class="contact-placeholder"><span>Email</span><strong>Public email address to be added before publishing</strong></div>}</section><p class="small-note">The profile links are live. Add a public contact email in <code>src/data/site.ts</code> only when you want it listed here.</p></BaseLayout>
