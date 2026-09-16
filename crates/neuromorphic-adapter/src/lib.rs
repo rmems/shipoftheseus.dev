@@ -33,7 +33,7 @@ pub struct BrowserState {
 pub struct BrowserRuntime {
     seed: u64,
     completed_step: u64,
-    last_sequence: u64,
+    last_sequence: Option<u64>,
     encoder: DeltaEncoder,
     mesh: SynapticMesh,
     network: SpikingNetwork,
@@ -59,7 +59,7 @@ impl BrowserRuntime {
         Ok(Self {
             seed,
             completed_step: 0,
-            last_sequence: 0,
+            last_sequence: None,
             encoder: DeltaEncoder::new(0.05, CHANNEL_COUNT),
             mesh,
             network: SpikingNetwork::with_dimensions(CHANNEL_COUNT, 0, CHANNEL_COUNT),
@@ -81,8 +81,8 @@ impl BrowserRuntime {
     /// spikes are queued, so each logical `step` advances `synaptic-wiring`
     /// exactly once before it advances `neuromod` with a seeded RNG.
     pub fn input(&mut self, sequence: u64, samples: &[f32]) -> Result<(), String> {
-        if sequence <= self.last_sequence {
-            return Err("input sequence must be strictly increasing".into());
+        if self.last_sequence.is_some_and(|previous| sequence <= previous) {
+            return Err("input sequence must be strictly increasing after the first input".into());
         }
 
         if samples.iter().any(|sample| !sample.is_finite()) {
@@ -104,7 +104,7 @@ impl BrowserRuntime {
         for (pending, spike) in self.pending_source_spikes.iter_mut().zip(source_spikes) {
             *pending |= spike;
         }
-        self.last_sequence = sequence;
+        self.last_sequence = Some(sequence);
         Ok(())
     }
 
@@ -134,7 +134,7 @@ impl BrowserRuntime {
             contract_version: CONTRACT_VERSION,
             seed: self.seed,
             completed_step: self.completed_step,
-            last_sequence: self.last_sequence,
+            last_sequence: self.last_sequence.unwrap_or(0),
             membrane_potentials: self.network.get_membrane_potentials(),
             spike_neurons: self.last_spikes.clone(),
             topology_rows: self.topology_rows.clone(),

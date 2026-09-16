@@ -36,6 +36,14 @@ fn input_sequences_are_monotonic_and_state_is_a_value_snapshot() {
 }
 
 #[test]
+fn zero_is_a_valid_first_input_sequence() {
+    let mut runtime = BrowserRuntime::new(7).expect("the fixed browser topology is valid");
+    runtime.input(0, &[0.1, 0.2]).expect("zero is a valid first sequence");
+    assert!(runtime.input(0, &[0.3]).is_err());
+    assert_eq!(runtime.step().expect("runtime can advance").last_sequence, 0);
+}
+
+#[test]
 fn logical_steps_advance_delays_and_do_not_require_a_second_input() {
     let mut runtime = BrowserRuntime::new(11).expect("the fixed browser topology is valid");
     runtime.input(1, &[1.0; 16]).expect("input is accepted");
