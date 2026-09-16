@@ -168,7 +168,8 @@ test('missing WebGL disposes partial graphics and never enables live controls', 
   assert.equal(snapshot.playVisible, false);
   assert.equal(snapshot.liveControlsEnabled, false);
   assert.match(snapshot.status, /static diagram remains available/);
-  assert.ok(rendererEvents.includes('disposePartial'));
+  assert.equal(rendererEvents.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
 });
 
 test('capability probes treat a missing WebGL context as no-webgl without attempting seams', async () => {
@@ -304,7 +305,7 @@ test('graphics context loss disposes renderer state and preserves fallback copy'
 
   assert.equal(snapshot.reason, 'webgl-context-lost');
   assert.equal(snapshot.mode, 'fallback');
-  assert.ok(rendererEvents.includes('disposePartial'));
+  assert.equal(rendererEvents.filter((event) => event === 'disposePartial').length, 1);
   assert.ok(rendererEvents.includes('dispose'));
 });
 
@@ -479,7 +480,7 @@ test('context loss during a deferred init keeps fallback after the pending creat
   assert.equal(demo.getSnapshot().mode, 'fallback');
   assert.equal(demo.getSnapshot().reason, 'webgl-context-lost');
   assert.equal(demo.getSnapshot().hasGraphicsSurface, false);
-  assert.ok(rendererEvents.includes('disposePartial'));
+  assert.equal(rendererEvents.filter((event) => event === 'disposePartial').length, 1);
   assert.ok(rendererEvents.includes('renderer:dispose'));
 });
 
@@ -719,7 +720,7 @@ test('context loss after renderer create and before WASM init disposes the rende
   assert.equal(demo.getSnapshot().reason, 'webgl-context-lost');
   assert.equal(demo.getSnapshot().hasGraphicsSurface, false);
   assert.ok(events.includes('renderer:dispose'));
-  assert.ok(events.includes('disposePartial'));
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
   assert.equal(events.includes('wasm:dispose'), false);
 
   wasmInit.resolve();
@@ -729,7 +730,12 @@ test('context loss after renderer create and before WASM init disposes the rende
   assert.equal(demo.getSnapshot().reason, 'webgl-context-lost');
   assert.equal(demo.getSnapshot().hasGraphicsSurface, false);
   assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
   assert.ok(events.includes('wasm:dispose'));
+  assert.deepEqual(
+    events.filter((event) => event === 'disposePartial' || event === 'renderer:dispose' || event === 'wasm:dispose'),
+    ['disposePartial', 'renderer:dispose', 'wasm:dispose'],
+  );
 });
 
 function createFakeIsland() {

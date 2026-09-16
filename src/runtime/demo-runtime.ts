@@ -263,6 +263,7 @@ export class DemoRuntime {
   private pendingRendererSession: RendererSession | null = null;
   private initPromise: Promise<void> | null = null;
   private wasmRetryPromise: Promise<SessionAttempt<WasmSession>> | null = null;
+  private partialGraphicsDisposed = false;
 
   constructor(options: CreateDemoRuntimeOptions) {
     this.capabilities = options.capabilities;
@@ -482,6 +483,7 @@ export class DemoRuntime {
 
     this.initializing = true;
     this.mode = 'initializing';
+    this.partialGraphicsDisposed = false;
     const generation = ++this.generation;
 
     const rendererAttempt = await this.tryRenderer(this.seams.renderer);
@@ -499,7 +501,7 @@ export class DemoRuntime {
       rendererAttempt.session?.dispose();
       wasmAttempt.session?.dispose();
       this.pendingRendererSession = null;
-      this.seams.renderer.disposePartial?.();
+      this.disposePartialGraphics();
       this.rendererSession = null;
       this.wasmSession = null;
       this.initializing = false;
@@ -528,9 +530,18 @@ export class DemoRuntime {
     this.pendingRendererSession?.dispose();
     this.pendingRendererSession = null;
     wasmSession?.dispose();
-    this.seams.renderer?.disposePartial?.();
+    this.disposePartialGraphics();
     this.initializing = false;
     return true;
+  }
+
+  private disposePartialGraphics(): void {
+    if (this.partialGraphicsDisposed) {
+      return;
+    }
+
+    this.partialGraphicsDisposed = true;
+    this.seams.renderer?.disposePartial?.();
   }
 
   private promoteToLive(): void {
@@ -567,7 +578,7 @@ export class DemoRuntime {
         error: null,
       };
     } catch (error) {
-      seam.disposePartial?.();
+      this.disposePartialGraphics();
       return { session: null, error: reasonFromError(error, 'renderer-error') };
     }
   }
@@ -665,7 +676,7 @@ export class DemoRuntime {
 
   private failGraphics(reason: ReasonCode): void {
     this.generation += 1;
-    this.seams.renderer?.disposePartial?.();
+    this.disposePartialGraphics();
     this.teardownSessions();
     this.mode = 'fallback';
     this.reason = reason;
