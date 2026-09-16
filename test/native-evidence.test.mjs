@@ -316,7 +316,7 @@ test('filesystem listing, stat, and read failures become fail-closed catalog iss
   assert.deepEqual(dangling.artifacts, []);
   assert.equal(dangling.issues.length, 1);
   assert.equal(dangling.issues[0].code, 'catalog-io-error');
-  assert.match(dangling.issues[0].message, /stat/);
+  assert.match(dangling.issues[0].message, /regular files/);
 
   const sibling = cloneFixture('valid-cuda-synthetic.json');
   sibling.recordStatus = 'measured';
@@ -337,6 +337,20 @@ test('filesystem listing, stat, and read failures become fail-closed catalog iss
   assert.equal(listing.issues[0].code, 'catalog-io-error');
   assert.match(listing.issues[0].message, /list/);
 
+  const statDenied = withTempCatalog({ 'nested/secret.json': '{"schema":1}' }, (directory) => {
+    const nested = join(directory, 'nested');
+    chmodSync(nested, 0o400);
+    try {
+      return load.loadNativeEvidenceDirectory(directory);
+    } finally {
+      chmodSync(nested, 0o755);
+    }
+  });
+  assert.equal(statDenied.status, 'invalid');
+  assert.deepEqual(statDenied.artifacts, []);
+  assert.equal(statDenied.issues[0].code, 'catalog-io-error');
+  assert.match(statDenied.issues[0].message, /stat/);
+
   const unread = withTempCatalog({ 'secret.json': '{"schema":1}' }, (directory) => {
     chmodSync(join(directory, 'secret.json'), 0);
     try {
@@ -349,20 +363,62 @@ test('filesystem listing, stat, and read failures become fail-closed catalog iss
   assert.deepEqual(unread.artifacts, []);
   assert.equal(unread.issues[0].code, 'catalog-io-error');
   assert.match(unread.issues[0].message, /read/);
+});
 
-  const cwd = mkdtempSync(join(tmpdir(), 'native-evidence-io-'));
+test('catalog discovery rejects symlinks and does not follow them outside the catalog', () => {
+  const measured = cloneFixture('valid-cuda-synthetic.json');
+  measured.recordStatus = 'measured';
+  measured.id = 'valid-cuda-measured';
+  const payload = JSON.stringify(measured);
+
+  const outside = mkdtempSync(join(tmpdir(), 'native-evidence-outside-'));
+  const realCatalog = mkdtempSync(join(tmpdir(), 'native-evidence-real-catalog-'));
+  const parent = mkdtempSync(join(tmpdir(), 'native-evidence-root-parent-'));
   try {
-    mkdirSync(join(cwd, 'src/content/native-evidence'), { recursive: true });
-    symlinkSync(
-      join(cwd, 'src/content/native-evidence/missing-target.json'),
-      join(cwd, 'src/content/native-evidence/broken.json'),
-    );
-    assert.throws(
-      () => catalog.loadPublishedNativeEvidence(cwd),
-      /failed closed[\s\S]*catalog-io-error/,
-    );
+    const outsideFile = join(outside, 'valid-cuda-measured.json');
+    writeFileSync(outsideFile, payload);
+    const escaped = withTempCatalog({}, (directory) => {
+      symlinkSync(outsideFile, join(directory, 'valid-cuda-measured.json'));
+      return load.loadNativeEvidenceDirectory(directory);
+    });
+    assert.equal(escaped.status, 'invalid');
+    assert.deepEqual(escaped.artifacts, []);
+    assert.equal(escaped.issues[0].code, 'catalog-io-error');
+    assert.match(escaped.issues[0].message, /regular files/);
+
+    writeFileSync(join(realCatalog, 'valid-cuda-measured.json'), payload);
+    const linkedRoot = join(parent, 'catalog');
+    symlinkSync(realCatalog, linkedRoot);
+    const followed = load.loadNativeEvidenceDirectory(linkedRoot);
+    assert.equal(followed.status, 'invalid');
+    assert.deepEqual(followed.artifacts, []);
+    assert.equal(followed.issues[0].code, 'catalog-io-error');
+    assert.match(followed.issues[0].message, /real directory/);
+
+    const danglingRoot = join(parent, 'dangling-catalog');
+    symlinkSync(join(parent, 'missing-catalog'), danglingRoot);
+    const missingLink = load.loadNativeEvidenceDirectory(danglingRoot);
+    assert.equal(missingLink.status, 'invalid');
+    assert.notEqual(missingLink.status, 'missing');
+    assert.deepEqual(missingLink.artifacts, []);
+    assert.equal(missingLink.issues[0].code, 'catalog-io-error');
+    assert.match(missingLink.issues[0].message, /real directory/);
+
+    const cwd = mkdtempSync(join(tmpdir(), 'native-evidence-published-link-'));
+    try {
+      mkdirSync(join(cwd, 'src/content'), { recursive: true });
+      symlinkSync(realCatalog, join(cwd, 'src/content/native-evidence'));
+      assert.throws(
+        () => catalog.loadPublishedNativeEvidence(cwd),
+        /failed closed[\s\S]*catalog-io-error/,
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   } finally {
-    rmSync(cwd, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+    rmSync(realCatalog, { recursive: true, force: true });
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 

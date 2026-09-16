@@ -1,12 +1,21 @@
 /** Minimal Node declarations for build-time catalog ingest. Not a browser API. */
 declare module 'node:fs' {
-  export function existsSync(path: string): boolean;
   export function readdirSync(
     path: string,
     options: { withFileTypes: true },
-  ): Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
+  ): Array<{
+    name: string;
+    isDirectory(): boolean;
+    isFile(): boolean;
+    isSymbolicLink(): boolean;
+  }>;
   export function readFileSync(path: string, encoding: 'utf8'): string;
-  export function statSync(path: string): { size: number; isDirectory(): boolean };
+  export function lstatSync(path: string): {
+    size: number;
+    isDirectory(): boolean;
+    isFile(): boolean;
+    isSymbolicLink(): boolean;
+  };
 }
 
 declare module 'node:path' {
