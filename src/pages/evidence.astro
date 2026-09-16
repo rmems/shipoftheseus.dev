@@ -1,0 +1,15 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NativeEvidence from '../components/NativeEvidence.astro';
+import { loadPublishedNativeEvidence } from '../native-evidence/catalog';
+
+const catalog = loadPublishedNativeEvidence();
+---
+<BaseLayout title="Evidence" description="Recorded CUDA and FPGA evidence with hardware, workload, and source-revision provenance. These captures are not executed in the browser.">
+  <section class="page-intro compact" aria-labelledby="evidence-page-title">
+    <p class="eyebrow">Recorded evidence</p>
+    <h1 id="evidence-page-title">Native acceleration, shown as artifacts.</h1>
+    <p>CUDA kernels and FPGA/SNN hardware paths stay outside the browser. This catalog publishes versioned captures instead of implying that those runtimes execute in WebAssembly.</p>
+  </section>
+  <NativeEvidence catalog={catalog} titleId="native-evidence-catalog-title" />
+</BaseLayout>

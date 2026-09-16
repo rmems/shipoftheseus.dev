@@ -28,6 +28,7 @@ test('every requested primary route is backed by an Astro page', () => {
     'src/pages/notes/index.astro',
     'src/pages/contact.astro',
     'src/pages/resume.astro',
+    'src/pages/evidence.astro',
   ]) {
     assert.equal(existsSync(new URL(`../${route}`, import.meta.url)), true, `${route} is missing`);
   }
@@ -140,6 +141,8 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   const enhance = read('src/runtime/enhance-demo.ts');
 
   assert.match(page, /NeuromorphicDemo/);
+  assert.match(page, /NativeEvidence/);
+  assert.match(page, /loadPublishedNativeEvidence/);
   assert.match(island, /data-neuromorphic-demo/);
   assert.match(island, /aria-labelledby="demo-title"/);
   assert.match(island, /<noscript>/);
@@ -147,6 +150,10 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   assert.match(island, /aria-live="polite"/);
   assert.match(island, /role="status"/);
   assert.match(island, /Static neuromorphic pipeline/);
+  assert.match(island, /origin="live-wasm"/);
+  assert.match(read('src/components/ExecutionOrigin.astro'), /executionOriginLabel/);
+  assert.match(read('src/native-evidence/types.ts'), /LIVE · Rust\/WASM/);
+  assert.match(island, /href="\/evidence\/"/);
   assert.match(island, /data-demo-play hidden/);
   assert.match(enhance, /IntersectionObserver/);
   assert.match(enhance, /astro:before-swap/);

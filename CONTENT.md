@@ -10,6 +10,8 @@ For project cards, edit `src/data/projects.ts`. Add public links only when each 
 
 The `/work/` page turns that shared project data into project briefs. Keep its questions framed as active investigations unless evidence is available for a stronger statement; do not convert them into outcome claims during copy edits.
 
+Native CUDA and FPGA results belong in `src/content/native-evidence/` as versioned JSON artifacts. Do not invent benchmark numbers. If no measured capture with hardware, workload, units, source repository, source revision, and capture provenance is available, leave the catalog empty.
+
 `public/assets/social-card.png` is a local placeholder social image. Replace it later with a final branded card if desired.
 
 ## Domain safety

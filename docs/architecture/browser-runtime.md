@@ -54,7 +54,8 @@ The adapter/recorded viewer may link `corpus-ipc` with no features for its
 canonical schema and validation responsibilities. It must exclude
 `corpus-ipc/zmq`, `corpus-ipc/server`, every native transport, and every native
 service. `myelin-accelerator` CUDA and FPGA execution remain artifact/native
-evidence only and are not linked into the browser bundle. Browser builds also
+evidence only and are not linked into the browser bundle; see
+`docs/architecture/native-evidence.md`. Browser builds also
 exclude `nir-rs/hdf5` and the `myelin-accelerator/cuda` feature.
 
 ## Deterministic Rust/WASM contract

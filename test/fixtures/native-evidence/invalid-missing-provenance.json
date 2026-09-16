@@ -1,0 +1,23 @@
+{
+  "schema": "shipoftheseus.native-evidence",
+  "schemaVersion": 1,
+  "id": "invalid-missing-provenance",
+  "kind": "cuda-benchmark",
+  "title": "Invalid fixture missing provenance",
+  "capturedAt": "2026-09-16T12:00:00Z",
+  "recordStatus": "synthetic",
+  "hardware": {
+    "class": "cuda",
+    "deviceName": "Synthetic CUDA device"
+  },
+  "workload": {
+    "name": "missing-provenance"
+  },
+  "results": [
+    {
+      "name": "latency",
+      "value": 1,
+      "unit": "µs"
+    }
+  ]
+}

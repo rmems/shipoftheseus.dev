@@ -1,0 +1,41 @@
+{
+  "schema": "shipoftheseus.native-evidence",
+  "schemaVersion": 1,
+  "id": "valid-cuda-synthetic",
+  "kind": "cuda-benchmark",
+  "title": "Synthetic CUDA parser fixture",
+  "summary": "Not a measured hardware result. Used only to exercise native-evidence ingest.",
+  "capturedAt": "2026-09-16T12:00:00Z",
+  "recordStatus": "synthetic",
+  "provenance": {
+    "sourceRepository": "https://github.com/Limen-Neural/myelin-accelerator",
+    "sourceRevision": "26651ca0edf96b080cd5ef89045543c453bd786c",
+    "sourcePath": "examples/benchmark.rs",
+    "crateName": "myelin-accelerator",
+    "crateVersion": "0.2.0",
+    "captureCommand": "cargo run --example benchmark --features bench,cuda"
+  },
+  "hardware": {
+    "class": "cuda",
+    "vendor": "NVIDIA",
+    "deviceName": "Synthetic CUDA device",
+    "architecture": "sm_120",
+    "driverVersion": "synthetic"
+  },
+  "workload": {
+    "name": "poisson_encode_4096",
+    "description": "Parser fixture shaped like a myelin-accelerator CUDA kernel bench.",
+    "parameters": {
+      "neurons": 4096,
+      "iterations": 100
+    }
+  },
+  "results": [
+    {
+      "name": "latency",
+      "value": 1,
+      "unit": "µs",
+      "statistic": "mean"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+---
+import { executionOriginData, executionOriginLabel, type ExecutionOrigin } from '../native-evidence/view';
+
+interface Props {
+  origin: ExecutionOrigin;
+}
+
+const { origin } = Astro.props;
+const label = executionOriginLabel(origin);
+const dataOrigin = executionOriginData(origin);
+---
+<p class="execution-origin" data-origin={dataOrigin}>{label}</p>

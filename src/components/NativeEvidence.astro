@@ -1,0 +1,123 @@
+---
+import ExecutionOrigin from './ExecutionOrigin.astro';
+import { EMPTY_NATIVE_EVIDENCE_COPY } from '../native-evidence/types';
+import {
+  artifactCommitUrl,
+  artifactSourceBlobUrl,
+  formatResultValue,
+  nativeEvidenceKindLabel,
+} from '../native-evidence/view';
+import type { NativeEvidenceArtifact, NativeEvidenceCatalog } from '../native-evidence/types';
+
+interface Props {
+  catalog: NativeEvidenceCatalog;
+  showCatalogLink?: boolean;
+  titleId?: string;
+}
+
+const { catalog, showCatalogLink = false, titleId = 'native-evidence-title' } = Astro.props;
+const empty = catalog.artifacts.length === 0;
+
+function artifactHeading(artifact: NativeEvidenceArtifact): string {
+  return `${nativeEvidenceKindLabel(artifact.kind)} · ${artifact.title}`;
+}
+---
+<section class="native-evidence section" aria-labelledby={titleId} data-native-evidence data-evidence-status={catalog.status}>
+  <div class="native-evidence-heading">
+    <p class="eyebrow">Native acceleration</p>
+    <ExecutionOrigin origin="recorded-cuda-fpga" />
+    <h2 id={titleId}>Recorded CUDA and FPGA evidence.</h2>
+    <p class="native-evidence-copy">These records are versioned native captures. They are not executed in the browser, and they are not the live Rust/WASM demo.</p>
+  </div>
+  {empty ? (
+    <p class="native-evidence-empty" data-evidence-empty>{EMPTY_NATIVE_EVIDENCE_COPY}</p>
+  ) : (
+    <ol class="native-evidence-list">
+      {catalog.artifacts.map((artifact) => (
+        <li>
+          <article class="native-evidence-card" data-evidence-id={artifact.id} data-evidence-kind={artifact.kind}>
+            <header>
+              <p class="eyebrow">{nativeEvidenceKindLabel(artifact.kind)}</p>
+              <h3>{artifact.title}</h3>
+              {artifact.summary ? <p>{artifact.summary}</p> : null}
+            </header>
+            <dl class="native-evidence-provenance">
+              <div>
+                <dt>Hardware</dt>
+                <dd>{artifact.hardware.deviceName}{artifact.hardware.architecture ? ` · ${artifact.hardware.architecture}` : ''}</dd>
+              </div>
+              <div>
+                <dt>Workload</dt>
+                <dd>{artifact.workload.name}</dd>
+              </div>
+              <div>
+                <dt>Source</dt>
+                <dd>
+                  <a href={artifactSourceBlobUrl(artifact)} target="_blank" rel="noreferrer">{artifact.provenance.sourcePath}</a>
+                  {artifact.provenance.crateName ? ` · ${artifact.provenance.crateName}` : ''}
+                  {artifact.provenance.crateVersion ? ` ${artifact.provenance.crateVersion}` : ''}
+                </dd>
+              </div>
+              <div>
+                <dt>Revision</dt>
+                <dd><a href={artifactCommitUrl(artifact)} target="_blank" rel="noreferrer"><code>{artifact.provenance.sourceRevision}</code></a></dd>
+              </div>
+              <div>
+                <dt>Captured</dt>
+                <dd><time datetime={artifact.capturedAt}>{artifact.capturedAt}</time></dd>
+              </div>
+            </dl>
+            {artifact.results && artifact.results.length > 0 ? (
+              <table class="native-evidence-results">
+                <caption>Recorded metrics</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Metric</th>
+                    <th scope="col">Value</th>
+                    <th scope="col">Unit</th>
+                    <th scope="col">Statistic</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {artifact.results.map((result) => (
+                    <tr>
+                      <th scope="row">{result.name}</th>
+                      <td>{formatResultValue(result.value)}</td>
+                      <td>{result.unit}</td>
+                      <td>{result.statistic ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+            {artifact.traces && artifact.traces.length > 0 ? (
+              <table class="native-evidence-traces">
+                <caption>Recorded hardware trace ({artifact.traces.length} events)</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Time (ns)</th>
+                    <th scope="col">Neuron</th>
+                    <th scope="col">Event</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {artifact.traces.slice(0, 12).map((event) => (
+                    <tr>
+                      <td>{event.timeNs}</td>
+                      <td>{event.neuronId}</td>
+                      <td>{event.event}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+            <p class="native-evidence-kind-note">{artifactHeading(artifact)}</p>
+          </article>
+        </li>
+      ))}
+    </ol>
+  )}
+  {showCatalogLink ? (
+    <p class="native-evidence-footnote"><a class="text-link" href="/evidence/">Open the evidence catalog <span aria-hidden="true">→</span></a></p>
+  ) : null}
+</section>

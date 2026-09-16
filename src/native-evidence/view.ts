@@ -1,0 +1,61 @@
+import {
+  LIVE_ORIGIN_LABEL,
+  RECORDED_ORIGIN_LABEL,
+  type NativeEvidenceArtifact,
+  type NativeEvidenceKind,
+} from './types';
+
+function assertNever(value: never, label: string): never {
+  throw new Error(`Unhandled ${label}: ${String(value)}`);
+}
+
+export type ExecutionOrigin = 'live-wasm' | 'recorded-cuda-fpga';
+
+export function executionOriginLabel(origin: ExecutionOrigin): string {
+  switch (origin) {
+    case 'live-wasm':
+      return LIVE_ORIGIN_LABEL;
+    case 'recorded-cuda-fpga':
+      return RECORDED_ORIGIN_LABEL;
+    default:
+      return assertNever(origin, 'execution origin');
+  }
+}
+
+export function executionOriginData(origin: ExecutionOrigin): 'live' | 'recorded' {
+  switch (origin) {
+    case 'live-wasm':
+      return 'live';
+    case 'recorded-cuda-fpga':
+      return 'recorded';
+    default:
+      return assertNever(origin, 'execution origin');
+  }
+}
+
+export function nativeEvidenceKindLabel(kind: NativeEvidenceKind): string {
+  switch (kind) {
+    case 'cuda-benchmark':
+      return 'CUDA benchmark';
+    case 'fpga-snn-trace':
+      return 'FPGA/SNN trace';
+    default:
+      return assertNever(kind, 'native evidence kind');
+  }
+}
+
+export function artifactSourceBlobUrl(artifact: NativeEvidenceArtifact): string {
+  return `${artifact.provenance.sourceRepository}/blob/${artifact.provenance.sourceRevision}/${artifact.provenance.sourcePath}`;
+}
+
+export function artifactCommitUrl(artifact: NativeEvidenceArtifact): string {
+  return `${artifact.provenance.sourceRepository}/commit/${artifact.provenance.sourceRevision}`;
+}
+
+export function formatResultValue(value: number): string {
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(value);
+}
