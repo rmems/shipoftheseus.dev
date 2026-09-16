@@ -466,7 +466,10 @@ test('the live demo and recorded evidence surfaces keep distinct labels and rema
   assert.match(evidenceUi, /data-evidence-workload-description/);
   assert.match(evidenceUi, /data-evidence-workload-parameters/);
   assert.match(evidenceUi, /tracePreviewCaption/);
-  assert.match(evidenceUi, /Full versioned capture/);
+  assert.match(evidenceUi, /artifactCatalogBlobUrl/);
+  assert.match(evidenceUi, /href=\{artifactCatalogBlobUrl\(artifact\)\}[^>]*>Full versioned capture/);
+  assert.match(evidenceUi, /href=\{artifactSourceBlobUrl\(artifact\)\}[^>]*>\{artifact\.provenance\.sourcePath\}/);
+  assert.doesNotMatch(evidenceUi, /href=\{artifactSourceBlobUrl\(artifact\)\}[^>]*>Full versioned capture/);
   assert.doesNotMatch(evidenceUi, /\{artifact\.provenance\.captureCommand\}/);
   assert.match(evidencePage, /loadPublishedNativeEvidence/);
   assert.doesNotMatch(home, /NativeEvidence/);
@@ -654,6 +657,44 @@ test('trace captions disclose preview truncation and preserve a path to the full
     view.tracePreviewCaption(13),
     'Recorded hardware trace preview (showing first 12 of 13 events)',
   );
+
+  const cuda = evidence.parseNativeEvidenceJson(readFixture('valid-cuda-synthetic.json'), {
+    path: 'valid-cuda-synthetic.json',
+    requireIdMatchesFilename: true,
+  });
+  const fpga = evidence.parseNativeEvidenceJson(readFixture('valid-fpga-synthetic.json'), {
+    path: 'valid-fpga-synthetic.json',
+    requireIdMatchesFilename: true,
+  });
+  assert.equal(cuda.ok, true);
+  assert.equal(fpga.ok, true);
+
+  const cudaCatalogUrl = view.artifactCatalogBlobUrl(cuda.artifact);
+  const fpgaCatalogUrl = view.artifactCatalogBlobUrl(fpga.artifact);
+  assert.equal(
+    view.artifactCatalogPath(cuda.artifact),
+    `${types.NATIVE_EVIDENCE_CATALOG_DIR}/${cuda.artifact.id}.json`,
+  );
+  assert.equal(
+    cudaCatalogUrl,
+    `${view.PORTFOLIO_REPOSITORY_URL}/blob/${view.PORTFOLIO_DEFAULT_REF}/${types.NATIVE_EVIDENCE_CATALOG_DIR}/${cuda.artifact.id}.json`,
+  );
+  assert.equal(
+    fpgaCatalogUrl,
+    `${view.PORTFOLIO_REPOSITORY_URL}/blob/${view.PORTFOLIO_DEFAULT_REF}/${types.NATIVE_EVIDENCE_CATALOG_DIR}/${fpga.artifact.id}.json`,
+  );
+  assert.notEqual(cudaCatalogUrl, view.artifactSourceBlobUrl(cuda.artifact));
+  assert.notEqual(fpgaCatalogUrl, view.artifactSourceBlobUrl(fpga.artifact));
+  assert.doesNotMatch(cudaCatalogUrl, new RegExp(cuda.artifact.provenance.sourcePath.replaceAll('.', '\\.')));
+  assert.doesNotMatch(fpgaCatalogUrl, new RegExp(fpga.artifact.provenance.sourcePath.replaceAll('.', '\\.')));
+  assert.doesNotMatch(cudaCatalogUrl, /examples\/benchmark\.rs/);
+  assert.doesNotMatch(fpgaCatalogUrl, /docs\/ARCHITECTURE\.md/);
+  assert.match(cudaCatalogUrl, /src\/content\/native-evidence\/valid-cuda-synthetic\.json$/);
+  assert.match(fpgaCatalogUrl, /src\/content\/native-evidence\/valid-fpga-synthetic\.json$/);
+
+  const evidenceUi = readSource('../src/components/NativeEvidence.astro');
+  assert.match(evidenceUi, /href=\{artifactCatalogBlobUrl\(artifact\)\}[^>]*>Full versioned capture/);
+  assert.doesNotMatch(evidenceUi, /href=\{artifactSourceBlobUrl\(artifact\)\}[^>]*>Full versioned capture/);
 
   const css = readSource('../src/styles/global.css');
   assert.match(css, /\.native-evidence-table-wrap/);

@@ -2,6 +2,7 @@
 import ExecutionOrigin from './ExecutionOrigin.astro';
 import { EMPTY_NATIVE_EVIDENCE_COPY } from '../native-evidence/types';
 import {
+  artifactCatalogBlobUrl,
   artifactCommitUrl,
   artifactSourceBlobUrl,
   displayCaptureMethod,
@@ -140,7 +141,7 @@ function artifactHeading(artifact: NativeEvidenceArtifact): string {
                   </tbody>
                 </table>
                 <p class="native-evidence-trace-source">
-                  <a href={artifactSourceBlobUrl(artifact)} target="_blank" rel="noreferrer">Full versioned capture</a>
+                  <a href={artifactCatalogBlobUrl(artifact)} target="_blank" rel="noreferrer">Full versioned capture</a>
                 </p>
               </div>
             ) : null}

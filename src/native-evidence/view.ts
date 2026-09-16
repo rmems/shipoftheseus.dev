@@ -1,5 +1,6 @@
 import {
   LIVE_ORIGIN_LABEL,
+  NATIVE_EVIDENCE_CATALOG_DIR,
   RECORDED_ORIGIN_LABEL,
   STATIC_ORIGIN_LABEL,
   UNAVAILABLE_ORIGIN_LABEL,
@@ -55,8 +56,19 @@ export function nativeEvidenceKindLabel(kind: NativeEvidenceKind): string {
   }
 }
 
+export const PORTFOLIO_REPOSITORY_URL = 'https://github.com/rmems/shipoftheseus.dev';
+export const PORTFOLIO_DEFAULT_REF = 'main';
+
 export function artifactSourceBlobUrl(artifact: NativeEvidenceArtifact): string {
   return `${artifact.provenance.sourceRepository}/blob/${artifact.provenance.sourceRevision}/${artifact.provenance.sourcePath}`;
+}
+
+export function artifactCatalogPath(artifact: NativeEvidenceArtifact): string {
+  return `${NATIVE_EVIDENCE_CATALOG_DIR}/${artifact.id}.json`;
+}
+
+export function artifactCatalogBlobUrl(artifact: NativeEvidenceArtifact): string {
+  return `${PORTFOLIO_REPOSITORY_URL}/blob/${PORTFOLIO_DEFAULT_REF}/${artifactCatalogPath(artifact)}`;
 }
 
 export function artifactCommitUrl(artifact: NativeEvidenceArtifact): string {
