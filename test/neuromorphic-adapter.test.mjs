@@ -182,8 +182,39 @@ test('the browser bridge rejects out-of-range u64 values and non-string digests'
     { ...base, completed_step: 1n << 64n },
     { ...base, topology_digest: null },
     { ...base, error_status: 'unrecognized-status' },
+    { ...base, spike_neurons: new Uint32Array([1]) },
   ]) {
     const adapter = await runtime.initNeuromorphicAdapter(async () => ({ async default() {}, WasmAdapter: { init() { return { input() {}, step() { return state; }, state() { return state; }, dispose() {} }; } } }), 1n);
     assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
   }
+});
+
+test('the browser bridge rejects out-of-range u64 inputs before invoking WASM', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  let initCalls = 0;
+  let inputCalls = 0;
+  const loadWasmModule = async () => ({
+    async default() {},
+    WasmAdapter: {
+      init() {
+        initCalls += 1;
+        return {
+          input() { inputCalls += 1; },
+          step() { throw new Error('not reached'); },
+          state() { throw new Error('not reached'); },
+          dispose() {},
+        };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => runtime.initNeuromorphicAdapter(loadWasmModule, -1n),
+    runtime.AdapterUnavailableError,
+  );
+  assert.equal(initCalls, 0);
+
+  const adapter = await runtime.initNeuromorphicAdapter(loadWasmModule, 1n);
+  assert.throws(() => adapter.input(1n << 64n, new Float32Array([0.25])), runtime.AdapterUnavailableError);
+  assert.equal(inputCalls, 0);
 });

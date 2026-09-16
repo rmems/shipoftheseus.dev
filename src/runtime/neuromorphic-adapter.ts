@@ -102,7 +102,8 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     !allFinite(raw.membrane_potentials) ||
     !allFinite(raw.topology_weights) ||
     !isMonotonicTopologyRows(raw.topology_rows) ||
-    !hasValidTopologyTargets(raw.topology_targets, raw.topology_rows.length - 1)
+    !hasValidTopologyTargets(raw.topology_targets, raw.topology_rows.length - 1) ||
+    !hasValidSpikeNeurons(raw.spike_neurons, raw.membrane_potentials.length)
   ) {
     throw new AdapterUnavailableError('The Rust/WASM runtime returned an invalid contract state.');
   }
@@ -124,8 +125,8 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
   };
 }
 
-function isU64(value: bigint): boolean {
-  return value >= 0n && value <= MAX_U64;
+function isU64(value: unknown): value is bigint {
+  return typeof value === 'bigint' && value >= 0n && value <= MAX_U64;
 }
 
 function allFinite(values: Float32Array): boolean {
@@ -145,6 +146,10 @@ function hasValidTopologyTargets(targets: Uint32Array, nodeCount: number): boole
   return targets.every((target) => target < nodeCount);
 }
 
+function hasValidSpikeNeurons(spikes: Uint32Array, nodeCount: number): boolean {
+  return spikes.every((spike) => spike < nodeCount);
+}
+
 /**
  * Defers WASM loading until the Astro island chooses progressive enhancement.
  * Neither the static document nor fallback UI imports a generated package.
@@ -155,6 +160,9 @@ export async function initNeuromorphicAdapter(
 ): Promise<NeuromorphicAdapter> {
   if (typeof WebAssembly === 'undefined') {
     throw new AdapterUnavailableError('WebAssembly is unavailable in this browser.');
+  }
+  if (!isU64(seed)) {
+    throw new AdapterUnavailableError('The Rust/WASM runtime seed must be a u64 value.');
   }
 
   const wasm = await loadWasmModule();
@@ -171,6 +179,9 @@ export async function initNeuromorphicAdapter(
   return {
     input(sequence, samples) {
       ensureActive();
+      if (!isU64(sequence)) {
+        throw new AdapterUnavailableError('The Rust/WASM input sequence must be a u64 value.');
+      }
       runtime.input(sequence, new Float32Array(samples));
     },
     step() {
