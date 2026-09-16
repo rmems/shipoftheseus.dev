@@ -19,7 +19,15 @@ function run(command, arguments_) {
   }
 }
 
+function requireWasmBindgenVersion() {
+  const result = spawnSync('wasm-bindgen', ['--version'], { cwd: repository, encoding: 'utf8' });
+  if (result.status !== 0 || result.stdout.trim() !== 'wasm-bindgen 0.2.126') {
+    throw new Error(`wasm-bindgen-cli 0.2.126 is required; found: ${result.stdout.trim() || result.stderr.trim()}`);
+  }
+}
+
 try {
+  requireWasmBindgenVersion();
   run('cargo', ['+1.98.1', 'build', '--manifest-path', manifest, '--target', 'wasm32-unknown-unknown', '--release', '--locked']);
   run('wasm-bindgen', ['--target', 'nodejs', '--out-dir', output, wasm]);
   run('node', ['--input-type=commonjs', '--eval', [
