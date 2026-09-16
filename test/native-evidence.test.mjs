@@ -612,7 +612,15 @@ test('recorded metric formatting never renders a finite nonzero value as zero', 
 });
 
 test('crate versions accept SemVer build metadata', () => {
-  const accepted = ['0.2.0', '1.2.3-alpha.1', '1.2.3+cuda.12', '1.2.3-alpha.1+build.7'];
+  const accepted = [
+    '0.2.0',
+    '1.2.3',
+    '1.2.3-alpha.1',
+    '1.2.3-0',
+    '1.2.3+cuda.12',
+    '1.2.3+0',
+    '1.2.3-alpha.1+build.7',
+  ];
   for (const crateVersion of accepted) {
     const artifact = cloneFixture('valid-cuda-synthetic.json');
     artifact.provenance.crateVersion = crateVersion;
@@ -621,7 +629,20 @@ test('crate versions accept SemVer build metadata', () => {
     assert.equal(parsed.artifact.provenance.crateVersion, crateVersion);
   }
 
-  const rejected = ['1.2', '1.2.3+', '1.2.3-', '1.2.3+_build'];
+  const rejected = [
+    '1.2',
+    '01.2.3',
+    '1.02.3',
+    '1.2.03',
+    '1.2.3-01',
+    '1.2.3+',
+    '1.2.3-',
+    '1.2.3+.',
+    '1.2.3-.',
+    '1.2.3+foo..bar',
+    '1.2.3-alpha..1',
+    '1.2.3+_build',
+  ];
   for (const crateVersion of rejected) {
     const artifact = cloneFixture('valid-cuda-synthetic.json');
     artifact.provenance.crateVersion = crateVersion;
