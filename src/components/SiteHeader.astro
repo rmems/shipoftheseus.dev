@@ -1,0 +1,10 @@
+---
+import SignalMark from './SignalMark.astro';
+import { navigation, site } from '../data/site';
+const { currentPath = '' } = Astro.props;
+---
+<header class="site-header">
+  <a class="brand" href="/" aria-label={`${site.name} home`}><SignalMark /><span>Ship of Theseus</span></a>
+  <nav aria-label="Primary navigation">{navigation.map((item) => <a href={item.href} aria-current={currentPath === item.href ? 'page' : undefined}>{item.label}</a>)}</nav>
+  <a class="header-resume" href="/resume/">Résumé <span aria-hidden="true">↗</span></a>
+</header>

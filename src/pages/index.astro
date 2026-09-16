@@ -1,0 +1,11 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ProjectCard from '../components/ProjectCard.astro';
+import { projects } from '../data/projects';
+import { site } from '../data/site';
+---
+<BaseLayout>
+  <section class="hero" aria-labelledby="hero-title"><p class="eyebrow">AI/ML systems engineering</p><h1 id="hero-title">Building <em>inspectable</em> systems for intelligent work.</h1><p class="hero-copy">I work across agentic systems, GPU computing, neuromorphic exploration, and reproducible engineering—where an experiment should be as legible as its outcome.</p><div class="hero-actions"><a class="button button-primary" href="/projects/">Selected projects <span aria-hidden="true">↓</span></a><a class="button button-secondary" href={site.social.github} target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="/contact/">Get in touch <span aria-hidden="true">↗</span></a></div><div class="hero-index" aria-label="Areas of focus"><span>01 · Agentic systems</span><span>02 · GPU / CUDA</span><span>03 · Neuromorphic computing</span></div></section>
+  <section class="section featured-section" aria-labelledby="featured-title"><div class="section-heading"><p class="eyebrow">Selected work</p><h2 id="featured-title">Projects with a systems spine.</h2><a class="text-link" href="/projects/">View all project notes <span aria-hidden="true">→</span></a></div><div class="project-grid">{projects.filter((project) => project.featured).map((project) => <ProjectCard project={project} />)}</div></section>
+  <section class="focus-band" aria-labelledby="focus-title"><div><p class="eyebrow">Current focus</p><h2 id="focus-title">Systems that can explain themselves.</h2></div><p>Designing engineering workflows that preserve their inputs, decisions, and evidence—while continuing to explore the boundary between efficient compute and brain-inspired architectures.</p></section>
+</BaseLayout>
