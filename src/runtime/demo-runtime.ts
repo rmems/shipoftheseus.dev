@@ -260,6 +260,7 @@ export class DemoRuntime {
   private generation = 0;
   private rendererSession: RendererSession | null = null;
   private wasmSession: WasmSession | null = null;
+  private pendingRendererSession: RendererSession | null = null;
   private initPromise: Promise<void> | null = null;
   private wasmRetryPromise: Promise<SessionAttempt<WasmSession>> | null = null;
 
@@ -349,26 +350,24 @@ export class DemoRuntime {
     this.promoteToLive();
   }
 
-  setInViewport(inViewport: boolean): void {
+  setInViewport(inViewport: boolean): Promise<void> {
     this.inViewport = inViewport;
     if (!inViewport) {
       this.pauseClock('environment');
-      return;
+      return Promise.resolve();
     }
 
-    this.resumeClock();
-    void this.startIfAllowed();
+    return this.startIfAllowed();
   }
 
-  setDocumentHidden(documentHidden: boolean): void {
+  setDocumentHidden(documentHidden: boolean): Promise<void> {
     this.documentHidden = documentHidden;
     if (documentHidden) {
       this.pauseClock('environment');
-      return;
+      return Promise.resolve();
     }
 
-    this.resumeClock();
-    void this.startIfAllowed();
+    return this.startIfAllowed();
   }
 
   reportContextLost(): void {
@@ -486,19 +485,20 @@ export class DemoRuntime {
     const generation = ++this.generation;
 
     const rendererAttempt = await this.tryRenderer(this.seams.renderer);
-    const wasmAttempt = await this.tryWasm(this.seams.wasm);
+    this.pendingRendererSession = rendererAttempt.session;
+    if (this.discardIfStale(generation, null)) {
+      return;
+    }
 
-    if (this.disposed || generation !== this.generation) {
-      rendererAttempt.session?.dispose();
-      wasmAttempt.session?.dispose();
-      this.seams.renderer.disposePartial?.();
-      this.initializing = false;
+    const wasmAttempt = await this.tryWasm(this.seams.wasm);
+    if (this.discardIfStale(generation, wasmAttempt.session)) {
       return;
     }
 
     if (rendererAttempt.error || wasmAttempt.error) {
       rendererAttempt.session?.dispose();
       wasmAttempt.session?.dispose();
+      this.pendingRendererSession = null;
       this.seams.renderer.disposePartial?.();
       this.rendererSession = null;
       this.wasmSession = null;
@@ -510,9 +510,27 @@ export class DemoRuntime {
 
     this.rendererSession = rendererAttempt.session;
     this.wasmSession = wasmAttempt.session;
+    this.pendingRendererSession = null;
     this.initCompleted = true;
     this.initializing = false;
     this.promoteToLive();
+  }
+
+  private isCurrentGeneration(generation: number): boolean {
+    return !this.disposed && generation === this.generation;
+  }
+
+  private discardIfStale(generation: number, wasmSession: WasmSession | null): boolean {
+    if (this.isCurrentGeneration(generation)) {
+      return false;
+    }
+
+    this.pendingRendererSession?.dispose();
+    this.pendingRendererSession = null;
+    wasmSession?.dispose();
+    this.seams.renderer?.disposePartial?.();
+    this.initializing = false;
+    return true;
   }
 
   private promoteToLive(): void {
@@ -521,18 +539,23 @@ export class DemoRuntime {
     }
 
     if (this.documentHidden || !this.inViewport) {
-      this.rendererSession.pause?.();
-      this.wasmSession.pause?.();
-      this.clockPaused = true;
+      if (!this.clockPaused) {
+        this.rendererSession.pause?.();
+        this.wasmSession.pause?.();
+        this.clockPaused = true;
+      }
       this.mode = 'awaiting-play';
       this.reason = this.capabilities.prefersReducedMotion ? 'reduced-motion' : 'ok';
       return;
     }
 
+    const shouldResume = this.clockPaused;
     this.mode = 'live';
     this.reason = this.capabilities.prefersReducedMotion ? 'reduced-motion' : 'ok';
-    this.rendererSession.resume?.();
-    this.wasmSession.resume?.();
+    if (shouldResume) {
+      this.rendererSession.resume?.();
+      this.wasmSession.resume?.();
+    }
     this.clockPaused = false;
     this.userPaused = false;
   }
@@ -649,7 +672,7 @@ export class DemoRuntime {
   }
 
   private pauseClock(origin: 'user' | 'environment'): void {
-    if (this.mode !== 'live') {
+    if (this.mode !== 'live' || this.clockPaused) {
       return;
     }
 
@@ -661,17 +684,9 @@ export class DemoRuntime {
     }
   }
 
-  private resumeClock(): void {
-    if (this.mode !== 'live' || this.userPaused || this.documentHidden || !this.inViewport) {
-      return;
-    }
-
-    this.rendererSession?.resume?.();
-    this.wasmSession?.resume?.();
-    this.clockPaused = false;
-  }
-
   private teardownSessions(): void {
+    this.pendingRendererSession?.dispose();
+    this.pendingRendererSession = null;
     this.rendererSession?.dispose();
     this.wasmSession?.dispose();
     this.rendererSession = null;

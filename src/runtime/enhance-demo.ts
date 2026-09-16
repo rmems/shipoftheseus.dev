@@ -3,6 +3,7 @@ import {
   createDemoRuntime,
   detectCapabilities,
   getDemoSeams,
+  type DemoRuntime,
   type DemoViewElements,
 } from './demo-runtime';
 
@@ -28,34 +29,35 @@ function viewElements(root: HTMLElement): DemoViewElements {
   };
 }
 
-export function bindDemoIsland(root: HTMLElement): BoundIsland {
-  const runtime = createDemoRuntime({
-    capabilities: detectCapabilities(window),
-    seams: getDemoSeams(),
-    inViewport: false,
-    documentHidden: document.hidden,
-  });
+export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundIsland {
+  const boundRuntime =
+    runtime ??
+    createDemoRuntime({
+      capabilities: detectCapabilities(window),
+      seams: getDemoSeams(),
+      inViewport: false,
+      documentHidden: document.hidden,
+    });
   const elements = viewElements(root);
   const play = requiredElement<HTMLButtonElement>(root, '[data-demo-play]');
   let disposed = false;
 
   const paint = () => {
     if (!disposed) {
-      applyDemoView(runtime.getSnapshot(), elements);
+      applyDemoView(boundRuntime.getSnapshot(), elements);
     }
   };
 
   const onPlay = () => {
-    void runtime.play().then(paint);
+    void boundRuntime.play().then(paint);
   };
 
   const onVisibility = () => {
-    runtime.setDocumentHidden(document.hidden);
-    paint();
+    void boundRuntime.setDocumentHidden(document.hidden).then(paint);
   };
 
   const onContextLost = () => {
-    runtime.reportContextLost();
+    boundRuntime.reportContextLost();
     paint();
   };
   const contextLostCapture = { capture: true } as const;
@@ -72,7 +74,7 @@ export function bindDemoIsland(root: HTMLElement): BoundIsland {
     window.removeEventListener('pagehide', dispose);
     root.removeEventListener('webglcontextlost', onContextLost, contextLostCapture);
     observer?.disconnect();
-    runtime.dispose();
+    boundRuntime.dispose();
   };
 
   play.addEventListener('click', onPlay);
@@ -86,8 +88,7 @@ export function bindDemoIsland(root: HTMLElement): BoundIsland {
       ? new IntersectionObserver(
           (entries) => {
             const visible = entries.some((entry) => entry.isIntersecting);
-            runtime.setInViewport(visible);
-            paint();
+            void boundRuntime.setInViewport(visible).then(paint);
           },
           { threshold: 0.2 },
         )
@@ -96,10 +97,10 @@ export function bindDemoIsland(root: HTMLElement): BoundIsland {
   if (observer) {
     observer.observe(root);
   } else {
-    runtime.setInViewport(true);
+    void boundRuntime.setInViewport(true).then(paint);
   }
 
-  void runtime.startIfAllowed().then(paint);
+  void boundRuntime.startIfAllowed().then(paint);
   paint();
 
   return { dispose };

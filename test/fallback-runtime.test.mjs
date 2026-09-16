@@ -3,6 +3,7 @@ import test from 'node:test';
 import { loadTsModule, readSource } from './load-ts-module.mjs';
 
 const runtime = await loadTsModule('../src/runtime/demo-runtime.ts');
+const enhance = await loadTsModule('../src/runtime/enhance-demo.ts');
 
 const capable = {
   prefersReducedMotion: false,
@@ -20,12 +21,14 @@ function connectedSeams({
   const wasmCalls = [];
   const rendererEvents = [];
   const rendererCreateOptions = [];
+  const wasmEvents = [];
   const wasmDisposeCount = { value: 0 };
 
   return {
     wasmCalls,
     rendererEvents,
     rendererCreateOptions,
+    wasmEvents,
     wasmDisposeCount,
     seams: {
       renderer: {
@@ -69,10 +72,15 @@ function connectedSeams({
 
           return {
             dispose() {
+              wasmEvents.push('dispose');
               wasmDisposeCount.value += 1;
             },
-            pause() {},
-            resume() {},
+            pause() {
+              wasmEvents.push('pause');
+            },
+            resume() {
+              wasmEvents.push('resume');
+            },
           };
         },
       },
@@ -520,7 +528,7 @@ test('a pending worker failure event retries once on the main thread without lea
 });
 
 test('Play-Pause-Play resumes the same renderer and WASM sessions', async () => {
-  const { seams, rendererEvents, wasmCalls, wasmDisposeCount } = connectedSeams();
+  const { seams, rendererEvents, wasmCalls, wasmEvents, wasmDisposeCount } = connectedSeams();
   const demo = runtime.createDemoRuntime({
     capabilities: capable,
     seams,
@@ -529,6 +537,8 @@ test('Play-Pause-Play resumes the same renderer and WASM sessions', async () => 
 
   await demo.startIfAllowed();
   assert.equal(demo.getSnapshot().mode, 'live');
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 0);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 0);
   await demo.play();
   assert.equal(demo.getSnapshot().mode, 'awaiting-play');
   await demo.play();
@@ -537,8 +547,10 @@ test('Play-Pause-Play resumes the same renderer and WASM sessions', async () => 
   assert.deepEqual(wasmCalls, [true]);
   assert.equal(rendererEvents.filter((event) => event === 'dispose').length, 0);
   assert.equal(wasmDisposeCount.value, 0);
-  assert.ok(rendererEvents.includes('pause'));
-  assert.ok(rendererEvents.includes('resume'));
+  assert.equal(rendererEvents.filter((event) => event === 'pause').length, 1);
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(wasmEvents.filter((event) => event === 'pause').length, 1);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 1);
 
   demo.dispose();
   assert.equal(rendererEvents.filter((event) => event === 'dispose').length, 1);
@@ -579,10 +591,12 @@ test('a deferred init that hides the document pauses instead of becoming live', 
   assert.ok(events.includes('renderer:pause'));
   assert.equal(events.filter((event) => event === 'renderer:dispose').length, 0);
 
-  demo.setDocumentHidden(false);
-  await waitFor(() => demo.getSnapshot().mode === 'live');
+  await demo.setDocumentHidden(false);
   assert.equal(demo.getSnapshot().mode, 'live');
-  assert.ok(events.includes('renderer:resume'));
+  assert.equal(events.filter((event) => event === 'renderer:pause').length, 1);
+  assert.equal(events.filter((event) => event === 'renderer:resume').length, 1);
+  assert.equal(events.filter((event) => event === 'wasm:pause').length, 1);
+  assert.equal(events.filter((event) => event === 'wasm:resume').length, 1);
   assert.equal(events.filter((event) => event === 'renderer:create').length, 1);
 });
 
@@ -619,9 +633,200 @@ test('a deferred init that leaves the viewport pauses instead of becoming live',
   assert.ok(events.includes('renderer:pause'));
   assert.equal(events.filter((event) => event === 'renderer:create').length, 1);
 
-  demo.setInViewport(true);
-  await waitFor(() => demo.getSnapshot().mode === 'live');
+  await demo.setInViewport(true);
   assert.equal(demo.getSnapshot().mode, 'live');
-  assert.ok(events.includes('renderer:resume'));
+  assert.equal(events.filter((event) => event === 'renderer:pause').length, 1);
+  assert.equal(events.filter((event) => event === 'renderer:resume').length, 1);
+  assert.equal(events.filter((event) => event === 'wasm:pause').length, 1);
+  assert.equal(events.filter((event) => event === 'wasm:resume').length, 1);
   assert.equal(events.filter((event) => event === 'renderer:create').length, 1);
+});
+
+test('foreground and viewport return resume existing sessions exactly once', async () => {
+  const { seams, rendererEvents, wasmEvents } = connectedSeams();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 0);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 0);
+
+  await demo.setInViewport(false);
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.equal(rendererEvents.filter((event) => event === 'pause').length, 1);
+  assert.equal(wasmEvents.filter((event) => event === 'pause').length, 1);
+
+  await demo.setInViewport(true);
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+
+  await demo.setInViewport(true);
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 1);
+
+  await demo.setDocumentHidden(true);
+  assert.equal(rendererEvents.filter((event) => event === 'pause').length, 2);
+  assert.equal(wasmEvents.filter((event) => event === 'pause').length, 2);
+
+  await demo.setDocumentHidden(false);
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 2);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 2);
+  assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
+});
+
+test('context loss after renderer create and before WASM init disposes the renderer immediately', async () => {
+  const events = [];
+  const wasmInit = deferred();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          events.push('renderer:create');
+          return trackingSession(events, 'renderer');
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init() {
+          events.push('wasm:init');
+          await wasmInit.promise;
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  const started = demo.startIfAllowed();
+  await waitFor(() => events.includes('wasm:init'));
+  assert.ok(events.includes('renderer:create'));
+  assert.equal(events.includes('renderer:dispose'), false);
+  assert.equal(demo.getSnapshot().mode, 'initializing');
+
+  demo.reportContextLost();
+
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'webgl-context-lost');
+  assert.equal(demo.getSnapshot().hasGraphicsSurface, false);
+  assert.ok(events.includes('renderer:dispose'));
+  assert.ok(events.includes('disposePartial'));
+  assert.equal(events.includes('wasm:dispose'), false);
+
+  wasmInit.resolve();
+  await started;
+
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'webgl-context-lost');
+  assert.equal(demo.getSnapshot().hasGraphicsSurface, false);
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+  assert.ok(events.includes('wasm:dispose'));
+});
+
+function createFakeIsland() {
+  const status = { textContent: runtime.STATIC_DEMO_STATUS };
+  const play = {
+    hidden: true,
+    disabled: false,
+    textContent: 'Play animation',
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const surface = { hidden: true };
+  const elements = {
+    '[data-demo-status]': status,
+    '[data-demo-play]': play,
+    '[data-demo-surface]': surface,
+  };
+  const root = {
+    dataset: {},
+    querySelector(selector) {
+      return elements[selector] ?? null;
+    },
+    addEventListener() {},
+    removeEventListener() {},
+  };
+
+  return { root, status, play, surface };
+}
+
+function installBindingHost() {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const document = {
+    hidden: false,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const window = {
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  globalThis.document = document;
+  globalThis.window = window;
+  return () => {
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
+  };
+}
+
+test('binding paints the live surface after deferred init from a viewport return', async () => {
+  const wasmInit = deferred();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          return trackingSession([], 'renderer');
+        },
+      },
+      wasm: {
+        async init() {
+          await wasmInit.promise;
+          return trackingSession([], 'wasm');
+        },
+      },
+    },
+    inViewport: false,
+    documentHidden: false,
+  });
+
+  const { root, status, play, surface } = createFakeIsland();
+  const restoreHost = installBindingHost();
+  let binding;
+
+  try {
+    binding = enhance.bindDemoIsland(root, demo);
+
+    assert.equal(root.dataset.mode, 'initializing');
+    assert.equal(play.hidden, false);
+    assert.equal(play.disabled, true);
+    assert.equal(play.textContent, 'Play animation');
+    assert.equal(surface.hidden, true);
+    assert.equal(demo.getSnapshot().mode, 'initializing');
+
+    wasmInit.resolve();
+    await waitFor(() => root.dataset.mode === 'live');
+
+    assert.equal(root.dataset.mode, 'live');
+    assert.equal(root.dataset.reason, 'ok');
+    assert.equal(surface.hidden, false);
+    assert.equal(play.hidden, false);
+    assert.equal(play.disabled, false);
+    assert.equal(play.textContent, 'Pause animation');
+    assert.match(status.textContent, /Live visualization is running/);
+    assert.equal(demo.getSnapshot().hasGraphicsSurface, true);
+  } finally {
+    binding?.dispose();
+    restoreHost();
+  }
 });
