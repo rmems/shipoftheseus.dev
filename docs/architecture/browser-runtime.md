@@ -2,7 +2,7 @@
 
 - **Status:** accepted for V1
 - **Decision date:** 2026-09-16
-- **Scope:** GitHub #4, #6, #14, and #15
+- **Scope:** GitHub #4, #6, #14, #15, and #21
 
 ## Decision
 
@@ -43,17 +43,19 @@ algorithms owned elsewhere:
 | Reward/modulator mapping (when needed) | `limbic-critic` |
 | Training/session orchestration (when needed) | `plasticity-lab` |
 | NIR graph interchange (later/selective) | `nir-rs` without `hdf5` |
+| Canonical protocol/provenance models, envelopes, wire compatibility, fail-closed decode, protocol limits, and validation for the V1 recorded viewer | `corpus-ipc` default schema/validation surface |
 
 Dependencies point from the adapter to these crates. Upstream crates must remain
 browser-agnostic; Three.js, DOM types, workers, and `wasm-bindgen` do not leak
 into their APIs. A failing dependency is an upstream compatibility blocker, not
 permission to add a site-local substitute.
 
-`myelin-accelerator` CUDA, `corpus-ipc` native IPC services, and FPGA execution
-are artifact/server/native evidence only. They are not linked into the browser
-bundle. In particular, browser builds exclude `corpus-ipc/zmq`,
-`corpus-ipc/server`, `nir-rs/hdf5`, the `myelin-accelerator/cuda` feature, native
-IPC services, and FPGA execution.
+The adapter/recorded viewer may link `corpus-ipc` with no features for its
+canonical schema and validation responsibilities. It must exclude
+`corpus-ipc/zmq`, `corpus-ipc/server`, every native transport, and every native
+service. `myelin-accelerator` CUDA and FPGA execution remain artifact/native
+evidence only and are not linked into the browser bundle. Browser builds also
+exclude `nir-rs/hdf5` and the `myelin-accelerator/cuda` feature.
 
 ## Deterministic Rust/WASM contract
 
@@ -80,7 +82,17 @@ state(instance) -> StateView
 - `state` is a read-only snapshot containing its contract version, seed,
   completed step, neuron/spike buffers, topology identifiers, and stable error
   status. Large numeric fields cross the boundary in typed arrays, not per-item
-  JavaScript objects.
+  JavaScript objects. Every exported snapshot is materialized into independent,
+  JS-owned `ArrayBuffer`s; it is never a writable or live view of WASM linear
+  memory. A worker transfers each snapshot buffer to the main thread exactly
+  once, which detaches it in the worker. The renderer may reuse that JS-owned
+  buffer until the next snapshot replaces it, then releases all references so
+  garbage collection can reclaim it; buffers are not returned to or reused by
+  the worker in V1.
+- Every `u64` in the contract, including seed, sequence, and logical-step values,
+  crosses the JavaScript boundary as lossless `bigint`, never as JavaScript
+  `number`. Serialization into canonical envelopes uses an exact fixed-width
+  representation defined by `corpus-ipc`, not a floating-point conversion.
 - Same adapter/upstream revisions, contract version, configuration, ordered
   inputs, seed, and step count must produce byte-equivalent exported state.
   Tests use fixed golden seeds. Any intentional determinism break requires a
@@ -125,17 +137,17 @@ each crate. “Pass” means `cargo check` completed for only that selected surf
 it does not approve the crate for the V1 dependency graph when the ownership
 decision above places it outside the browser.
 
-| Package | Version | Exact commit | Selected features and command suffix | Result / exact blocker |
-| --- | ---: | --- | --- | --- |
-| `kinetic-signals` | 0.5.0 | `e829a0d5826c0d1175b8878b024a69ce4e1d538b` | `--no-default-features` | **Pass** |
-| `axon-encoder` | 0.4.0 | `bfe010122ab28ca33acedbdceb64ca6ad9125235` | `--no-default-features --features serde` | **Blocked:** `rand 0.10.2` reaches `getrandom 0.4.3`, whose default configuration emits a compile error for `wasm32-unknown-unknown` and requires its `wasm_js` feature. |
-| `neuromod` | 0.6.0 | `5d19fcddd53103a73ef9254a81cc5c87adb415a3` | `--no-default-features` | **Blocked:** `rand 0.10.1` reaches `getrandom 0.4.3`, whose default configuration emits the same missing-`wasm_js` compile error. |
-| `synaptic-wiring` | 0.3.0 | `581b90f247e9e4f48542b40e39180d7e78eb3f18` | `--no-default-features` | **Pass** |
-| `nir-rs` | 0.4.3 | `1043cbf7bc6acbece250c769b9c2c8f7c58ce681` | `--no-default-features --features serde` (`hdf5` excluded) | **Pass** |
-| `limbic-critic` | 0.3.0 | `9bf0c79f5a47fac9c5b921dd9011b013d1ae52bb` | `--no-default-features` | **Pass** |
-| `plasticity-lab` | 0.1.0 | `d47ae33914b6a3044d0539b851cd83621b7f1f4b` | `--no-default-features --features critic` | **Blocked:** its `neuromod 0.6.0` git dependency reaches `getrandom 0.4.3`, which emits the missing-`wasm_js` compile error. |
-| `myelin-accelerator` | 0.2.0 | `26651ca0edf96b080cd5ef89045543c453bd786c` | `--no-default-features` (`cuda` excluded) | **Pass**, using the crate's non-CUDA stub PTX build path; still excluded from the browser dependency graph. |
-| `corpus-ipc` | 0.1.0 | `d99e6544d7925dc0ccfe69fdff372352b0a9d041` | `--no-default-features` (`zmq` and `server` excluded) | **Pass**; still excluded from the browser dependency graph. |
+| Package | Canonical repository | Version | Exact commit | Selected features and command suffix | Result / exact blocker |
+| --- | --- | ---: | --- | --- | --- |
+| `kinetic-signals` | `rmems/kinetic-signals` | 0.5.0 | `e829a0d5826c0d1175b8878b024a69ce4e1d538b` | `--no-default-features` | **Pass** |
+| `axon-encoder` | `Limen-Neural/axon-encoder` | 0.4.0 | `bfe010122ab28ca33acedbdceb64ca6ad9125235` | `--no-default-features --features serde` | **Blocked:** `rand 0.10.2` reaches `getrandom 0.4.3`, whose default configuration emits a compile error for `wasm32-unknown-unknown` and requires its `wasm_js` feature. |
+| `neuromod` | `Limen-Neural/neuromod` | 0.6.0 | `5d19fcddd53103a73ef9254a81cc5c87adb415a3` | `--no-default-features` | **Blocked:** the manifest requires `rand = "0.10.1"`, while the committed lockfile resolves `rand 0.10.2`; that resolution reaches `getrandom 0.4.3`, whose default configuration emits the missing-`wasm_js` compile error. |
+| `synaptic-wiring` | `Limen-Neural/synaptic-wiring` | 0.3.0 | `581b90f247e9e4f48542b40e39180d7e78eb3f18` | `--no-default-features` | **Pass** |
+| `nir-rs` | `Limen-Neural/nir-rs` | 0.4.3 | `1043cbf7bc6acbece250c769b9c2c8f7c58ce681` | `--no-default-features --features serde` (`hdf5` excluded) | **Pass** |
+| `limbic-critic` | `Limen-Neural/limbic-critic` | 0.3.0 | `9bf0c79f5a47fac9c5b921dd9011b013d1ae52bb` | `--no-default-features` | **Pass** |
+| `plasticity-lab` | `Limen-Neural/plasticity-lab` | 0.1.0 | `d47ae33914b6a3044d0539b851cd83621b7f1f4b` | `--no-default-features --features critic` | **Blocked:** its `neuromod 0.6.0` git dependency reaches `getrandom 0.4.3`, which emits the missing-`wasm_js` compile error. |
+| `myelin-accelerator` | `Limen-Neural/myelin-accelerator` | 0.2.0 | `26651ca0edf96b080cd5ef89045543c453bd786c` | `--no-default-features` (`cuda` excluded) | **Pass**, using the crate's non-CUDA stub PTX build path; still excluded from the browser dependency graph. |
+| `corpus-ipc` | `Limen-Neural/corpus-ipc` | 0.1.0 | `d99e6544d7925dc0ccfe69fdff372352b0a9d041` | `--no-default-features` (`zmq` and `server` excluded) | **Pass**; approved for the V1 browser adapter/recorded viewer as the canonical protocol/provenance schema and validation layer. |
 
 Every row used:
 
@@ -143,9 +155,15 @@ Every row used:
 cargo +1.98.1 check --target wasm32-unknown-unknown <selected feature suffix>
 ```
 
-The launch gate remains closed for the end-to-end adapter until
-`axon-encoder` and `neuromod` expose an upstream-supported deterministic WASM
-randomness configuration. `plasticity-lab` inherits the `neuromod` blocker.
-The site must pin audited commits (or deliberately re-audit newer commits), pin
-the Rust toolchain, commit its dependency lockfile, and run these target checks
-in CI before enabling the live browser simulation.
+This completed audit did **not** use `--locked`. All future CI checks and
+re-audits must use `--locked` so their dependency resolutions are reproducible.
+
+Merging this ADR and RM-1639 closes only the architecture decision. Full
+RM-1640/GitHub #4 dispatch, plus RM-1650/GitHub #14 and RM-1651/GitHub #15,
+remain blocked: `axon-encoder` and `neuromod` fail the selected WASM target, and
+`plasticity-lab` inherits the `neuromod` blocker. Scaffold-only work or work on a
+compatible subset requires a separately bounded task and cannot satisfy or close
+RM-1640. Re-dispatch requires upstream-supported fixes followed by a locked
+WASM re-audit at exact pinned revisions. The site must also pin the Rust
+toolchain, commit its dependency lockfile, and run those locked target checks in
+CI before enabling the live browser simulation.
