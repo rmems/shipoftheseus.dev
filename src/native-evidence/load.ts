@@ -30,7 +30,7 @@ function listJsonFiles(directory: string): string[] {
     }
   }
 
-  return files.sort();
+  return files.sort((left, right) => left.localeCompare(right, 'en'));
 }
 
 function catalogStatus(artifactCount: number, issueCount: number, missing: boolean): NativeEvidenceCatalog['status'] {

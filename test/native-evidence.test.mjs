@@ -166,6 +166,18 @@ test('measured artifacts fail closed without a capture method', () => {
     published.issues.some((issue) => issue.code === 'invalid-artifact' && /captureCommand/.test(issue.message)),
     true,
   );
+
+  const cwd = mkdtempSync(join(tmpdir(), 'native-evidence-missing-capture-'));
+  try {
+    mkdirSync(join(cwd, 'src/content/native-evidence'), { recursive: true });
+    writeFileSync(
+      join(cwd, 'src/content/native-evidence/invalid-measured-missing-capture.json'),
+      readFixture('invalid-measured-missing-capture.json'),
+    );
+    assert.throws(() => catalog.loadPublishedNativeEvidence(cwd), /captureCommand/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test('measured artifacts load from a catalog and synthetic files stay unpublished', () => {
@@ -245,6 +257,54 @@ test('the live demo and recorded evidence surfaces keep distinct labels and rema
   assert.match(evidencePage, /loadPublishedNativeEvidence/);
   assert.match(home, /NativeEvidence/);
   assert.match(home, /loadPublishedNativeEvidence/);
+});
+
+test('trace timestamps and neuron ids reject integers above MAX_SAFE_INTEGER', () => {
+  const fixture = JSON.parse(readFixture('valid-fpga-synthetic.json'));
+  const accepted = structuredClone(fixture);
+  accepted.traces[0].timeNs = Number.MAX_SAFE_INTEGER;
+  accepted.traces[0].neuronId = 0;
+  const ok = evidence.parseNativeEvidenceValue(accepted);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.artifact.traces[0].timeNs, Number.MAX_SAFE_INTEGER);
+  assert.equal(ok.artifact.traces[0].neuronId, 0);
+
+  const overflowTime = structuredClone(fixture);
+  overflowTime.traces[0].timeNs = Number.MAX_SAFE_INTEGER + 1;
+  const time = evidence.parseNativeEvidenceValue(overflowTime);
+  assert.equal(time.ok, false);
+  assert.equal(time.issue.code, 'invalid-artifact');
+  assert.match(time.issue.message, /timeNs/);
+
+  const overflowNeuron = structuredClone(fixture);
+  overflowNeuron.traces[1].neuronId = Number.MAX_SAFE_INTEGER + 1;
+  const neuron = evidence.parseNativeEvidenceValue(overflowNeuron);
+  assert.equal(neuron.ok, false);
+  assert.match(neuron.issue.message, /neuronId/);
+
+  const fractional = structuredClone(fixture);
+  fractional.traces[0].timeNs = 1.5;
+  const fraction = evidence.parseNativeEvidenceValue(fractional);
+  assert.equal(fraction.ok, false);
+  assert.match(fraction.issue.message, /timeNs/);
+
+  const jsonOverflow = readFixture('valid-fpga-synthetic.json').replace(
+    '"timeNs": 12',
+    '"timeNs": 9007199254740993',
+  );
+  const parsedJson = evidence.parseNativeEvidenceJson(jsonOverflow);
+  assert.equal(parsedJson.ok, false);
+  assert.match(parsedJson.issue.message, /timeNs/);
+});
+
+test('recorded metric formatting never renders a finite nonzero value as zero', () => {
+  assert.equal(view.formatResultValue(1), '1');
+  assert.equal(view.formatResultValue(1.25), '1.25');
+  assert.equal(view.formatResultValue(0), '0');
+  assert.notEqual(view.formatResultValue(0.00001), '0');
+  assert.notEqual(view.formatResultValue(-0.00001), '0');
+  assert.notEqual(Number(view.formatResultValue(0.00001)), 0);
+  assert.match(view.formatResultValue(0.00001), /e/i);
 });
 
 test('the browser package graph does not include native CUDA, FPGA, or IPC dependencies', () => {

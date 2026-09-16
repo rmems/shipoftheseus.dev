@@ -62,10 +62,34 @@ export function artifactCommitUrl(artifact: NativeEvidenceArtifact): string {
   return `${artifact.provenance.sourceRepository}/commit/${artifact.provenance.sourceRevision}`;
 }
 
+const FIXED_FRACTION_DIGITS = 4;
+const SCIENTIFIC_ABS_THRESHOLD = 1e-4;
+
+function formattedNumberIsZero(formatted: string): boolean {
+  return Number(formatted.replace(/,/g, '')) === 0;
+}
+
 export function formatResultValue(value: number): string {
+  if (!Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (value === 0) {
+    return '0';
+  }
+
   if (Number.isInteger(value)) {
     return String(value);
   }
 
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(value);
+  if (Math.abs(value) < SCIENTIFIC_ABS_THRESHOLD) {
+    return value.toExponential(FIXED_FRACTION_DIGITS);
+  }
+
+  const formatted = new Intl.NumberFormat('en-US', { maximumFractionDigits: FIXED_FRACTION_DIGITS }).format(value);
+  if (formattedNumberIsZero(formatted)) {
+    return value.toExponential(FIXED_FRACTION_DIGITS);
+  }
+
+  return formatted;
 }

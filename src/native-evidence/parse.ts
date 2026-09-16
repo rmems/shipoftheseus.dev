@@ -66,6 +66,20 @@ export type NativeEvidenceParseResult =
 
 type ParseFailure = Extract<NativeEvidenceParseResult, { ok: false }>;
 
+interface ArtifactEnvelope {
+  id: string;
+  kind: NativeEvidenceKind;
+  title: string;
+  summary?: string;
+  capturedAt: string;
+  recordStatus: NativeEvidenceRecordStatus;
+  provenance: NativeEvidenceProvenance;
+  hardware: NativeEvidenceHardware;
+  workload: NativeEvidenceWorkload;
+  results?: NativeEvidenceResult[];
+  traces?: NativeEvidenceTraceEvent[];
+}
+
 function assertNever(value: never, label: string): never {
   throw new Error(`Unhandled ${label}: ${String(value)}`);
 }
@@ -90,13 +104,43 @@ function nonEmptyString(value: unknown, maxLength: number): value is string {
   return typeof value === 'string' && value.trim() === value && value.length > 0 && value.length <= maxLength;
 }
 
-function optionalNonEmptyString(value: unknown, maxLength: number): value is string {
-  return nonEmptyString(value, maxLength);
+function nonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function filenameId(path: string): string {
   const filename = path.split(/[/\\]/).pop() ?? path;
   return filename.replace(/\.json$/i, '');
+}
+
+function assignOptionalString<T extends object>(
+  target: T,
+  key: string,
+  value: string | undefined,
+): T {
+  if (value !== undefined) {
+    Object.assign(target, { [key]: value });
+  }
+
+  return target;
+}
+
+function readOptionalNonEmptyString(
+  value: Record<string, unknown>,
+  key: string,
+  maxLength: number,
+  message: string,
+  path?: string,
+): { ok: true; text?: string } | ParseFailure {
+  if (!(key in value)) {
+    return { ok: true };
+  }
+
+  if (!nonEmptyString(value[key], maxLength)) {
+    return fail('invalid-artifact', message, path);
+  }
+
+  return { ok: true, text: value[key] };
 }
 
 export function parseNativeEvidenceJson(
@@ -121,54 +165,120 @@ export function parseNativeEvidenceValue(
     return fail('invalid-artifact', 'Artifact must be a JSON object.', options.path);
   }
 
+  const envelope = parseArtifactEnvelope(value, options);
+  if (!envelope.ok) {
+    return envelope;
+  }
+
+  return finalizeArtifact(envelope.envelope, options.path);
+}
+
+function parseSchemaHeader(value: Record<string, unknown>, path?: string): { ok: true } | ParseFailure {
   if ('schemaVersion' in value) {
     const version = value.schemaVersion;
     if (typeof version === 'number' && Number.isInteger(version) && version !== NATIVE_EVIDENCE_SCHEMA_VERSION) {
       return fail(
         'unsupported-version',
         `Unsupported native-evidence schema version ${String(version)}. Expected ${NATIVE_EVIDENCE_SCHEMA_VERSION}.`,
-        options.path,
+        path,
       );
     }
   }
 
   const extra = unknownKeys(value, ARTIFACT_KEYS);
   if (extra.length > 0) {
-    return fail('invalid-artifact', `Unknown artifact field(s): ${extra.join(', ')}.`, options.path);
+    return fail('invalid-artifact', `Unknown artifact field(s): ${extra.join(', ')}.`, path);
   }
 
   if (value.schema !== NATIVE_EVIDENCE_SCHEMA_ID) {
     return fail(
       'invalid-artifact',
       `schema must be "${NATIVE_EVIDENCE_SCHEMA_ID}".`,
-      options.path,
+      path,
     );
   }
 
-  if (value.schemaVersion !== NATIVE_EVIDENCE_SCHEMA_VERSION) {
-    if (typeof value.schemaVersion === 'number') {
-      return fail(
-        'unsupported-version',
-        `Unsupported native-evidence schema version ${String(value.schemaVersion)}. Expected ${NATIVE_EVIDENCE_SCHEMA_VERSION}.`,
-        options.path,
-      );
-    }
-    return fail('invalid-artifact', 'schemaVersion must be the integer 1.', options.path);
+  if (value.schemaVersion === NATIVE_EVIDENCE_SCHEMA_VERSION) {
+    return { ok: true };
+  }
+
+  if (typeof value.schemaVersion === 'number') {
+    return fail(
+      'unsupported-version',
+      `Unsupported native-evidence schema version ${String(value.schemaVersion)}. Expected ${NATIVE_EVIDENCE_SCHEMA_VERSION}.`,
+      path,
+    );
+  }
+
+  return fail('invalid-artifact', 'schemaVersion must be the integer 1.', path);
+}
+
+function parseIdConstraint(
+  id: string,
+  options: ParseNativeEvidenceOptions,
+): { ok: true } | ParseFailure {
+  if (!options.requireIdMatchesFilename || !options.path) {
+    return { ok: true };
+  }
+
+  const expected = filenameId(options.path);
+  if (expected === id) {
+    return { ok: true };
+  }
+
+  return fail(
+    'id-filename-mismatch',
+    `Artifact id "${id}" must match filename "${expected}".`,
+    options.path,
+  );
+}
+
+function parseTitleAndSummary(
+  value: Record<string, unknown>,
+  path?: string,
+): { ok: true; title: string; summary?: string } | ParseFailure {
+  if (!nonEmptyString(value.title, MAX_TITLE_LENGTH)) {
+    return fail('invalid-artifact', 'title must be a non-empty string.', path);
+  }
+
+  const summary = readOptionalNonEmptyString(
+    value,
+    'summary',
+    MAX_SUMMARY_LENGTH,
+    'summary must be a non-empty string when present.',
+    path,
+  );
+  if (!summary.ok) {
+    return summary;
+  }
+
+  return { ok: true, title: value.title, summary: summary.text };
+}
+
+function parseCapturedAt(value: unknown, path?: string): { ok: true; capturedAt: string } | ParseFailure {
+  if (typeof value === 'string' && CAPTURED_AT.test(value) && !Number.isNaN(Date.parse(value))) {
+    return { ok: true, capturedAt: value };
+  }
+
+  return fail('invalid-artifact', 'capturedAt must be an ISO-8601 UTC timestamp.', path);
+}
+
+function parseArtifactEnvelope(
+  value: Record<string, unknown>,
+  options: ParseNativeEvidenceOptions,
+): { ok: true; envelope: ArtifactEnvelope } | ParseFailure {
+  const header = parseSchemaHeader(value, options.path);
+  if (!header.ok) {
+    return header;
   }
 
   if (!nonEmptyString(value.id, 80) || !ARTIFACT_ID.test(value.id)) {
     return fail('invalid-artifact', 'id must be a kebab-case identifier.', options.path);
   }
 
-  if (options.requireIdMatchesFilename && options.path) {
-    const expected = filenameId(options.path);
-    if (expected !== value.id) {
-      return fail(
-        'id-filename-mismatch',
-        `Artifact id "${value.id}" must match filename "${expected}".`,
-        options.path,
-      );
-    }
+  const idMatch = parseIdConstraint(value.id, options);
+  if (!idMatch.ok) {
+    return idMatch;
   }
 
   const kindResult = parseKind(value.kind, options.path);
@@ -181,99 +291,158 @@ export function parseNativeEvidenceValue(
     return recordStatusResult;
   }
 
-  if (!nonEmptyString(value.title, MAX_TITLE_LENGTH)) {
-    return fail('invalid-artifact', 'title must be a non-empty string.', options.path);
+  const titleSummary = parseTitleAndSummary(value, options.path);
+  if (!titleSummary.ok) {
+    return titleSummary;
   }
 
-  let summary: string | undefined;
-  if ('summary' in value) {
-    if (!optionalNonEmptyString(value.summary, MAX_SUMMARY_LENGTH)) {
-      return fail('invalid-artifact', 'summary must be a non-empty string when present.', options.path);
+  const capturedAt = parseCapturedAt(value.capturedAt, options.path);
+  if (!capturedAt.ok) {
+    return capturedAt;
+  }
+
+  const records = parseArtifactRecords(value, kindResult.kind, recordStatusResult.status, options.path);
+  if (!records.ok) {
+    return records;
+  }
+
+  return {
+    ok: true,
+    envelope: {
+      id: value.id,
+      kind: kindResult.kind,
+      title: titleSummary.title,
+      summary: titleSummary.summary,
+      capturedAt: capturedAt.capturedAt,
+      recordStatus: recordStatusResult.status,
+      provenance: records.provenance,
+      hardware: records.hardware,
+      workload: records.workload,
+      results: records.results,
+      traces: records.traces,
+    },
+  };
+}
+
+function parseArtifactRecords(
+  value: Record<string, unknown>,
+  kind: NativeEvidenceKind,
+  recordStatus: NativeEvidenceRecordStatus,
+  path?: string,
+):
+  | {
+      ok: true;
+      provenance: NativeEvidenceProvenance;
+      hardware: NativeEvidenceHardware;
+      workload: NativeEvidenceWorkload;
+      results?: NativeEvidenceResult[];
+      traces?: NativeEvidenceTraceEvent[];
     }
-    summary = value.summary;
-  }
-
-  if (typeof value.capturedAt !== 'string' || !CAPTURED_AT.test(value.capturedAt) || Number.isNaN(Date.parse(value.capturedAt))) {
-    return fail('invalid-artifact', 'capturedAt must be an ISO-8601 UTC timestamp.', options.path);
-  }
-
-  const provenance = parseProvenance(value.provenance, recordStatusResult.status, options.path);
+  | ParseFailure {
+  const provenance = parseProvenance(value.provenance, recordStatus, path);
   if (!provenance.ok) {
     return provenance;
   }
 
-  const hardware = parseHardware(value.hardware, kindResult.kind, options.path);
+  const hardware = parseHardware(value.hardware, kind, path);
   if (!hardware.ok) {
     return hardware;
   }
 
-  const workload = parseWorkload(value.workload, options.path);
+  const workload = parseWorkload(value.workload, path);
   if (!workload.ok) {
     return workload;
   }
 
-  const results = parseResults(value.results, options.path);
+  const results = parseResults(value.results, path);
   if (!results.ok) {
     return results;
   }
 
-  const traces = parseTraces(value.traces, options.path);
+  const traces = parseTraces(value.traces, path);
   if (!traces.ok) {
     return traces;
   }
 
-  switch (kindResult.kind) {
-    case 'cuda-benchmark': {
-      if (hardware.hardware.class !== 'cuda') {
-        return fail('invalid-artifact', 'cuda-benchmark artifacts require hardware.class "cuda".', options.path);
-      }
-      if (results.results === undefined || results.results.length === 0) {
-        return fail('invalid-artifact', 'cuda-benchmark artifacts require at least one result with units.', options.path);
-      }
-      const artifact: CudaBenchmarkArtifact = {
-        schema: NATIVE_EVIDENCE_SCHEMA_ID,
-        schemaVersion: NATIVE_EVIDENCE_SCHEMA_VERSION,
-        id: value.id,
-        kind: 'cuda-benchmark',
-        title: value.title,
-        summary,
-        capturedAt: value.capturedAt,
-        recordStatus: recordStatusResult.status,
-        provenance: provenance.provenance,
-        hardware: { ...hardware.hardware, class: 'cuda' },
-        workload: workload.workload,
-        results: results.results,
-        traces: traces.traces,
-      };
-      return { ok: true, artifact };
-    }
-    case 'fpga-snn-trace': {
-      if (hardware.hardware.class !== 'fpga') {
-        return fail('invalid-artifact', 'fpga-snn-trace artifacts require hardware.class "fpga".', options.path);
-      }
-      if (traces.traces === undefined || traces.traces.length === 0) {
-        return fail('invalid-artifact', 'fpga-snn-trace artifacts require at least one hardware trace event.', options.path);
-      }
-      const artifact: FpgaSnnTraceArtifact = {
-        schema: NATIVE_EVIDENCE_SCHEMA_ID,
-        schemaVersion: NATIVE_EVIDENCE_SCHEMA_VERSION,
-        id: value.id,
-        kind: 'fpga-snn-trace',
-        title: value.title,
-        summary,
-        capturedAt: value.capturedAt,
-        recordStatus: recordStatusResult.status,
-        provenance: provenance.provenance,
-        hardware: { ...hardware.hardware, class: 'fpga' },
-        workload: workload.workload,
-        traces: traces.traces,
-        results: results.results,
-      };
-      return { ok: true, artifact };
-    }
+  return {
+    ok: true,
+    provenance: provenance.provenance,
+    hardware: hardware.hardware,
+    workload: workload.workload,
+    results: results.results,
+    traces: traces.traces,
+  };
+}
+
+function finalizeArtifact(envelope: ArtifactEnvelope, path?: string): NativeEvidenceParseResult {
+  switch (envelope.kind) {
+    case 'cuda-benchmark':
+      return finalizeCudaArtifact(envelope, path);
+    case 'fpga-snn-trace':
+      return finalizeFpgaArtifact(envelope, path);
     default:
-      return assertNever(kindResult.kind, 'native evidence kind');
+      return assertNever(envelope.kind, 'native evidence kind');
   }
+}
+
+function finalizeCudaArtifact(
+  envelope: ArtifactEnvelope,
+  path?: string,
+): NativeEvidenceParseResult {
+  if (envelope.hardware.class !== 'cuda') {
+    return fail('invalid-artifact', 'cuda-benchmark artifacts require hardware.class "cuda".', path);
+  }
+
+  if (envelope.results === undefined || envelope.results.length === 0) {
+    return fail('invalid-artifact', 'cuda-benchmark artifacts require at least one result with units.', path);
+  }
+
+  const artifact: CudaBenchmarkArtifact = {
+    schema: NATIVE_EVIDENCE_SCHEMA_ID,
+    schemaVersion: NATIVE_EVIDENCE_SCHEMA_VERSION,
+    id: envelope.id,
+    kind: 'cuda-benchmark',
+    title: envelope.title,
+    summary: envelope.summary,
+    capturedAt: envelope.capturedAt,
+    recordStatus: envelope.recordStatus,
+    provenance: envelope.provenance,
+    hardware: { ...envelope.hardware, class: 'cuda' },
+    workload: envelope.workload,
+    results: envelope.results,
+    traces: envelope.traces,
+  };
+  return { ok: true, artifact };
+}
+
+function finalizeFpgaArtifact(
+  envelope: ArtifactEnvelope,
+  path?: string,
+): NativeEvidenceParseResult {
+  if (envelope.hardware.class !== 'fpga') {
+    return fail('invalid-artifact', 'fpga-snn-trace artifacts require hardware.class "fpga".', path);
+  }
+
+  if (envelope.traces === undefined || envelope.traces.length === 0) {
+    return fail('invalid-artifact', 'fpga-snn-trace artifacts require at least one hardware trace event.', path);
+  }
+
+  const artifact: FpgaSnnTraceArtifact = {
+    schema: NATIVE_EVIDENCE_SCHEMA_ID,
+    schemaVersion: NATIVE_EVIDENCE_SCHEMA_VERSION,
+    id: envelope.id,
+    kind: 'fpga-snn-trace',
+    title: envelope.title,
+    summary: envelope.summary,
+    capturedAt: envelope.capturedAt,
+    recordStatus: envelope.recordStatus,
+    provenance: envelope.provenance,
+    hardware: { ...envelope.hardware, class: 'fpga' },
+    workload: envelope.workload,
+    traces: envelope.traces,
+    results: envelope.results,
+  };
+  return { ok: true, artifact };
 }
 
 function parseKind(
@@ -296,6 +465,48 @@ function parseRecordStatus(
   }
 
   return fail('invalid-artifact', 'recordStatus must be "measured" or "synthetic".', path);
+}
+
+function parseCaptureCommand(
+  value: Record<string, unknown>,
+  recordStatus: NativeEvidenceRecordStatus,
+  path?: string,
+): { ok: true; captureCommand?: string } | ParseFailure {
+  if (recordStatus === 'measured') {
+    if (!nonEmptyString(value.captureCommand, 240)) {
+      return fail(
+        'invalid-artifact',
+        'Measured artifacts require a non-empty provenance.captureCommand.',
+        path,
+      );
+    }
+    return { ok: true, captureCommand: value.captureCommand };
+  }
+
+  if (!('captureCommand' in value)) {
+    return { ok: true };
+  }
+
+  if (!nonEmptyString(value.captureCommand, 240)) {
+    return fail('invalid-artifact', 'provenance.captureCommand must be a non-empty string when present.', path);
+  }
+
+  return { ok: true, captureCommand: value.captureCommand };
+}
+
+function parseCrateVersion(
+  value: Record<string, unknown>,
+  path?: string,
+): { ok: true; crateVersion?: string } | ParseFailure {
+  if (!('crateVersion' in value)) {
+    return { ok: true };
+  }
+
+  if (typeof value.crateVersion === 'string' && CRATE_VERSION.test(value.crateVersion)) {
+    return { ok: true, crateVersion: value.crateVersion };
+  }
+
+  return fail('invalid-artifact', 'provenance.crateVersion must be a semantic version when present.', path);
 }
 
 function parseProvenance(
@@ -324,42 +535,35 @@ function parseProvenance(
     return fail('invalid-artifact', 'provenance.sourcePath must be a relative repository path.', path);
   }
 
+  const crateName = readOptionalNonEmptyString(
+    value,
+    'crateName',
+    80,
+    'provenance.crateName must be a non-empty string when present.',
+    path,
+  );
+  if (!crateName.ok) {
+    return crateName;
+  }
+
+  const crateVersion = parseCrateVersion(value, path);
+  if (!crateVersion.ok) {
+    return crateVersion;
+  }
+
+  const capture = parseCaptureCommand(value, recordStatus, path);
+  if (!capture.ok) {
+    return capture;
+  }
+
   const provenance: NativeEvidenceProvenance = {
     sourceRepository: value.sourceRepository.replace(/\.git$/, ''),
     sourceRevision: value.sourceRevision,
     sourcePath: value.sourcePath,
   };
-
-  if ('crateName' in value) {
-    if (!nonEmptyString(value.crateName, 80)) {
-      return fail('invalid-artifact', 'provenance.crateName must be a non-empty string when present.', path);
-    }
-    provenance.crateName = value.crateName;
-  }
-
-  if ('crateVersion' in value) {
-    if (typeof value.crateVersion !== 'string' || !CRATE_VERSION.test(value.crateVersion)) {
-      return fail('invalid-artifact', 'provenance.crateVersion must be a semantic version when present.', path);
-    }
-    provenance.crateVersion = value.crateVersion;
-  }
-
-  if (recordStatus === 'measured') {
-    if (!nonEmptyString(value.captureCommand, 240)) {
-      return fail(
-        'invalid-artifact',
-        'Measured artifacts require a non-empty provenance.captureCommand.',
-        path,
-      );
-    }
-    provenance.captureCommand = value.captureCommand;
-  } else if ('captureCommand' in value) {
-    if (!nonEmptyString(value.captureCommand, 240)) {
-      return fail('invalid-artifact', 'provenance.captureCommand must be a non-empty string when present.', path);
-    }
-    provenance.captureCommand = value.captureCommand;
-  }
-
+  assignOptionalString(provenance, 'crateName', crateName.text);
+  assignOptionalString(provenance, 'crateVersion', crateVersion.crateVersion);
+  assignOptionalString(provenance, 'captureCommand', capture.captureCommand);
   return { ok: true, provenance };
 }
 
@@ -386,32 +590,46 @@ function parseHardware(
     return fail('invalid-artifact', 'hardware.deviceName must be a non-empty string.', path);
   }
 
+  const vendor = readOptionalNonEmptyString(
+    value,
+    'vendor',
+    80,
+    'hardware.vendor must be a non-empty string when present.',
+    path,
+  );
+  if (!vendor.ok) {
+    return vendor;
+  }
+
+  const architecture = readOptionalNonEmptyString(
+    value,
+    'architecture',
+    80,
+    'hardware.architecture must be a non-empty string when present.',
+    path,
+  );
+  if (!architecture.ok) {
+    return architecture;
+  }
+
+  const driverVersion = readOptionalNonEmptyString(
+    value,
+    'driverVersion',
+    80,
+    'hardware.driverVersion must be a non-empty string when present.',
+    path,
+  );
+  if (!driverVersion.ok) {
+    return driverVersion;
+  }
+
   const hardware: NativeEvidenceHardware = {
     class: expectedClass,
     deviceName: value.deviceName,
   };
-
-  if ('vendor' in value) {
-    if (!nonEmptyString(value.vendor, 80)) {
-      return fail('invalid-artifact', 'hardware.vendor must be a non-empty string when present.', path);
-    }
-    hardware.vendor = value.vendor;
-  }
-
-  if ('architecture' in value) {
-    if (!nonEmptyString(value.architecture, 80)) {
-      return fail('invalid-artifact', 'hardware.architecture must be a non-empty string when present.', path);
-    }
-    hardware.architecture = value.architecture;
-  }
-
-  if ('driverVersion' in value) {
-    if (!nonEmptyString(value.driverVersion, 80)) {
-      return fail('invalid-artifact', 'hardware.driverVersion must be a non-empty string when present.', path);
-    }
-    hardware.driverVersion = value.driverVersion;
-  }
-
+  assignOptionalString(hardware, 'vendor', vendor.text);
+  assignOptionalString(hardware, 'architecture', architecture.text);
+  assignOptionalString(hardware, 'driverVersion', driverVersion.text);
   return { ok: true, hardware };
 }
 
@@ -424,6 +642,55 @@ function hardwareClassForKind(kind: NativeEvidenceKind): NativeEvidenceHardware[
     default:
       return assertNever(kind, 'native evidence kind');
   }
+}
+
+function parseWorkloadParameters(
+  value: unknown,
+  path?: string,
+): { ok: true; parameters: Record<string, string | number | boolean> } | ParseFailure {
+  if (!isRecord(value)) {
+    return fail('invalid-artifact', 'workload.parameters must be an object when present.', path);
+  }
+
+  const entries = Object.entries(value);
+  if (entries.length === 0 || entries.length > MAX_PARAMETERS) {
+    return fail('invalid-artifact', 'workload.parameters must contain between 1 and 32 entries when present.', path);
+  }
+
+  const parameters: Record<string, string | number | boolean> = {};
+  for (const [key, parameter] of entries) {
+    const parsed = parseWorkloadParameter(key, parameter, path);
+    if (!parsed.ok) {
+      return parsed;
+    }
+    parameters[key] = parsed.parameter;
+  }
+
+  return { ok: true, parameters };
+}
+
+function parseWorkloadParameter(
+  key: string,
+  parameter: unknown,
+  path?: string,
+): { ok: true; parameter: string | number | boolean } | ParseFailure {
+  if (!nonEmptyString(key, 80)) {
+    return fail('invalid-artifact', 'workload.parameters keys must be non-empty strings.', path);
+  }
+
+  if (typeof parameter === 'string' || typeof parameter === 'boolean') {
+    return { ok: true, parameter };
+  }
+
+  if (typeof parameter === 'number' && Number.isFinite(parameter)) {
+    return { ok: true, parameter };
+  }
+
+  if (typeof parameter === 'number') {
+    return fail('invalid-artifact', 'workload.parameters numbers must be finite.', path);
+  }
+
+  return fail('invalid-artifact', 'workload.parameters values must be strings, numbers, or booleans.', path);
 }
 
 function parseWorkload(
@@ -443,39 +710,29 @@ function parseWorkload(
     return fail('invalid-artifact', 'workload.name must be a non-empty string.', path);
   }
 
+  const description = readOptionalNonEmptyString(
+    value,
+    'description',
+    MAX_SUMMARY_LENGTH,
+    'workload.description must be a non-empty string when present.',
+    path,
+  );
+  if (!description.ok) {
+    return description;
+  }
+
   const workload: NativeEvidenceWorkload = { name: value.name };
-
-  if ('description' in value) {
-    if (!optionalNonEmptyString(value.description, MAX_SUMMARY_LENGTH)) {
-      return fail('invalid-artifact', 'workload.description must be a non-empty string when present.', path);
-    }
-    workload.description = value.description;
+  assignOptionalString(workload, 'description', description.text);
+  if (!('parameters' in value)) {
+    return { ok: true, workload };
   }
 
-  if ('parameters' in value) {
-    if (!isRecord(value.parameters)) {
-      return fail('invalid-artifact', 'workload.parameters must be an object when present.', path);
-    }
-    const entries = Object.entries(value.parameters);
-    if (entries.length === 0 || entries.length > MAX_PARAMETERS) {
-      return fail('invalid-artifact', 'workload.parameters must contain between 1 and 32 entries when present.', path);
-    }
-    const parameters: Record<string, string | number | boolean> = {};
-    for (const [key, parameter] of entries) {
-      if (!nonEmptyString(key, 80)) {
-        return fail('invalid-artifact', 'workload.parameters keys must be non-empty strings.', path);
-      }
-      if (typeof parameter !== 'string' && typeof parameter !== 'number' && typeof parameter !== 'boolean') {
-        return fail('invalid-artifact', 'workload.parameters values must be strings, numbers, or booleans.', path);
-      }
-      if (typeof parameter === 'number' && !Number.isFinite(parameter)) {
-        return fail('invalid-artifact', 'workload.parameters numbers must be finite.', path);
-      }
-      parameters[key] = parameter;
-    }
-    workload.parameters = parameters;
+  const parameters = parseWorkloadParameters(value.parameters, path);
+  if (!parameters.ok) {
+    return parameters;
   }
 
+  workload.parameters = parameters.parameters;
   return { ok: true, workload };
 }
 
@@ -616,12 +873,20 @@ function parseTrace(
     return fail('invalid-artifact', `Unknown traces[${index}] field(s): ${extra.join(', ')}.`, path);
   }
 
-  if (typeof value.timeNs !== 'number' || !Number.isInteger(value.timeNs) || value.timeNs < 0) {
-    return fail('invalid-artifact', `traces[${index}].timeNs must be a non-negative integer.`, path);
+  if (!nonNegativeSafeInteger(value.timeNs)) {
+    return fail(
+      'invalid-artifact',
+      `traces[${index}].timeNs must be a non-negative safe integer.`,
+      path,
+    );
   }
 
-  if (typeof value.neuronId !== 'number' || !Number.isInteger(value.neuronId) || value.neuronId < 0) {
-    return fail('invalid-artifact', `traces[${index}].neuronId must be a non-negative integer.`, path);
+  if (!nonNegativeSafeInteger(value.neuronId)) {
+    return fail(
+      'invalid-artifact',
+      `traces[${index}].neuronId must be a non-negative safe integer.`,
+      path,
+    );
   }
 
   const event = parseTraceEvent(value.event, path, index);
