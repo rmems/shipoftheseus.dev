@@ -26,6 +26,7 @@ The validation command runs content/route contracts, linting, Astro type checks,
 - Markdown notes: `src/content/notes/`
 - Publishing checklist: `CONTENT.md`
 - Browser renderer, Rust/WASM boundary, compatibility policy, and crate audit: `docs/architecture/browser-runtime.md`
+- Native CUDA/FPGA evidence schema and ingest: `docs/architecture/native-evidence.md`
 - Favicon: `public/favicon.svg`
 - Social-card placeholder: `public/assets/social-card.png`
 

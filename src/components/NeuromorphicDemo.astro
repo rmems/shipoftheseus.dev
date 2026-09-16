@@ -1,11 +1,13 @@
 ---
+import ExecutionOrigin from './ExecutionOrigin.astro';
 import { STATIC_DEMO_STATUS } from '../runtime/demo-runtime';
 ---
 <section class="demo-island section" aria-labelledby="demo-title" data-neuromorphic-demo>
   <div class="demo-heading">
     <p class="eyebrow">Neuromorphic demo</p>
+    <ExecutionOrigin origin="static-diagram" runtimeBound />
     <h2 id="demo-title">A still that keeps the network legible.</h2>
-    <p class="demo-copy">Sensory features are encoded as spikes and routed through a synaptic network. This static diagram is the product; a live WebGL view is only an enhancement when motion, graphics, and WebAssembly are available.</p>
+    <p class="demo-copy">Sensory features are encoded as spikes and routed through a synaptic network. This static diagram is the product; a live WebGL view is only an enhancement when motion, graphics, and WebAssembly are available. Native CUDA and FPGA results are <a href="/evidence/">recorded separately</a> and are not executed here.</p>
   </div>
   <div class="demo-stage">
     <figure class="demo-diagram" data-demo-diagram>

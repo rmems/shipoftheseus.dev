@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-09-16T12:00:00Z",
+  "gpu_info": {
+    "device_name": "Synthetic CUDA device",
+    "driver_version": "synthetic",
+    "cuda_version": "synthetic",
+    "sm_arch": "sm_120",
+    "vram_total_mb": 1
+  },
+  "config": {
+    "warmup": 10,
+    "iterations": 100
+  },
+  "results": [
+    {
+      "name": "poisson_encode_4096",
+      "iterations": 100,
+      "mean_us": 1
+    }
+  ]
+}

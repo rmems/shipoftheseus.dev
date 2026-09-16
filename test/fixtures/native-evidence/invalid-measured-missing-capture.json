@@ -1,0 +1,30 @@
+{
+  "schema": "shipoftheseus.native-evidence",
+  "schemaVersion": 1,
+  "id": "invalid-measured-missing-capture",
+  "kind": "cuda-benchmark",
+  "title": "Measured fixture missing capture method",
+  "capturedAt": "2026-09-16T12:00:00Z",
+  "recordStatus": "measured",
+  "provenance": {
+    "sourceRepository": "https://github.com/Limen-Neural/myelin-accelerator",
+    "sourceRevision": "26651ca0edf96b080cd5ef89045543c453bd786c",
+    "sourcePath": "examples/benchmark.rs",
+    "crateName": "myelin-accelerator",
+    "crateVersion": "0.2.0"
+  },
+  "hardware": {
+    "class": "cuda",
+    "deviceName": "Synthetic CUDA device"
+  },
+  "workload": {
+    "name": "poisson_encode_4096"
+  },
+  "results": [
+    {
+      "name": "latency",
+      "value": 1,
+      "unit": "µs"
+    }
+  ]
+}

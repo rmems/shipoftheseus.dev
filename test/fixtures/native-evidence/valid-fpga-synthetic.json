@@ -1,0 +1,31 @@
+{
+  "schema": "shipoftheseus.native-evidence",
+  "schemaVersion": 1,
+  "id": "valid-fpga-synthetic",
+  "kind": "fpga-snn-trace",
+  "title": "Synthetic FPGA/SNN parser fixture",
+  "summary": "Not a measured hardware result. Used only to exercise native-evidence ingest.",
+  "capturedAt": "2026-09-16T12:05:00Z",
+  "recordStatus": "synthetic",
+  "provenance": {
+    "sourceRepository": "https://github.com/Limen-Neural/myelin-accelerator",
+    "sourceRevision": "26651ca0edf96b080cd5ef89045543c453bd786c",
+    "sourcePath": "docs/ARCHITECTURE.md",
+    "captureCommand": "recorded FPGA/SNN hardware capture"
+  },
+  "hardware": {
+    "class": "fpga",
+    "vendor": "Synthetic",
+    "deviceName": "Synthetic SNN FPGA",
+    "architecture": "synthetic-rtl"
+  },
+  "workload": {
+    "name": "snn-spike-trace",
+    "description": "Parser fixture for a recorded hardware spike trace."
+  },
+  "traces": [
+    { "timeNs": 0, "neuronId": 0, "event": "reset" },
+    { "timeNs": 12, "neuronId": 3, "event": "spike" },
+    { "timeNs": 18, "neuronId": 3, "event": "inhibit" }
+  ]
+}

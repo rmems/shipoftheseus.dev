@@ -28,6 +28,7 @@ test('every requested primary route is backed by an Astro page', () => {
     'src/pages/notes/index.astro',
     'src/pages/contact.astro',
     'src/pages/resume.astro',
+    'src/pages/evidence.astro',
   ]) {
     assert.equal(existsSync(new URL(`../${route}`, import.meta.url)), true, `${route} is missing`);
   }
@@ -140,6 +141,11 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   const enhance = read('src/runtime/enhance-demo.ts');
 
   assert.match(page, /NeuromorphicDemo/);
+  assert.doesNotMatch(page, /NativeEvidence/);
+  assert.doesNotMatch(page, /loadPublishedNativeEvidence/);
+  assert.doesNotMatch(read('docs/architecture/native-evidence.md'), /accepted for V1/);
+  assert.match(read('docs/architecture/native-evidence.md'), /V2 isolated recorded-evidence surface outside the V1 critical path/);
+  assert.match(read('src/data/site.ts'), /href: '\/evidence\/'/);
   assert.match(island, /data-neuromorphic-demo/);
   assert.match(island, /aria-labelledby="demo-title"/);
   assert.match(island, /<noscript>/);
@@ -147,8 +153,16 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   assert.match(island, /aria-live="polite"/);
   assert.match(island, /role="status"/);
   assert.match(island, /Static neuromorphic pipeline/);
+  assert.match(island, /origin="static-diagram"/);
+  assert.match(island, /runtimeBound/);
+  assert.doesNotMatch(island, /origin="live-wasm"/);
+  assert.doesNotMatch(island, /LIVE · Rust\/WASM/);
+  assert.match(read('src/components/ExecutionOrigin.astro'), /executionOriginLabel/);
+  assert.match(read('src/native-evidence/types.ts'), /LIVE · Rust\/WASM/);
+  assert.match(island, /href="\/evidence\/"/);
   assert.match(island, /data-demo-play hidden/);
   assert.match(enhance, /IntersectionObserver/);
+  assert.match(enhance, /data-demo-origin/);
   assert.match(enhance, /astro:before-swap/);
   assert.match(enhance, /visibilitychange/);
   assert.match(enhance, /setInViewport\(visible\)\.then\(paint\)/);

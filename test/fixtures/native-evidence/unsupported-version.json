@@ -1,0 +1,28 @@
+{
+  "schema": "shipoftheseus.native-evidence",
+  "schemaVersion": 2,
+  "id": "unsupported-version",
+  "kind": "cuda-benchmark",
+  "title": "Unsupported schema version fixture",
+  "capturedAt": "2026-09-16T12:00:00Z",
+  "recordStatus": "synthetic",
+  "provenance": {
+    "sourceRepository": "https://github.com/Limen-Neural/myelin-accelerator",
+    "sourceRevision": "26651ca0edf96b080cd5ef89045543c453bd786c",
+    "sourcePath": "examples/benchmark.rs"
+  },
+  "hardware": {
+    "class": "cuda",
+    "deviceName": "Synthetic CUDA device"
+  },
+  "workload": {
+    "name": "unsupported-version"
+  },
+  "results": [
+    {
+      "name": "latency",
+      "value": 1,
+      "unit": "µs"
+    }
+  ]
+}
