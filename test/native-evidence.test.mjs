@@ -17,6 +17,10 @@ function readFixture(name) {
   return readFileSync(new URL(name, fixtures), 'utf8');
 }
 
+function cloneFixture(name) {
+  return JSON.parse(readFixture(name));
+}
+
 function withTempCatalog(files, fn) {
   const directory = mkdtempSync(join(tmpdir(), 'native-evidence-'));
   try {
@@ -260,8 +264,7 @@ test('the live demo and recorded evidence surfaces keep distinct labels and rema
 });
 
 test('trace timestamps and neuron ids reject integers above MAX_SAFE_INTEGER', () => {
-  const fixture = JSON.parse(readFixture('valid-fpga-synthetic.json'));
-  const accepted = structuredClone(fixture);
+  const accepted = cloneFixture('valid-fpga-synthetic.json');
   accepted.traces[0].timeNs = Number.MAX_SAFE_INTEGER;
   accepted.traces[0].neuronId = 0;
   const ok = evidence.parseNativeEvidenceValue(accepted);
@@ -269,20 +272,20 @@ test('trace timestamps and neuron ids reject integers above MAX_SAFE_INTEGER', (
   assert.equal(ok.artifact.traces[0].timeNs, Number.MAX_SAFE_INTEGER);
   assert.equal(ok.artifact.traces[0].neuronId, 0);
 
-  const overflowTime = structuredClone(fixture);
+  const overflowTime = cloneFixture('valid-fpga-synthetic.json');
   overflowTime.traces[0].timeNs = Number.MAX_SAFE_INTEGER + 1;
   const time = evidence.parseNativeEvidenceValue(overflowTime);
   assert.equal(time.ok, false);
   assert.equal(time.issue.code, 'invalid-artifact');
   assert.match(time.issue.message, /timeNs/);
 
-  const overflowNeuron = structuredClone(fixture);
+  const overflowNeuron = cloneFixture('valid-fpga-synthetic.json');
   overflowNeuron.traces[1].neuronId = Number.MAX_SAFE_INTEGER + 1;
   const neuron = evidence.parseNativeEvidenceValue(overflowNeuron);
   assert.equal(neuron.ok, false);
   assert.match(neuron.issue.message, /neuronId/);
 
-  const fractional = structuredClone(fixture);
+  const fractional = cloneFixture('valid-fpga-synthetic.json');
   fractional.traces[0].timeNs = 1.5;
   const fraction = evidence.parseNativeEvidenceValue(fractional);
   assert.equal(fraction.ok, false);
