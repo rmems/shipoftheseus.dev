@@ -43,8 +43,14 @@ test('the static site does not depend on remotely hosted fonts', () => {
   assert.doesNotMatch(read('src/styles/global.css'), /@import\s+url/);
 });
 
-test('the résumé placeholder is not a broken PDF link before a résumé is supplied', () => {
-  assert.doesNotMatch(read('src/pages/resume.astro'), /href="\/resume\.pdf"/);
+test('publishing handoff values become live only when configured', () => {
+  const contact = read('src/pages/contact.astro');
+  const resume = read('src/pages/resume.astro');
+
+  assert.match(contact, /site\.email/);
+  assert.match(contact, /mailto:\$\{site\.email\}/);
+  assert.match(resume, /site\.resumePath/);
+  assert.match(resume, /href=\{site\.resumePath\}/);
 });
 
 test('public identity links use the verified profile destinations', () => {
@@ -60,4 +66,40 @@ test('the about page includes a local, accessible portrait', () => {
   assert.equal(existsSync(new URL('../public/assets/raul-cardenas-montoya.jpg', import.meta.url)), true);
   assert.match(read('src/pages/about.astro'), /raul-cardenas-montoya\.jpg/);
   assert.match(read('src/pages/about.astro'), /alt="Raul Cardenas Montoya"/);
+});
+
+test('notes publish only non-draft Markdown entries and format date-only values in UTC', () => {
+  const config = read('src/content.config.ts');
+  const index = read('src/pages/notes/index.astro');
+  const detail = read('src/pages/notes/[...slug].astro');
+
+  assert.match(config, /pattern: '\*\*\/\*\.md'/);
+  assert.doesNotMatch(config, /mdx/);
+  assert.match(index, /getCollection\('notes', \(\{ data \}\) => !data\.draft\)/);
+  assert.match(detail, /getCollection\('notes', \(\{ data \}\) => !data\.draft\)/);
+  assert.match(index, /timeZone: 'UTC'/);
+  assert.match(detail, /timeZone: 'UTC'/);
+});
+
+test('editable project cards receive their ordinal from the rendered collection order', () => {
+  assert.match(read('src/pages/index.astro'), /map\(\(project, index\) => <ProjectCard project=\{project\} index=\{index\}/);
+  assert.match(read('src/pages/projects.astro'), /map\(\(project, index\) => <ProjectCard project=\{project\} index=\{index\}/);
+  assert.match(read('src/components/ProjectCard.astro'), /project, index/);
+  assert.doesNotMatch(read('src/components/ProjectCard.astro'), /\.indexOf\(project\.slug\)/);
+});
+
+test('supported Node versions match the locked build tooling', () => {
+  const packageJson = JSON.parse(read('package.json'));
+  const readme = read('README.md');
+
+  assert.equal(packageJson.engines.node, '^20.19.0 || >=22.12.0');
+  assert.match(readme, /20\.19\+.*22\.12\+/);
+});
+
+test('small text uses accessible muted and signal color tokens', () => {
+  assert.equal(existsSync(new URL('../src/styles/review-fixes.css', import.meta.url)), true);
+  const reviewFixes = read('src/styles/review-fixes.css');
+
+  assert.match(reviewFixes, /--muted:\s*#65655e/);
+  assert.match(reviewFixes, /--signal:\s*#a94422/);
 });

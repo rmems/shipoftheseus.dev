@@ -2,9 +2,9 @@
 
 Before publishing, update `src/data/site.ts`:
 
-- Replace `replace-with-your-email@example.com` with your public contact email.
+- Set `email` from `null` to your public contact email.
 - GitHub, LinkedIn, and Hugging Face profile links are now live. Review them before publishing.
-- Put your real résumé PDF at `public/resume.pdf`; the résumé page already points there.
+- Put your real résumé PDF at `public/resume.pdf`, then set `resumePath` to `/resume.pdf`; the résumé page will expose the link.
 
 For project cards, edit `src/data/projects.ts`. Add public links only when each repository, case study, or demo is ready to share. The included summaries intentionally avoid performance claims and invented outcomes.
 

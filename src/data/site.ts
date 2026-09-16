@@ -3,13 +3,13 @@ export const site = {
   fullName: 'Raul Cardenas Montoya',
   title: 'AI/ML systems engineer',
   description: 'AI/ML systems engineering across agentic systems, GPU compute, neuromorphic research, and reproducible software.',
-  email: 'replace-with-your-email@example.com',
+  email: null,
   social: {
     github: 'https://github.com/rmems',
     linkedin: 'https://www.linkedin.com/in/raul-cardenas-montoya-8aa09839a',
     huggingface: 'https://huggingface.co/rmems',
   },
-  resumePath: '/resume.pdf',
+  resumePath: null,
 } as const;
 
 export const navigation = [

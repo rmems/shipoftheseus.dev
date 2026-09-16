@@ -35,6 +35,6 @@ Connect the dedicated `shipoftheseus.dev` repository in Cloudflare Pages, then u
 
 - Build command: `npm run build`
 - Build output directory: `dist`
-- Node.js: 20 or newer
+- Node.js: 20.19+ or 22.12+
 
 Point only `shipoftheseus.dev` and optionally `www.shipoftheseus.dev` at this Pages project. Do **not** modify `hooks.shipoftheseus.dev`: it is a separately active GitHub-webhook Cloudflare Tunnel endpoint, outside this portfolio's scope.
