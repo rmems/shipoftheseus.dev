@@ -10,7 +10,8 @@
     "preview": "astro preview",
     "lint": "eslint .",
     "typecheck": "astro check",
-    "test": "node --test test/**/*.test.mjs"
+    "test": "node --test test/**/*.test.mjs",
+    "validate": "npm test && npm run lint && npm run typecheck && npm run build"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",

@@ -14,16 +14,15 @@ Then open the local URL Astro prints (normally `http://localhost:4321`).
 ## Checks
 
 ```bash
-npm test
-npm run lint
-npm run typecheck
-npm run build
+npm run validate
 ```
+
+The validation command runs content/route contracts, linting, Astro type checks, and a production build. Pull requests run the same command in CI; no deployment workflow is included.
 
 ## Content and assets
 
 - Site-wide identity, social URL placeholders, email placeholder, and résumé path: `src/data/site.ts`
-- Project cards: `src/data/projects.ts`
+- Project cards and work-page briefs: `src/data/projects.ts`
 - Markdown notes: `src/content/notes/`
 - Publishing checklist: `CONTENT.md`
 - Favicon: `public/favicon.svg`
@@ -38,3 +37,5 @@ Connect the dedicated `shipoftheseus.dev` repository in Cloudflare Pages, then u
 - Node.js: 20.19+ or 22.12+
 
 Point only `shipoftheseus.dev` and optionally `www.shipoftheseus.dev` at this Pages project. Do **not** modify `hooks.shipoftheseus.dev`: it is a separately active GitHub-webhook Cloudflare Tunnel endpoint, outside this portfolio's scope.
+
+No custom-domain attachment, redirect, or deployment configuration is committed. Those remain explicit release actions after the site and domain plan are approved.

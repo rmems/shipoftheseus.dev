@@ -1,0 +1,58 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { projects } from '../data/projects';
+---
+
+<BaseLayout title="Work" description="Selected AI/ML systems work, research infrastructure, and ongoing technical explorations.">
+  <section class="page-intro work-intro" aria-labelledby="work-title">
+    <p class="eyebrow">Selected work · {String(projects.length).padStart(2, '0')}</p>
+    <h1 id="work-title">Systems work,<br /><em>shown in context.</em></h1>
+    <p>These project briefs document scope, working areas, and the questions guiding each investigation. They intentionally avoid outcomes or links that are not ready to be supported publicly.</p>
+  </section>
+
+  <nav class="work-index" aria-label="On this page">
+    <p class="eyebrow">Project index</p>
+    <ol>
+      {projects.map((project, index) => (
+        <li><a href={`#${project.slug}`}><span>{String(index + 1).padStart(2, '0')}</span>{project.name}</a></li>
+      ))}
+    </ol>
+  </nav>
+
+  <div class="case-study-list">
+    {projects.map((project, index) => (
+      <article class="case-study" id={project.slug}>
+        <header class="case-study-header">
+          <div>
+            <p class="eyebrow">{String(index + 1).padStart(2, '0')} · {project.category}</p>
+            <h2>{project.name}</h2>
+          </div>
+          <span class="status"><i aria-hidden="true"></i>{project.status}</span>
+        </header>
+        <div class="case-study-body">
+          <p class="case-study-summary">{project.summary}</p>
+          <div class="case-study-detail">
+            <section aria-labelledby={`${project.slug}-questions`}>
+              <p class="detail-label" id={`${project.slug}-questions`}>Questions in view</p>
+              <ul class="question-list">
+                {project.questions.map((question) => <li>{question}</li>)}
+              </ul>
+            </section>
+            <section aria-labelledby={`${project.slug}-areas`}>
+              <p class="detail-label" id={`${project.slug}-areas`}>Working areas</p>
+              <ul class="technology-list case-study-technologies">
+                {project.technologies.map((technology) => <li>{technology}</li>)}
+              </ul>
+            </section>
+          </div>
+        </div>
+      </article>
+    ))}
+  </div>
+
+  <section class="work-principle" aria-labelledby="work-principle-title">
+    <p class="eyebrow">Working principle</p>
+    <h2 id="work-principle-title">Make the path as inspectable as the result.</h2>
+    <p>Across the portfolio, the recurring emphasis is on pinned inputs, executable paths, provenance, validation, and documentation that remains useful when the work changes hands.</p>
+  </section>
+</BaseLayout>
