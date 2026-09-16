@@ -129,7 +129,29 @@ test('visual foundations use accessible tokens and honor reduced motion', () => 
   assert.match(styles, /--muted:\s*#62635c/);
   assert.match(styles, /--signal:\s*#a94422/);
   assert.match(styles, /prefers-reduced-motion:\s*reduce/);
+  assert.match(styles, /animation:\s*none/);
+  assert.match(styles, /button:focus-visible/);
   assert.match(styles, /:focus-visible/);
+});
+
+test('the homepage ships a static neuromorphic diagram that remains usable without JavaScript', () => {
+  const page = read('src/pages/index.astro');
+  const island = read('src/components/NeuromorphicDemo.astro');
+  const enhance = read('src/runtime/enhance-demo.ts');
+
+  assert.match(page, /NeuromorphicDemo/);
+  assert.match(island, /data-neuromorphic-demo/);
+  assert.match(island, /aria-labelledby="demo-title"/);
+  assert.match(island, /<noscript>/);
+  assert.match(island, /Play animation/);
+  assert.match(island, /aria-live="polite"/);
+  assert.match(island, /role="status"/);
+  assert.match(island, /Static neuromorphic pipeline/);
+  assert.match(island, /data-demo-play hidden/);
+  assert.match(enhance, /IntersectionObserver/);
+  assert.match(enhance, /astro:before-swap/);
+  assert.match(enhance, /visibilitychange/);
+  assert.doesNotMatch(island, /client:only/);
 });
 
 test('page metadata includes canonical and complete social sharing basics', () => {
