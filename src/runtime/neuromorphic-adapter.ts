@@ -62,6 +62,8 @@ export class AdapterUnavailableError extends Error {
 
 function snapshot(raw: RawWasmState): NeuromorphicState {
   if (
+    !raw ||
+    typeof raw !== 'object' ||
     raw.contract_version !== NEUROMORPHIC_CONTRACT_VERSION ||
     typeof raw.seed !== 'bigint' ||
     typeof raw.completed_step !== 'bigint' ||
@@ -82,7 +84,8 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     raw.protocol_wire_version !== CORPUS_IPC_WIRE_VERSION ||
     !allFinite(raw.membrane_potentials) ||
     !allFinite(raw.topology_weights) ||
-    !isMonotonicTopologyRows(raw.topology_rows)
+    !isMonotonicTopologyRows(raw.topology_rows) ||
+    !hasValidTopologyTargets(raw.topology_targets, raw.topology_rows.length - 1)
   ) {
     throw new AdapterUnavailableError('The Rust/WASM runtime returned an invalid contract state.');
   }
@@ -114,6 +117,10 @@ function isMonotonicTopologyRows(rows: Uint32Array): boolean {
     }
   }
   return true;
+}
+
+function hasValidTopologyTargets(targets: Uint32Array, nodeCount: number): boolean {
+  return targets.every((target) => target < nodeCount);
 }
 
 /**

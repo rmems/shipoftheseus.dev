@@ -14,5 +14,5 @@ corpus-ipc = { git = "https://github.com/Limen-Neural/corpus-ipc.git", rev = "d9
 kinetic-signals = { git = "https://github.com/rmems/kinetic-signals.git", rev = "e829a0d5826c0d1175b8878b024a69ce4e1d538b" }
 js-sys = "=0.3.103"
 neuromod = { git = "https://github.com/Limen-Neural/neuromod.git", rev = "3fe526116683d7392e309760c017afe8a934619c", default-features = false, features = ["wasm-js"] }
-synaptic-wiring = { git = "https://github.com/Limen-Neural/synaptic-wiring.git", rev = "5f70762b4ef09346d0689a65a1a8b20531cfbdab" }
+synaptic-wiring = "=0.3.0"
 wasm-bindgen = "=0.2.126"
