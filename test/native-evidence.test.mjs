@@ -334,6 +334,53 @@ test('nested measured artifacts keep their catalog-relative capture URL', () => 
   );
 });
 
+test('catalog blob URLs encode nested path delimiters instead of treating them as URL syntax', () => {
+  const parsed = evidence.parseNativeEvidenceJson(readFixture('valid-cuda-synthetic.json'), {
+    path: 'valid-cuda-synthetic.json',
+    requireIdMatchesFilename: true,
+  });
+  assert.equal(parsed.ok, true);
+
+  const catalogPath = 'cuda/v1/issue #18?%.json';
+  const artifact = { ...parsed.artifact, catalogPath };
+  assert.equal(view.encodeGitHubBlobPath(catalogPath), 'cuda/v1/issue%20%2318%3F%25.json');
+  assert.equal(
+    view.artifactCatalogPath(artifact),
+    `${types.NATIVE_EVIDENCE_CATALOG_DIR}/cuda/v1/issue #18?%.json`,
+  );
+
+  const url = view.artifactCatalogBlobUrl(artifact);
+  assert.equal(
+    url,
+    `${view.PORTFOLIO_REPOSITORY_URL}/blob/${view.PORTFOLIO_DEFAULT_REF}/src/content/native-evidence/cuda/v1/issue%20%2318%3F%25.json`,
+  );
+  assert.doesNotMatch(url, /#/);
+  assert.doesNotMatch(url, /\?/);
+  assert.match(url, /\/cuda\/v1\/issue%20%2318%3F%25\.json$/);
+  assert.notEqual(url, `${view.PORTFOLIO_REPOSITORY_URL}/blob/${view.PORTFOLIO_DEFAULT_REF}/${view.artifactCatalogPath(artifact)}`);
+});
+
+test('sourcePath rejects `.` and `..` segments so provenance links a precise file', () => {
+  const accepted = ['examples/benchmark.rs', 'docs/ARCHITECTURE.md', 'src/lib.rs'];
+  for (const sourcePath of accepted) {
+    const artifact = cloneFixture('valid-cuda-synthetic.json');
+    artifact.provenance.sourcePath = sourcePath;
+    const parsed = evidence.parseNativeEvidenceValue(artifact);
+    assert.equal(parsed.ok, true, sourcePath);
+    assert.equal(parsed.artifact.provenance.sourcePath, sourcePath);
+  }
+
+  const rejected = ['.', '..', './bar', 'foo/.', 'foo/./bar', 'foo/../bar', 'foo//bar', '/examples/benchmark.rs'];
+  for (const sourcePath of rejected) {
+    const artifact = cloneFixture('valid-cuda-synthetic.json');
+    artifact.provenance.sourcePath = sourcePath;
+    const parsed = evidence.parseNativeEvidenceValue(artifact);
+    assert.equal(parsed.ok, false, sourcePath);
+    assert.equal(parsed.issue.code, 'invalid-artifact');
+    assert.match(parsed.issue.message, /sourcePath/);
+  }
+});
+
 test('filesystem listing, stat, and read failures become fail-closed catalog issues', () => {
   const dangling = withTempCatalog({}, (directory) => {
     symlinkSync(join(directory, 'missing-target.json'), join(directory, 'broken.json'));

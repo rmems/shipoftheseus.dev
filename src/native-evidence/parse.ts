@@ -25,7 +25,7 @@ const MAX_TRACES = 4096;
 const MAX_PARAMETERS = 32;
 const ARTIFACT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SOURCE_REVISION = /^[a-f0-9]{40}$/;
-const SOURCE_PATH = /^(?!\/)(?!.*\.\.)[A-Za-z0-9._+-]+(?:\/[A-Za-z0-9._+-]+)*$/;
+const SOURCE_PATH_SEGMENT = /^(?!\.{1,2}$)[A-Za-z0-9._+-]+$/;
 // SemVer 2.0.0: no leading zeros, no empty pre-release/build identifiers.
 const CRATE_VERSION =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
@@ -595,6 +595,10 @@ function parseCrateVersion(
   return fail('invalid-artifact', 'provenance.crateVersion must be a semantic version when present.', path);
 }
 
+function isPreciseSourcePath(value: string): boolean {
+  return value.split('/').every((segment) => SOURCE_PATH_SEGMENT.test(segment));
+}
+
 function parseProvenance(
   value: unknown,
   recordStatus: NativeEvidenceRecordStatus,
@@ -617,8 +621,8 @@ function parseProvenance(
     return fail('invalid-artifact', 'provenance.sourceRevision must be a 40-character lowercase Git SHA.', path);
   }
 
-  if (typeof value.sourcePath !== 'string' || !SOURCE_PATH.test(value.sourcePath)) {
-    return fail('invalid-artifact', 'provenance.sourcePath must be a relative repository path.', path);
+  if (typeof value.sourcePath !== 'string' || !isPreciseSourcePath(value.sourcePath)) {
+    return fail('invalid-artifact', 'provenance.sourcePath must be a precise relative repository file path.', path);
   }
 
   const crateName = readOptionalNonEmptyString(

@@ -63,13 +63,17 @@ export function artifactSourceBlobUrl(artifact: NativeEvidenceArtifact): string 
   return `${artifact.provenance.sourceRepository}/blob/${artifact.provenance.sourceRevision}/${artifact.provenance.sourcePath}`;
 }
 
+export function encodeGitHubBlobPath(path: string): string {
+  return path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+}
+
 export function artifactCatalogPath(artifact: NativeEvidenceArtifact): string {
   const relativePath = artifact.catalogPath ?? `${artifact.id}.json`;
   return `${NATIVE_EVIDENCE_CATALOG_DIR}/${relativePath}`;
 }
 
 export function artifactCatalogBlobUrl(artifact: NativeEvidenceArtifact): string {
-  return `${PORTFOLIO_REPOSITORY_URL}/blob/${PORTFOLIO_DEFAULT_REF}/${artifactCatalogPath(artifact)}`;
+  return `${PORTFOLIO_REPOSITORY_URL}/blob/${PORTFOLIO_DEFAULT_REF}/${encodeGitHubBlobPath(artifactCatalogPath(artifact))}`;
 }
 
 export function artifactCommitUrl(artifact: NativeEvidenceArtifact): string {
