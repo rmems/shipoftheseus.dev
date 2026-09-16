@@ -611,7 +611,6 @@ button.button {
   text-align: left;
   font-size: 0.92rem;
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .native-evidence-trace-source {
