@@ -47,11 +47,13 @@ test('the static site does not depend on remotely hosted fonts', () => {
 test('publishing handoff values become live only when configured', () => {
   const contact = read('src/pages/contact.astro');
   const resume = read('src/pages/resume.astro');
+  const site = read('src/data/site.ts');
 
   assert.match(contact, /site\.email/);
   assert.match(contact, /mailto:\$\{site\.email\}/);
   assert.match(resume, /site\.resumePath/);
   assert.match(resume, /href=\{site\.resumePath\}/);
+  assert.match(site, /site\.resumePath \? \[\{ href: '\/resume\/', label: 'Résumé' \}\] : \[\]/);
 });
 
 test('the work page expands existing project data without unsupported outcomes or links', () => {

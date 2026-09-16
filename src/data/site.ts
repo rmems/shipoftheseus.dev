@@ -16,5 +16,6 @@ export const navigation = [
   { href: '/work/', label: 'Work' },
   { href: '/about/', label: 'About' },
   { href: '/notes/', label: 'Notes' },
+  ...(site.resumePath ? [{ href: '/resume/', label: 'Résumé' }] : []),
   { href: '/contact/', label: 'Contact' },
 ] as const;
