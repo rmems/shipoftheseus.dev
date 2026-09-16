@@ -582,6 +582,15 @@ export class DemoRuntime {
       return;
     }
 
+    if (this.disposed || this.mode === 'frozen' || this.mode === 'fallback') {
+      rendererAttempt.session?.dispose();
+      wasmAttempt.session?.dispose();
+      this.pendingRendererSession = null;
+      this.pendingWasmSession = null;
+      this.initializing = false;
+      return;
+    }
+
     if (rendererAttempt.error || wasmAttempt.error || !rendererAttempt.session || !wasmAttempt.session) {
       rendererAttempt.session?.dispose();
       wasmAttempt.session?.dispose();
@@ -767,11 +776,21 @@ export class DemoRuntime {
       return;
     }
 
-    void this.reportWorkerFailure(phase).then(() => {
-      if (!this.disposed) {
+    switch (phase) {
+      case 'after-init':
+        this.freezeOrFallback();
         this.emitSnapshotChange();
-      }
-    });
+        return;
+      case 'before-init':
+        void this.reportWorkerFailure(phase).then(() => {
+          if (!this.disposed) {
+            this.emitSnapshotChange();
+          }
+        });
+        return;
+      default:
+        assertNever(phase);
+    }
   }
 
   private handleRendererError(): void {

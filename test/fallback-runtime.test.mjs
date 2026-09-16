@@ -805,6 +805,46 @@ test('an after-init worker failure before WASM init settles does not resurrect l
   );
 });
 
+test('a WASM seam that fires after-init before returning never resurrects live', async () => {
+  const events = [];
+  const captured = { signal: undefined };
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create(options) {
+          captured.signal = options.signal;
+          events.push('renderer:create');
+          return trackingSession(events, 'renderer');
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init(options) {
+          events.push(`wasm:init:${options.useWorker}`);
+          options.onWorkerFailure('after-init');
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  const snapshot = demo.getSnapshot();
+
+  assert.notEqual(snapshot.mode, 'live');
+  assert.equal(snapshot.mode, 'fallback');
+  assert.equal(snapshot.reason, 'worker-runtime-failed');
+  assert.equal(snapshot.hasGraphicsSurface, false);
+  assert.equal(captured.signal.aborted, true);
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+  assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+});
+
 function createFakeIsland() {
   const status = { textContent: runtime.STATIC_DEMO_STATUS };
   const play = {
@@ -1070,6 +1110,65 @@ test('binding returns to the static diagram when a post-init worker failure cann
     captured.onWorkerFailure('before-init');
     await Promise.resolve();
     assert.deepEqual(wasmCalls, [true]);
+  } finally {
+    binding?.dispose();
+    restoreHost();
+  }
+});
+
+test('binding stays failed-closed when WASM fires after-init before returning a session', async () => {
+  const events = [];
+  const captured = { signal: undefined };
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create(options) {
+          captured.signal = options.signal;
+          events.push('renderer:create');
+          return trackingSession(events, 'renderer');
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init(options) {
+          events.push(`wasm:init:${options.useWorker}`);
+          options.onWorkerFailure('after-init');
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: false,
+    documentHidden: false,
+  });
+
+  const { root, status, play, surface } = createFakeIsland();
+  const restoreHost = installBindingHost();
+  let binding;
+  const seenLive = { value: false };
+
+  try {
+    binding = enhance.bindDemoIsland(root, demo);
+    await waitFor(() => root.dataset.mode === 'fallback' || root.dataset.mode === 'frozen');
+    if (root.dataset.mode === 'live') {
+      seenLive.value = true;
+    }
+
+    assert.equal(seenLive.value, false);
+    assert.notEqual(root.dataset.mode, 'live');
+    assert.equal(root.dataset.mode, 'fallback');
+    assert.equal(root.dataset.reason, 'worker-runtime-failed');
+    assert.equal(demo.getSnapshot().mode, 'fallback');
+    assert.equal(play.hidden, true);
+    assert.equal(play.disabled, true);
+    assert.equal(surface.hidden, true);
+    assert.match(status.textContent, /static diagram remains available/);
+    assert.equal(captured.signal.aborted, true);
+    assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
+    assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
+    assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
   } finally {
     binding?.dispose();
     restoreHost();
