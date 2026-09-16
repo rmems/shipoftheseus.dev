@@ -25,6 +25,7 @@ export type NativeEvidenceRecordStatus = 'measured' | 'synthetic';
 export type NativeEvidenceHardwareClass = 'cuda' | 'fpga';
 export type NativeEvidenceStatistic = 'mean' | 'p50' | 'p95' | 'p99' | 'min' | 'max' | 'count' | 'other';
 export type NativeEvidenceTraceKind = 'spike' | 'inhibit' | 'reset';
+export type NativeEvidenceParameterValue = string | number | boolean;
 
 export type NativeEvidenceIssueCode =
   | 'invalid-json'
@@ -63,7 +64,7 @@ export interface NativeEvidenceHardware {
 export interface NativeEvidenceWorkload {
   name: string;
   description?: string;
-  parameters?: Record<string, string | number | boolean>;
+  parameters?: Record<string, NativeEvidenceParameterValue>;
 }
 
 export interface NativeEvidenceResult {

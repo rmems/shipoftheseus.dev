@@ -66,7 +66,7 @@ const FIXED_FRACTION_DIGITS = 4;
 const SCIENTIFIC_ABS_THRESHOLD = 1e-4;
 
 function formattedNumberIsZero(formatted: string): boolean {
-  return Number(formatted.replace(/,/g, '')) === 0;
+  return Number(formatted.replaceAll(',', '')) === 0;
 }
 
 export function formatResultValue(value: number): string {

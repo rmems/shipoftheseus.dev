@@ -8,6 +8,7 @@ import {
   type NativeEvidenceIssue,
   type NativeEvidenceIssueCode,
   type NativeEvidenceKind,
+  type NativeEvidenceParameterValue,
   type NativeEvidenceProvenance,
   type NativeEvidenceRecordStatus,
   type NativeEvidenceResult,
@@ -730,7 +731,7 @@ function hardwareClassForKind(kind: NativeEvidenceKind): NativeEvidenceHardware[
 function parseWorkloadParameters(
   value: unknown,
   path?: string,
-): { ok: true; parameters: Record<string, string | number | boolean> } | ParseFailure {
+): { ok: true; parameters: Record<string, NativeEvidenceParameterValue> } | ParseFailure {
   if (!isRecord(value)) {
     return fail('invalid-artifact', 'workload.parameters must be an object when present.', path);
   }
@@ -740,7 +741,7 @@ function parseWorkloadParameters(
     return fail('invalid-artifact', 'workload.parameters must contain between 1 and 32 entries when present.', path);
   }
 
-  const parameters: Record<string, string | number | boolean> = {};
+  const parameters: Record<string, NativeEvidenceParameterValue> = {};
   for (const [key, parameter] of entries) {
     const parsed = parseWorkloadParameter(key, parameter, path);
     if (!parsed.ok) {
@@ -756,7 +757,7 @@ function parseWorkloadParameter(
   key: string,
   parameter: unknown,
   path?: string,
-): { ok: true; parameter: string | number | boolean } | ParseFailure {
+): { ok: true; parameter: NativeEvidenceParameterValue } | ParseFailure {
   if (!nonEmptyString(key, 80)) {
     return fail('invalid-artifact', 'workload.parameters keys must be non-empty strings.', path);
   }
