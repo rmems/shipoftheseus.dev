@@ -1,8 +1,8 @@
 # Native CUDA and FPGA evidence (ADR-0002)
 
-- **Status:** accepted as a V2 evidence catalog on `/evidence/`; not ingested on the V1 homepage
+- **Status:** accepted as a V2 isolated recorded-evidence surface outside the V1 critical path
 - **Decision date:** 2026-09-16
-- **Scope:** GitHub #18 / Linear RM-1655
+- **Scope:** GitHub #18 / Linear RM-1655 · `/evidence/` catalog only; not on the V1 homepage
 
 ## Decision
 

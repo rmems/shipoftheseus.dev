@@ -144,7 +144,7 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   assert.doesNotMatch(page, /NativeEvidence/);
   assert.doesNotMatch(page, /loadPublishedNativeEvidence/);
   assert.doesNotMatch(read('docs/architecture/native-evidence.md'), /accepted for V1/);
-  assert.match(read('docs/architecture/native-evidence.md'), /V2 evidence catalog/);
+  assert.match(read('docs/architecture/native-evidence.md'), /V2 isolated recorded-evidence surface outside the V1 critical path/);
   assert.match(read('src/data/site.ts'), /href: '\/evidence\/'/);
   assert.match(island, /data-neuromorphic-demo/);
   assert.match(island, /aria-labelledby="demo-title"/);
