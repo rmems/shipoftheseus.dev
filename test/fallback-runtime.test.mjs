@@ -453,6 +453,148 @@ function trackingSession(events, label, { freeze = true } = {}) {
   };
 }
 
+function countEvents(events, name) {
+  return events.filter((event) => event === name).length;
+}
+
+function codedError(message, code) {
+  return Object.assign(new Error(message), { code });
+}
+
+function rendererWithPartial(events, create) {
+  return {
+    create(options) {
+      return create(options);
+    },
+    disposePartial() {
+      events.push('disposePartial');
+    },
+  };
+}
+
+function afterInitBeforeReturnFixture({ inViewport, documentHidden }) {
+  const events = [];
+  const captured = { signal: undefined };
+  const options = {
+    capabilities: capable,
+    seams: {
+      renderer: rendererWithPartial(events, async (createOptions) => {
+        captured.signal = createOptions.signal;
+        events.push('renderer:create');
+        return trackingSession(events, 'renderer');
+      }),
+      wasm: {
+        async init(initOptions) {
+          events.push(`wasm:init:${initOptions.useWorker}`);
+          initOptions.onWorkerFailure('after-init');
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport,
+  };
+  if (documentHidden !== undefined) {
+    options.documentHidden = documentHidden;
+  }
+  return { demo: runtime.createDemoRuntime(options), events, captured };
+}
+
+function hangUntilAborted(events, abortEvent, hang, signal) {
+  return new Promise((resolve) => {
+    signal.addEventListener('abort', () => events.push(abortEvent), { once: true });
+    hang.promise.then(resolve);
+  });
+}
+
+function concurrentInitSeams(events, captured, { renderer, wasm, hang } = {}) {
+  return {
+    renderer: rendererWithPartial(events, async (options) => {
+      events.push('renderer:create');
+      if (renderer === 'throw') {
+        throw codedError('renderer failed', 'renderer-error');
+      }
+      if (renderer === 'hang') {
+        captured.signal = options.signal;
+        await hangUntilAborted(events, 'renderer:abort', hang, options.signal);
+      }
+      return trackingSession(events, 'renderer');
+    }),
+    wasm: {
+      async init(options) {
+        events.push('wasm:init');
+        if (wasm === 'throw') {
+          throw codedError('wasm failed', 'wasm-init-failed');
+        }
+        if (wasm === 'hang') {
+          captured.signal = options.signal;
+          await hangUntilAborted(events, 'wasm:abort', hang, options.signal);
+        }
+        return trackingSession(events, 'wasm');
+      },
+    },
+  };
+}
+
+function createInViewportDemo(seams) {
+  return runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: true,
+  });
+}
+
+async function assertHungSiblingFailsClosed(demo, events, hang, captured, { reason, abortEvent, lateDisposeEvent }) {
+  const started = demo.startIfAllowed();
+  await waitFor(() => demo.getSnapshot().mode === 'fallback');
+  assert.equal(demo.getSnapshot().reason, reason);
+  assert.equal(captured.signal.aborted, true);
+  assert.ok(events.includes(abortEvent));
+  assert.equal(countEvents(events, 'disposePartial'), 1);
+  assert.equal(events.includes(lateDisposeEvent), false);
+
+  hang.resolve();
+  await started;
+  await waitFor(() => events.includes(lateDisposeEvent));
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, reason);
+  assert.equal(countEvents(events, 'disposePartial'), 1);
+  assert.equal(countEvents(events, lateDisposeEvent), 1);
+}
+
+function assertFallbackDisposedOnce(demo, events, { reason, disposed }) {
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, reason);
+  assert.equal(countEvents(events, 'disposePartial'), 1);
+  assert.equal(countEvents(events, disposed), 1);
+}
+
+async function assertImmediateSiblingDispose({ renderer, wasm, reason, disposed }) {
+  const events = [];
+  const demo = createInViewportDemo(concurrentInitSeams(events, { signal: undefined }, { renderer, wasm }));
+  await demo.startIfAllowed();
+  assertFallbackDisposedOnce(demo, events, { reason, disposed });
+}
+
+async function assertFailFastHungSide({ renderer, wasm, reason, abortEvent, lateDisposeEvent }) {
+  const events = [];
+  const hang = deferred();
+  const captured = { signal: undefined };
+  const demo = createInViewportDemo(concurrentInitSeams(events, captured, { renderer, wasm, hang }));
+  await assertHungSiblingFailsClosed(demo, events, hang, captured, { reason, abortEvent, lateDisposeEvent });
+}
+
+function assertAfterInitClosed(demo, events, captured) {
+  const snapshot = demo.getSnapshot();
+  assert.notEqual(snapshot.mode, 'live');
+  assert.equal(snapshot.mode, 'fallback');
+  assert.equal(snapshot.reason, 'worker-runtime-failed');
+  assert.equal(captured.signal.aborted, true);
+  assert.equal(countEvents(events, 'renderer:dispose'), 1);
+  assert.equal(countEvents(events, 'wasm:dispose'), 1);
+  assert.equal(countEvents(events, 'disposePartial'), 1);
+  return snapshot;
+}
+
 test('context loss during a deferred init keeps fallback after the pending create settles', async () => {
   const rendererEvents = [];
   const rendererCreate = deferred();
@@ -812,43 +954,11 @@ test('an after-init worker failure before WASM init settles does not resurrect l
 });
 
 test('a WASM seam that fires after-init before returning never resurrects live', async () => {
-  const events = [];
-  const captured = { signal: undefined };
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams: {
-      renderer: {
-        async create(options) {
-          captured.signal = options.signal;
-          events.push('renderer:create');
-          return trackingSession(events, 'renderer');
-        },
-        disposePartial() {
-          events.push('disposePartial');
-        },
-      },
-      wasm: {
-        async init(options) {
-          events.push(`wasm:init:${options.useWorker}`);
-          options.onWorkerFailure('after-init');
-          return trackingSession(events, 'wasm');
-        },
-      },
-    },
-    inViewport: true,
-  });
+  const { demo, events, captured } = afterInitBeforeReturnFixture({ inViewport: true });
 
   await demo.startIfAllowed();
-  const snapshot = demo.getSnapshot();
-
-  assert.notEqual(snapshot.mode, 'live');
-  assert.equal(snapshot.mode, 'fallback');
-  assert.equal(snapshot.reason, 'worker-runtime-failed');
+  const snapshot = assertAfterInitClosed(demo, events, captured);
   assert.equal(snapshot.hasGraphicsSurface, false);
-  assert.equal(captured.signal.aborted, true);
-  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
-  assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
-  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
 });
 
 function createFakeIsland() {
@@ -947,6 +1057,30 @@ function installBindingHost({ reducedMotion = false } = {}) {
   return restore;
 }
 
+async function withBoundDemo(
+  { demo, seams, capabilities = capable, inViewport = false, documentHidden = false, reducedMotion = false },
+  run,
+) {
+  const boundDemo =
+    demo ??
+    runtime.createDemoRuntime({
+      capabilities,
+      seams,
+      inViewport,
+      documentHidden,
+    });
+  const island = createFakeIsland();
+  const restoreHost = installBindingHost({ reducedMotion });
+  let binding;
+  try {
+    binding = enhance.bindDemoIsland(island.root, boundDemo);
+    await run({ demo: boundDemo, binding, restoreHost, ...island });
+  } finally {
+    binding?.dispose();
+    restoreHost();
+  }
+}
+
 test('binding paints the live surface after deferred init from a viewport return', async () => {
   const wasmInit = deferred();
   const demo = runtime.createDemoRuntime({
@@ -968,13 +1102,7 @@ test('binding paints the live surface after deferred init from a viewport return
     documentHidden: false,
   });
 
-  const { root, status, play, surface } = createFakeIsland();
-  const restoreHost = installBindingHost();
-  let binding;
-
-  try {
-    binding = enhance.bindDemoIsland(root, demo);
-
+  await withBoundDemo({ demo }, async ({ root, status, play, surface }) => {
     assert.equal(root.dataset.mode, 'initializing');
     assert.equal(play.hidden, false);
     assert.equal(play.disabled, true);
@@ -993,10 +1121,7 @@ test('binding paints the live surface after deferred init from a viewport return
     assert.equal(play.textContent, 'Pause animation');
     assert.match(status.textContent, /Live visualization is running/);
     assert.equal(demo.getSnapshot().hasGraphicsSurface, true);
-  } finally {
-    binding?.dispose();
-    restoreHost();
-  }
+  });
 });
 
 function workerAwareSeams({ freeze = true } = {}) {
@@ -1028,19 +1153,8 @@ function workerAwareSeams({ freeze = true } = {}) {
 
 test('binding freezes the live surface when the WASM seam reports after-init worker failure', async () => {
   const { seams, wasmCalls, events, captured } = workerAwareSeams({ freeze: true });
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams,
-    inViewport: false,
-    documentHidden: false,
-  });
 
-  const { root, status, play, surface } = createFakeIsland();
-  const restoreHost = installBindingHost();
-  let binding;
-
-  try {
-    binding = enhance.bindDemoIsland(root, demo);
+  await withBoundDemo({ seams }, async ({ demo, root, status, play, surface, binding }) => {
     await waitFor(() => root.dataset.mode === 'live');
 
     assert.equal(typeof captured.onWorkerFailure, 'function');
@@ -1068,34 +1182,19 @@ test('binding freezes the live surface when the WASM seam reports after-init wor
     assert.equal(events.filter((event) => event === 'renderer:freeze').length, 1);
 
     binding.dispose();
-    binding = undefined;
     captured.onWorkerFailure('after-init');
     captured.onWorkerFailure('before-init');
     await Promise.resolve();
     assert.deepEqual(wasmCalls, [true]);
     assert.equal(events.filter((event) => event === 'renderer:freeze').length, 1);
     assert.equal(demo.getSnapshot().mode, 'frozen');
-  } finally {
-    binding?.dispose();
-    restoreHost();
-  }
+  });
 });
 
 test('binding returns to the static diagram when a post-init worker failure cannot freeze', async () => {
   const { seams, wasmCalls, captured } = workerAwareSeams({ freeze: false });
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams,
-    inViewport: false,
-    documentHidden: false,
-  });
 
-  const { root, status, play, surface } = createFakeIsland();
-  const restoreHost = installBindingHost();
-  let binding;
-
-  try {
-    binding = enhance.bindDemoIsland(root, demo);
+  await withBoundDemo({ seams }, async ({ root, status, play, surface, binding }) => {
     await waitFor(() => root.dataset.mode === 'live');
     assert.deepEqual(wasmCalls, [true]);
 
@@ -1111,52 +1210,21 @@ test('binding returns to the static diagram when a post-init worker failure cann
     assert.deepEqual(wasmCalls, [true]);
 
     binding.dispose();
-    binding = undefined;
     captured.onWorkerFailure('after-init');
     captured.onWorkerFailure('before-init');
     await Promise.resolve();
     assert.deepEqual(wasmCalls, [true]);
-  } finally {
-    binding?.dispose();
-    restoreHost();
-  }
+  });
 });
 
 test('binding stays failed-closed when WASM fires after-init before returning a session', async () => {
-  const events = [];
-  const captured = { signal: undefined };
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams: {
-      renderer: {
-        async create(options) {
-          captured.signal = options.signal;
-          events.push('renderer:create');
-          return trackingSession(events, 'renderer');
-        },
-        disposePartial() {
-          events.push('disposePartial');
-        },
-      },
-      wasm: {
-        async init(options) {
-          events.push(`wasm:init:${options.useWorker}`);
-          options.onWorkerFailure('after-init');
-          return trackingSession(events, 'wasm');
-        },
-      },
-    },
+  const { demo, events, captured } = afterInitBeforeReturnFixture({
     inViewport: false,
     documentHidden: false,
   });
-
-  const { root, status, play, surface } = createFakeIsland();
-  const restoreHost = installBindingHost();
-  let binding;
   const seenLive = { value: false };
 
-  try {
-    binding = enhance.bindDemoIsland(root, demo);
+  await withBoundDemo({ demo }, async ({ root, status, play, surface }) => {
     await waitFor(() => root.dataset.mode === 'fallback' || root.dataset.mode === 'frozen');
     if (root.dataset.mode === 'live') {
       seenLive.value = true;
@@ -1171,14 +1239,8 @@ test('binding stays failed-closed when WASM fires after-init before returning a 
     assert.equal(play.disabled, true);
     assert.equal(surface.hidden, true);
     assert.match(status.textContent, /static diagram remains available/);
-    assert.equal(captured.signal.aborted, true);
-    assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
-    assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
-    assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
-  } finally {
-    binding?.dispose();
-    restoreHost();
-  }
+    assertAfterInitClosed(demo, events, captured);
+  });
 });
 
 test('graphics and WASM initialization start independently', async () => {
@@ -1217,161 +1279,41 @@ test('graphics and WASM initialization start independently', async () => {
 });
 
 test('a renderer failure does not wait for a hung WASM init', async () => {
-  const events = [];
-  const wasmHang = deferred();
-  const captured = { signal: undefined };
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams: {
-      renderer: {
-        async create() {
-          events.push('renderer:create');
-          throw Object.assign(new Error('renderer failed'), { code: 'renderer-error' });
-        },
-        disposePartial() {
-          events.push('disposePartial');
-        },
-      },
-      wasm: {
-        async init(options) {
-          events.push('wasm:init');
-          captured.signal = options.signal;
-          await new Promise((resolve) => {
-            options.signal.addEventListener('abort', () => events.push('wasm:abort'), { once: true });
-            wasmHang.promise.then(resolve);
-          });
-          return trackingSession(events, 'wasm');
-        },
-      },
-    },
-    inViewport: true,
+  await assertFailFastHungSide({
+    renderer: 'throw',
+    wasm: 'hang',
+    reason: 'renderer-error',
+    abortEvent: 'wasm:abort',
+    lateDisposeEvent: 'wasm:dispose',
   });
-
-  const started = demo.startIfAllowed();
-  await waitFor(() => demo.getSnapshot().mode === 'fallback');
-  assert.equal(demo.getSnapshot().reason, 'renderer-error');
-  assert.equal(captured.signal.aborted, true);
-  assert.ok(events.includes('wasm:abort'));
-  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
-  assert.equal(events.includes('wasm:dispose'), false);
-
-  wasmHang.resolve();
-  await started;
-  await waitFor(() => events.includes('wasm:dispose'));
-  assert.equal(demo.getSnapshot().mode, 'fallback');
-  assert.equal(demo.getSnapshot().reason, 'renderer-error');
-  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
-  assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
 });
 
 test('a WASM failure does not wait for a hung renderer create', async () => {
-  const events = [];
-  const rendererHang = deferred();
-  const captured = { signal: undefined };
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams: {
-      renderer: {
-        async create(options) {
-          events.push('renderer:create');
-          captured.signal = options.signal;
-          await new Promise((resolve) => {
-            options.signal.addEventListener('abort', () => events.push('renderer:abort'), { once: true });
-            rendererHang.promise.then(resolve);
-          });
-          return trackingSession(events, 'renderer');
-        },
-        disposePartial() {
-          events.push('disposePartial');
-        },
-      },
-      wasm: {
-        async init() {
-          events.push('wasm:init');
-          throw Object.assign(new Error('wasm failed'), { code: 'wasm-init-failed' });
-        },
-      },
-    },
-    inViewport: true,
+  await assertFailFastHungSide({
+    renderer: 'hang',
+    wasm: 'throw',
+    reason: 'wasm-init-failed',
+    abortEvent: 'renderer:abort',
+    lateDisposeEvent: 'renderer:dispose',
   });
-
-  const started = demo.startIfAllowed();
-  await waitFor(() => demo.getSnapshot().mode === 'fallback');
-  assert.equal(demo.getSnapshot().reason, 'wasm-init-failed');
-  assert.equal(captured.signal.aborted, true);
-  assert.ok(events.includes('renderer:abort'));
-  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
-  assert.equal(events.includes('renderer:dispose'), false);
-
-  rendererHang.resolve();
-  await started;
-  await waitFor(() => events.includes('renderer:dispose'));
-  assert.equal(demo.getSnapshot().mode, 'fallback');
-  assert.equal(demo.getSnapshot().reason, 'wasm-init-failed');
-  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
-  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
 });
 
 test('an immediate renderer failure disposes an immediately successful WASM session once', async () => {
-  const events = [];
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams: {
-      renderer: {
-        async create() {
-          events.push('renderer:create');
-          throw Object.assign(new Error('renderer failed'), { code: 'renderer-error' });
-        },
-        disposePartial() {
-          events.push('disposePartial');
-        },
-      },
-      wasm: {
-        async init() {
-          events.push('wasm:init');
-          return trackingSession(events, 'wasm');
-        },
-      },
-    },
-    inViewport: true,
+  await assertImmediateSiblingDispose({
+    renderer: 'throw',
+    wasm: 'ok',
+    reason: 'renderer-error',
+    disposed: 'wasm:dispose',
   });
-
-  await demo.startIfAllowed();
-  assert.equal(demo.getSnapshot().mode, 'fallback');
-  assert.equal(demo.getSnapshot().reason, 'renderer-error');
-  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
-  assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
 });
 
 test('an immediate WASM failure disposes an immediately successful renderer session once', async () => {
-  const events = [];
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams: {
-      renderer: {
-        async create() {
-          events.push('renderer:create');
-          return trackingSession(events, 'renderer');
-        },
-        disposePartial() {
-          events.push('disposePartial');
-        },
-      },
-      wasm: {
-        async init() {
-          events.push('wasm:init');
-          throw Object.assign(new Error('wasm failed'), { code: 'wasm-init-failed' });
-        },
-      },
-    },
-    inViewport: true,
+  await assertImmediateSiblingDispose({
+    renderer: 'ok',
+    wasm: 'throw',
+    reason: 'wasm-init-failed',
+    disposed: 'renderer:dispose',
   });
-
-  await demo.startIfAllowed();
-  assert.equal(demo.getSnapshot().mode, 'fallback');
-  assert.equal(demo.getSnapshot().reason, 'wasm-init-failed');
-  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
-  assert.equal(events.filter((event) => event === 'renderer:dispose').length, 1);
 });
 
 test('context loss one microtask into concurrent init disposes each session once', async () => {
@@ -1913,12 +1855,7 @@ test('Play paints initializing immediately, then the live surface after settleme
     documentHidden: false,
   });
 
-  const { root, play, surface, status } = createFakeIsland();
-  const restoreHost = installBindingHost({ reducedMotion: true });
-  let binding;
-
-  try {
-    binding = enhance.bindDemoIsland(root, demo);
+  await withBoundDemo({ demo, reducedMotion: true }, async ({ root, play, surface, status }) => {
     await waitFor(() => root.dataset.mode === 'awaiting-play');
     assert.equal(play.disabled, false);
     assert.equal(play.textContent, 'Play animation');
@@ -1935,10 +1872,7 @@ test('Play paints initializing immediately, then the live surface after settleme
     assert.equal(play.disabled, false);
     assert.equal(play.textContent, 'Pause animation');
     assert.equal(surface.hidden, false);
-  } finally {
-    binding?.dispose();
-    restoreHost();
-  }
+  });
 });
 
 test('Play during a no-setter camera replacement paints initializing status', async () => {
@@ -1968,12 +1902,7 @@ test('Play during a no-setter camera replacement paints initializing status', as
     documentHidden: false,
   });
 
-  const { root, play, surface, status } = createFakeIsland();
-  const restoreHost = installBindingHost();
-  let binding;
-
-  try {
-    binding = enhance.bindDemoIsland(root, demo);
+  await withBoundDemo({ demo }, async ({ root, play, surface, status, restoreHost }) => {
     await waitFor(() => root.dataset.mode === 'live');
     assert.deepEqual(createOptions, [true]);
     assert.equal(play.disabled, false);
@@ -2002,27 +1931,13 @@ test('Play during a no-setter camera replacement paints initializing status', as
     assert.equal(surface.hidden, false);
     assert.equal(demo.getSnapshot().cameraMotionEnabled, false);
     assert.deepEqual(createOptions, [true, false]);
-  } finally {
-    binding?.dispose();
-    restoreHost();
-  }
+  });
 });
 
 test('persisted pagehide pauses the island and pageshow restores it without disposing', async () => {
   const { seams, rendererEvents } = connectedSeams();
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams,
-    inViewport: false,
-    documentHidden: false,
-  });
 
-  const { root, play } = createFakeIsland();
-  const restoreHost = installBindingHost();
-  let binding;
-
-  try {
-    binding = enhance.bindDemoIsland(root, demo);
+  await withBoundDemo({ seams }, async ({ demo, root, play, restoreHost }) => {
     await waitFor(() => root.dataset.mode === 'live');
     assert.equal(restoreHost.listenerCount('pagehide'), 1);
     assert.equal(restoreHost.listenerCount('pageshow'), 1);
@@ -2044,27 +1959,13 @@ test('persisted pagehide pauses the island and pageshow restores it without disp
     assert.equal(restoreHost.motionListenerCount(), 0);
     assert.equal(play.clickHandler, undefined);
     assert.equal(demo.getSnapshot().mode, 'static');
-  } finally {
-    binding?.dispose();
-    restoreHost();
-  }
+  });
 });
 
 test('binding fails closed when the renderer seam reports a runtime error', async () => {
   const { seams, captured } = workerAwareSeams();
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams,
-    inViewport: false,
-    documentHidden: false,
-  });
 
-  const { root, status, play, surface } = createFakeIsland();
-  const restoreHost = installBindingHost();
-  let binding;
-
-  try {
-    binding = enhance.bindDemoIsland(root, demo);
+  await withBoundDemo({ seams }, async ({ demo, root, status, play, surface, binding }) => {
     await waitFor(() => root.dataset.mode === 'live');
     assert.equal(typeof captured.onRendererError, 'function');
 
@@ -2077,31 +1978,16 @@ test('binding fails closed when the renderer seam reports a runtime error', asyn
     assert.match(status.textContent, /renderer stopped/i);
 
     binding.dispose();
-    binding = undefined;
     captured.onRendererError();
     await Promise.resolve();
     assert.equal(demo.getSnapshot().mode, 'static');
-  } finally {
-    binding?.dispose();
-    restoreHost();
-  }
+  });
 });
 
 test('reduced-motion media query changes update the live gate and the listener is removed', async () => {
   const { seams, rendererEvents } = connectedSeams();
-  const demo = runtime.createDemoRuntime({
-    capabilities: capable,
-    seams,
-    inViewport: false,
-    documentHidden: false,
-  });
 
-  const { root, play } = createFakeIsland();
-  const restoreHost = installBindingHost();
-  let binding;
-
-  try {
-    binding = enhance.bindDemoIsland(root, demo);
+  await withBoundDemo({ seams }, async ({ demo, root, play, restoreHost, binding }) => {
     await waitFor(() => root.dataset.mode === 'live');
     assert.equal(restoreHost.motionListenerCount(), 1);
 
@@ -2117,12 +2003,8 @@ test('reduced-motion media query changes update the live gate and the listener i
     assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
 
     binding.dispose();
-    binding = undefined;
     assert.equal(restoreHost.motionListenerCount(), 0);
     restoreHost.dispatchMotion(true);
     assert.equal(demo.getSnapshot().mode, 'static');
-  } finally {
-    binding?.dispose();
-    restoreHost();
-  }
+  });
 });

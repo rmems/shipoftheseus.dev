@@ -734,7 +734,7 @@ export class DemoRuntime {
           return;
         }
 
-        if (rendererAttempt !== null && wasmAttempt !== null && wasmAttempt.session && !wasmAttempt.error) {
+        if (rendererAttempt !== null && wasmAttempt?.session && !wasmAttempt.error) {
           void this.commitInitialization(generation, rendererAttempt, wasmAttempt).finally(finish);
         }
       });
@@ -760,7 +760,7 @@ export class DemoRuntime {
           return;
         }
 
-        if (rendererAttempt !== null && wasmAttempt !== null && rendererAttempt.session && !rendererAttempt.error) {
+        if (wasmAttempt !== null && rendererAttempt?.session && !rendererAttempt.error) {
           void this.commitInitialization(generation, rendererAttempt, wasmAttempt).finally(finish);
         }
       });
@@ -914,10 +914,7 @@ export class DemoRuntime {
   }
 
   private initSignal(): AbortSignal {
-    if (this.initAbort === null) {
-      this.initAbort = new AbortController();
-    }
-
+    this.initAbort ??= new AbortController();
     return this.initAbort.signal;
   }
 
@@ -1084,10 +1081,7 @@ export class DemoRuntime {
   }
 
   private beginMainThreadRetry(seam: WasmSeam, error: unknown): Promise<SessionAttempt<WasmSession>> {
-    if (this.wasmRetryPromise === null) {
-      this.wasmRetryPromise = this.retryWasm(seam, error);
-    }
-
+    this.wasmRetryPromise ??= this.retryWasm(seam, error);
     return this.wasmRetryPromise;
   }
 
