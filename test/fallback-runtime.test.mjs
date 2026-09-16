@@ -1701,6 +1701,147 @@ test('pending-init reduced-motion recreates a no-setter renderer created camera-
   assert.deepEqual(createOptions, [true, false]);
 });
 
+test('a main-thread WASM retry is disposed once when the renderer fails immediately', async () => {
+  const events = [];
+  const wasmCalls = [];
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create() {
+          events.push('renderer:create');
+          throw Object.assign(new Error('renderer failed'), { code: 'renderer-error' });
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init({ useWorker }) {
+          wasmCalls.push(useWorker);
+          events.push(`wasm:init:${useWorker}`);
+          if (useWorker) {
+            throw Object.assign(new Error('worker unavailable'), { code: 'worker-unavailable' });
+          }
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  assert.equal(demo.getSnapshot().mode, 'fallback');
+  assert.equal(demo.getSnapshot().reason, 'renderer-error');
+  assert.deepEqual(wasmCalls, [true, false]);
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.filter((event) => event === 'wasm:dispose').length, 1);
+});
+
+test('a deferred camera-on replacement is not kept after reduced-motion flips during Play', async () => {
+  const createOptions = [];
+  const replacement = deferred();
+  const demo = runtime.createDemoRuntime({
+    capabilities: { ...capable, prefersReducedMotion: true },
+    seams: {
+      renderer: {
+        async create(options) {
+          createOptions.push(options.cameraMotionEnabled);
+          if (createOptions.length > 1) {
+            await replacement.promise;
+          }
+          const session = trackingSession([], 'renderer');
+          delete session.setCameraMotionEnabled;
+          return session;
+        },
+      },
+      wasm: {
+        async init() {
+          return trackingSession([], 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  await demo.play();
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.deepEqual(createOptions, [false]);
+
+  demo.play();
+  demo.setPrefersReducedMotion(false);
+  const playing = demo.play();
+  await waitFor(() => createOptions.length === 2);
+  assert.deepEqual(createOptions, [false, true]);
+  demo.setPrefersReducedMotion(true);
+  replacement.resolve();
+  await playing;
+
+  const snapshot = demo.getSnapshot();
+  assert.equal(createOptions.at(-1), false);
+  assert.ok(createOptions.includes(true));
+  assert.equal(snapshot.cameraMotionEnabled, false);
+  if (snapshot.mode === 'live') {
+    assert.equal(snapshot.reason, 'reduced-motion');
+    assert.deepEqual(createOptions, [false, true, false]);
+  } else {
+    assert.equal(snapshot.mode, 'awaiting-play');
+  }
+});
+
+test('dispose during hung renderer replacement aborts and cleans partial graphics once', async () => {
+  const events = [];
+  const replacement = deferred();
+  const captured = { signal: undefined };
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams: {
+      renderer: {
+        async create(options) {
+          events.push(`create:${options.cameraMotionEnabled}`);
+          if (events.filter((event) => event.startsWith('create:')).length === 1) {
+            const session = trackingSession(events, 'renderer');
+            delete session.setCameraMotionEnabled;
+            return session;
+          }
+          captured.signal = options.signal;
+          events.push('replacement:start');
+          await replacement.promise;
+          const session = trackingSession(events, 'renderer');
+          delete session.setCameraMotionEnabled;
+          return session;
+        },
+        disposePartial() {
+          events.push('disposePartial');
+        },
+      },
+      wasm: {
+        async init() {
+          return trackingSession(events, 'wasm');
+        },
+      },
+    },
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+  assert.equal(demo.getSnapshot().mode, 'live');
+  demo.setPrefersReducedMotion(true);
+  const playing = demo.play();
+  await waitFor(() => events.includes('replacement:start'));
+  assert.equal(typeof captured.signal.aborted, 'boolean');
+  demo.dispose();
+
+  assert.equal(captured.signal.aborted, true);
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(demo.getSnapshot().mode, 'static');
+
+  replacement.resolve();
+  await playing;
+  assert.equal(events.filter((event) => event === 'disposePartial').length, 1);
+  assert.equal(events.filter((event) => event === 'renderer:dispose').length >= 1, true);
+});
+
 test('Play paints initializing immediately, then the live surface after settlement', async () => {
   const rendererCreate = deferred();
   const demo = runtime.createDemoRuntime({
