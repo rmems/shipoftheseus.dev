@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -385,6 +386,15 @@ test('catalog discovery rejects symlinks and does not follow them outside the ca
     assert.deepEqual(escaped.artifacts, []);
     assert.equal(escaped.issues[0].code, 'catalog-io-error');
     assert.match(escaped.issues[0].message, /regular files/);
+
+    const fifo = withTempCatalog({}, (directory) => {
+      execFileSync('mkfifo', [join(directory, 'pipe.json')]);
+      return load.loadNativeEvidenceDirectory(directory);
+    });
+    assert.equal(fifo.status, 'invalid');
+    assert.deepEqual(fifo.artifacts, []);
+    assert.equal(fifo.issues[0].code, 'catalog-io-error');
+    assert.match(fifo.issues[0].message, /regular files/);
 
     writeFileSync(join(realCatalog, 'valid-cuda-measured.json'), payload);
     const linkedRoot = join(parent, 'catalog');
