@@ -10,7 +10,7 @@ use neuromod::{NeuroModulators, SeedableRng, SpikingNetwork, StdRng};
 use synaptic_wiring::{SynapticMesh, topology::generate_small_world};
 use wasm_bindgen::prelude::*;
 
-pub const CONTRACT_VERSION: u32 = 1;
+pub const CONTRACT_VERSION: u32 = 2;
 const CHANNEL_COUNT: usize = 16;
 const STATUS_OK: &str = "ok";
 

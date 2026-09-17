@@ -63,7 +63,7 @@ try {
   run(wasmBindgen, ['--target', 'nodejs', '--out-dir', output, wasm]);
   run('node', ['--input-type=commonjs', '--eval', [
     "const wasm = require(process.argv[1]);",
-    "const adapter = wasm.WasmAdapter.init(9n, new Uint8Array([1]));",
+    "const adapter = wasm.WasmAdapter.init(9n, new Uint8Array([2]));",
     "adapter.input(1n, new Float32Array([1, 0.5]));",
     "const state = adapter.step();",
     "if (typeof state.seed !== 'bigint' || state.completed_step !== 1n) process.exit(1);",
@@ -78,7 +78,7 @@ try {
     "import { pathToFileURL } from 'node:url';",
     "const wasm = await import(pathToFileURL(process.argv[1]).href);",
     "await wasm.default(await readFile(process.argv[2]));",
-    "const adapter = wasm.WasmAdapter.init(9n, new Uint8Array([1]));",
+    "const adapter = wasm.WasmAdapter.init(9n, new Uint8Array([2]));",
     "adapter.input(1n, new Float32Array([1, 0.5]));",
     "const state = adapter.step();",
     "if (typeof state.seed !== 'bigint' || state.completed_step !== 1n) process.exit(1);",

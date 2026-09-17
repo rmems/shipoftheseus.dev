@@ -13,9 +13,38 @@ fn a_seeded_runtime_preserves_topology_provenance_and_advances_deterministically
     let left_state = left.step().expect("runtime can advance one tick");
     let right_state = right.step().expect("runtime can advance one tick");
 
-    assert_eq!(left_state.contract_version, 1);
+    assert_eq!(left_state.contract_version, 2);
     assert_eq!(left_state.completed_step, 1);
     assert_eq!(left_state.topology_digest, right_state.topology_digest);
+    assert_eq!(left_state.topology_node_ids, right_state.topology_node_ids);
+    assert_eq!(
+        left_state.topology_edge_sources,
+        right_state.topology_edge_sources
+    );
+    assert_eq!(
+        left_state.topology_edge_targets,
+        right_state.topology_edge_targets
+    );
+    assert_eq!(
+        left_state.topology_edge_weights,
+        right_state.topology_edge_weights
+    );
+    assert_eq!(
+        left_state.topology_edge_delays,
+        right_state.topology_edge_delays
+    );
+    assert_eq!(
+        left_state.topology_polarities,
+        right_state.topology_polarities
+    );
+    assert_eq!(
+        left_state.topology_weight_bits,
+        right_state.topology_weight_bits
+    );
+    assert_eq!(
+        left_state.topology_outgoing_edge_offsets,
+        right_state.topology_outgoing_edge_offsets
+    );
     assert_eq!(left_state.spike_neurons, right_state.spike_neurons);
     assert_eq!(
         left_state.membrane_potentials,

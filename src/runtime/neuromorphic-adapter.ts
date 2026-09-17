@@ -1,5 +1,5 @@
 /** Browser-safe bridge for the generated `neuromorphic-adapter` WASM package. */
-export const NEUROMORPHIC_CONTRACT_VERSION = 1;
+export const NEUROMORPHIC_CONTRACT_VERSION = 2;
 export const CORPUS_IPC_WIRE_VERSION = 1;
 const MAX_U64 = (1n << 64n) - 1n;
 const RUNTIME_ERROR_STATUSES = new Set([

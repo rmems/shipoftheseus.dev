@@ -72,7 +72,7 @@ state(instance) -> StateView
 ```
 
 - `init` requires an explicit 64-bit seed and validated, versioned configuration.
-  The first adapter release accepts the single V1 configuration byte `[1]`; it
+  The topology-projection adapter release accepts the single V2 configuration byte `[2]`; it
   rejects other payloads rather than pretending to support custom topologies.
   No entropy, wall clock, locale, device capability, or frame timing may affect
   simulation results.
