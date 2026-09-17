@@ -9,8 +9,6 @@ const wasm = join(
   repository,
   'crates/neuromorphic-adapter/target/wasm32-unknown-unknown/release/neuromorphic_adapter.wasm',
 );
-const output = await mkdtemp(join(tmpdir(), 'neuromorphic-adapter-smoke-'));
-const webOutput = join(output, 'web');
 const requestedWasmBindgen = process.env.WASM_BINDGEN_BIN;
 
 if (!requestedWasmBindgen || !isAbsolute(requestedWasmBindgen)) {
@@ -41,8 +39,12 @@ function requireWasmBindgenVersion() {
   }
 }
 
+let output;
+
 try {
   requireWasmBindgenVersion();
+  output = await mkdtemp(join(tmpdir(), 'neuromorphic-adapter-smoke-'));
+  const webOutput = join(output, 'web');
   run('cargo', ['+1.98.1', 'build', '--manifest-path', manifest, '--target', 'wasm32-unknown-unknown', '--release', '--locked']);
   run(wasmBindgen, ['--target', 'nodejs', '--out-dir', output, wasm]);
   run('node', ['--input-type=commonjs', '--eval', [
@@ -71,5 +73,7 @@ try {
   ].join(' '), webModule, join(webOutput, 'neuromorphic_adapter_bg.wasm')]);
   process.stdout.write('Generated Rust/WASM adapter smoke test passed.\n');
 } finally {
-  await rm(output, { recursive: true, force: true });
+  if (output) {
+    await rm(output, { recursive: true, force: true });
+  }
 }
