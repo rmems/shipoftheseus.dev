@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import process from 'node:process';
 import test from 'node:test';
 
 test('the WASM smoke script rejects a relative wasm-bindgen executable path', () => {
