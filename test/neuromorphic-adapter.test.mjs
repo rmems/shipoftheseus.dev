@@ -180,6 +180,38 @@ test('the browser bridge rejects canonical weights whose IEEE-754 bits disagree'
   assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
 });
 
+test('the browser bridge rejects a source range with noncanonical edge order', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const state = validTopologyState({
+    membrane_potentials: new Float32Array([0.25, 0.5]),
+    spike_neurons: new Uint32Array(),
+    topology_rows: new Uint32Array([0, 2, 2]),
+    topology_targets: new Uint32Array([1, 0]),
+    topology_weights: new Float32Array([0.5, 0.25]),
+    topology_delays: new Uint16Array([0, 0]),
+    topology_edge_sources: new Uint32Array([0, 0]),
+    topology_edge_targets: new Uint32Array([1, 0]),
+    topology_edge_weights: new Float32Array([0.5, 0.25]),
+    topology_edge_delays: new Uint16Array([0, 0]),
+    topology_polarities: new Uint8Array([0, 0]),
+    topology_weight_bits: new Uint32Array([0x3f000000, 0x3e800000]),
+    topology_outgoing_edge_offsets: new Uint32Array([0, 2, 2]),
+  });
+  const adapter = await runtime.initNeuromorphicAdapter(
+    async () => ({
+      async default() {},
+      WasmAdapter: {
+        init() {
+          return { input() {}, step() { return state; }, state() { return state; }, dispose() {} };
+        },
+      },
+    }),
+    1n,
+  );
+
+  assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
+});
+
 test('the browser bridge rejects a non-object state and out-of-range topology targets', async () => {
   const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
   const states = [null, {

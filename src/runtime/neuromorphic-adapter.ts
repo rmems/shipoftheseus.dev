@@ -145,6 +145,13 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     !raw.topology_polarities.every((polarity) => polarity === 0 || polarity === 1) ||
     !isMonotonicTopologyRows(raw.topology_outgoing_edge_offsets) ||
     !hasCanonicalOutgoingEdges(raw.topology_node_ids, raw.topology_edge_sources, raw.topology_outgoing_edge_offsets) ||
+    !hasCanonicalEdgeOrder(
+      raw.topology_edge_sources,
+      raw.topology_edge_targets,
+      raw.topology_edge_delays,
+      raw.topology_polarities,
+      raw.topology_weight_bits,
+    ) ||
     !hasMatchingWeightBits(raw.topology_edge_weights, raw.topology_weight_bits) ||
     !hasValidSpikeNeurons(raw.spike_neurons, raw.membrane_potentials.length)
   ) {
@@ -218,6 +225,36 @@ function hasCanonicalOutgoingEdges(
 function hasMatchingWeightBits(weights: Float32Array, bits: Uint32Array): boolean {
   const weightBits = new Uint32Array(weights.buffer, weights.byteOffset, weights.length);
   return weightBits.every((weight, index) => weight === bits[index]);
+}
+
+function hasCanonicalEdgeOrder(
+  sources: Uint32Array,
+  targets: Uint32Array,
+  delays: Uint16Array,
+  polarities: Uint8Array,
+  weightBits: Uint32Array,
+): boolean {
+  for (let edge = 1; edge < sources.length; edge += 1) {
+    const previous = edge - 1;
+    if (sources[previous] !== sources[edge]) {
+      if (sources[previous] > sources[edge]) return false;
+      continue;
+    }
+    if (targets[previous] !== targets[edge]) {
+      if (targets[previous] > targets[edge]) return false;
+      continue;
+    }
+    if (delays[previous] !== delays[edge]) {
+      if (delays[previous] > delays[edge]) return false;
+      continue;
+    }
+    if (polarities[previous] !== polarities[edge]) {
+      if (polarities[previous] > polarities[edge]) return false;
+      continue;
+    }
+    if (weightBits[previous] > weightBits[edge]) return false;
+  }
+  return true;
 }
 
 /**
