@@ -1,0 +1,21 @@
+test/verify-neuromorphic-wasm.test.mjs
+  s_f16f54b18a5a4b::t_2301237fc14f5d 3-5,9,11-39
+scripts/verify-neuromorphic-wasm.mjs
+  s_f16f54b18a5a4b::t_a85cdc1a033ffb 42-43,46-47,76-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4ee114cbca0ebf2bb8a626912932032950ae9064",
+  "prompts": {},
+  "sessions": {
+    "s_f16f54b18a5a4b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a810-892a-72e3-8453-445e6d21e8f5",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
