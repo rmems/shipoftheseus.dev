@@ -158,6 +158,27 @@ fn runtime_seed_is_provenance_not_topology_and_state_exposes_canonical_edge_look
     assert_eq!(left.seed, 1);
     assert_eq!(right.seed, 99);
     assert_eq!(left.topology_digest, right.topology_digest);
+    assert_eq!(left.topology_node_ids, right.topology_node_ids);
+    assert_eq!(left.topology_edge_sources, right.topology_edge_sources);
+    assert_eq!(left.topology_edge_targets, right.topology_edge_targets);
+    assert_eq!(
+        left.topology_edge_weights
+            .iter()
+            .map(|weight| weight.to_bits())
+            .collect::<Vec<_>>(),
+        right
+            .topology_edge_weights
+            .iter()
+            .map(|weight| weight.to_bits())
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(left.topology_edge_delays, right.topology_edge_delays);
+    assert_eq!(left.topology_polarities, right.topology_polarities);
+    assert_eq!(left.topology_weight_bits, right.topology_weight_bits);
+    assert_eq!(
+        left.topology_outgoing_edge_offsets,
+        right.topology_outgoing_edge_offsets
+    );
     assert_eq!(left.topology_node_ids, (0..16).collect::<Vec<_>>());
     assert_eq!(
         left.topology_edge_sources.len(),
