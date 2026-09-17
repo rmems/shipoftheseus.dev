@@ -35,7 +35,10 @@ async function generatedFiles(directory, relative = '') {
     if (entry.isDirectory()) files.push(...await generatedFiles(join(directory, entry.name), child));
     else if (entry.isFile()) files.push(child);
   }
-  return files.sort();
+  return files.sort((left, right) => {
+    if (left === right) return 0;
+    return left < right ? -1 : 1;
+  });
 }
 
 async function assertReproducible(first, second) {

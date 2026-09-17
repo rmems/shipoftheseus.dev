@@ -1,9 +1,17 @@
 import { spawnSync } from 'node:child_process';
+import { stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const repository = resolve(import.meta.dirname, '..');
 const manifest = join(repository, 'crates/neuromorphic-adapter/Cargo.toml');
-const result = spawnSync('cargo', ['+1.98.1', 'metadata', '--manifest-path', manifest, '--locked', '--format-version', '1'], {
+const cargoHome = process.env.CARGO_HOME || join(homedir(), '.cargo');
+const cargo = join(cargoHome, 'bin', 'cargo');
+const cargoMetadata = await stat(cargo);
+if (!cargoMetadata.isFile() || (cargoMetadata.mode & 0o111) === 0) {
+  throw new Error(`expected an executable cargo binary at ${cargo}`);
+}
+const result = spawnSync(cargo, ['+1.98.1', 'metadata', '--manifest-path', manifest, '--locked', '--format-version', '1'], {
   cwd: repository,
   encoding: 'utf8',
 });
