@@ -3,6 +3,11 @@ export const NEUROMORPHIC_CONTRACT_VERSION = 2;
 export const CORPUS_IPC_WIRE_VERSION = 1;
 const BROWSER_TOPOLOGY_DIGEST =
   'synaptic-wiring.topology.digest.v1:sha256:26875faf05121b9afda27a533760369da67ba9110599fb61533f08961ff6e971';
+// Audited canonical tags for the fixed `synaptic-wiring` browser projection.
+const BROWSER_TOPOLOGY_POLARITIES = new Uint8Array([
+  ...Array(16).fill(1),
+  ...Array(48).fill(0),
+]);
 const MAX_U64 = (1n << 64n) - 1n;
 const RUNTIME_ERROR_STATUSES = new Set([
   'ok',
@@ -132,6 +137,7 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     raw.membrane_potentials.length !== raw.topology_rows.length - 1 ||
     typeof raw.topology_digest !== 'string' ||
     raw.topology_digest !== BROWSER_TOPOLOGY_DIGEST ||
+    !hasExpectedTopologyPolarities(raw.topology_polarities) ||
     raw.protocol_wire_version !== CORPUS_IPC_WIRE_VERSION ||
     typeof raw.error_status !== 'string' ||
     !RUNTIME_ERROR_STATUSES.has(raw.error_status) ||
@@ -237,6 +243,13 @@ function hasCanonicalOutgoingEdges(
 function hasMatchingWeightBits(weights: Float32Array, bits: Uint32Array): boolean {
   const weightBits = new Uint32Array(weights.buffer, weights.byteOffset, weights.length);
   return weightBits.every((weight, index) => weight === bits[index]);
+}
+
+function hasExpectedTopologyPolarities(polarities: Uint8Array): boolean {
+  return (
+    polarities.length === BROWSER_TOPOLOGY_POLARITIES.length &&
+    polarities.every((polarity, index) => polarity === BROWSER_TOPOLOGY_POLARITIES[index])
+  );
 }
 
 function hasCanonicalEdgeOrder(

@@ -3,6 +3,11 @@ import test from 'node:test';
 
 import { loadTsModule } from './load-ts-module.mjs';
 
+const FIXED_TOPOLOGY_POLARITIES = new Uint8Array([
+  ...Array(16).fill(1),
+  ...Array(48).fill(0),
+]);
+
 function validTopologyState(overrides = {}) {
   return {
     contract_version: 2,
@@ -11,18 +16,18 @@ function validTopologyState(overrides = {}) {
     last_sequence: 2n ** 63n + 2n,
     membrane_potentials: new Float32Array([0.25, 0.5]),
     spike_neurons: new Uint32Array([1]),
-    topology_rows: new Uint32Array([0, 1, 1]),
-    topology_targets: new Uint32Array([1]),
-    topology_weights: new Float32Array([0.5]),
-    topology_delays: new Uint16Array([0]),
+    topology_rows: new Uint32Array([0, 16, 64]),
+    topology_targets: new Uint32Array([...Array(16).fill(1), ...Array(48).fill(0)]),
+    topology_weights: new Float32Array(Array(64).fill(0.5)),
+    topology_delays: new Uint16Array(64),
     topology_node_ids: new Uint32Array([0, 1]),
-    topology_edge_sources: new Uint32Array([0]),
-    topology_edge_targets: new Uint32Array([1]),
-    topology_edge_weights: new Float32Array([0.5]),
-    topology_edge_delays: new Uint16Array([0]),
-    topology_polarities: new Uint8Array([0]),
-    topology_weight_bits: new Uint32Array([0x3f000000]),
-    topology_outgoing_edge_offsets: new Uint32Array([0, 1, 1]),
+    topology_edge_sources: new Uint32Array([...Array(16).fill(0), ...Array(48).fill(1)]),
+    topology_edge_targets: new Uint32Array([...Array(16).fill(1), ...Array(48).fill(0)]),
+    topology_edge_weights: new Float32Array(Array(64).fill(0.5)),
+    topology_edge_delays: new Uint16Array(64),
+    topology_polarities: new Uint8Array(FIXED_TOPOLOGY_POLARITIES),
+    topology_weight_bits: new Uint32Array(Array(64).fill(0x3f000000)),
+    topology_outgoing_edge_offsets: new Uint32Array([0, 16, 64]),
     topology_digest: 'synaptic-wiring.topology.digest.v1:sha256:26875faf05121b9afda27a533760369da67ba9110599fb61533f08961ff6e971',
     protocol_wire_version: 1,
     error_status: 'ok',
@@ -82,12 +87,13 @@ test('the browser bridge copies typed-array snapshots and preserves lossless u64
   assert.equal(second.membranePotentials[0], 99);
   assert.notEqual(first.membranePotentials.buffer, second.membranePotentials.buffer);
   assert.deepEqual([...first.topologyNodeIds], [0, 1]);
-  assert.deepEqual([...first.topologyEdgeSources], [0]);
-  assert.deepEqual([...first.topologyEdgeTargets], [1]);
-  assert.deepEqual([...first.topologyEdgeWeights], [0.5]);
-  assert.deepEqual([...first.topologyEdgeDelays], [0]);
-  assert.deepEqual([...first.topologyPolarities], [0]);
-  assert.deepEqual([...first.topologyOutgoingEdgeOffsets], [0, 1, 1]);
+  assert.equal(first.topologyEdgeSources.length, 64);
+  assert.deepEqual([...first.topologyEdgeSources.slice(0, 17)], [...Array(16).fill(0), 1]);
+  assert.deepEqual([...first.topologyEdgeTargets.slice(0, 17)], [...Array(16).fill(1), 0]);
+  assert.ok(first.topologyEdgeWeights.every((weight) => weight === 0.5));
+  assert.ok(first.topologyEdgeDelays.every((delay) => delay === 0));
+  assert.deepEqual([...first.topologyPolarities], [...FIXED_TOPOLOGY_POLARITIES]);
+  assert.deepEqual([...first.topologyOutgoingEdgeOffsets], [0, 16, 64]);
 });
 
 test('the browser bridge fails closed after disposal and rejects invalid u64 state', async () => {
@@ -219,6 +225,15 @@ test('the browser bridge rejects a stale digest for the fixed exported topology'
     topology_digest: 'synaptic-wiring.topology.digest.v1:sha256:stale',
   });
   const adapter = await adapterForState(runtime, state);
+
+  assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
+});
+
+test('the browser bridge rejects a changed polarity tag for the fixed exported topology', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const polarities = new Uint8Array(FIXED_TOPOLOGY_POLARITIES);
+  polarities[0] = 0;
+  const adapter = await adapterForState(runtime, validTopologyState({ topology_polarities: polarities }));
 
   assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
 });
