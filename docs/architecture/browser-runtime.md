@@ -66,20 +66,22 @@ opaque integer handles as long as JavaScript cannot mutate Rust-owned state.
 
 ```text
 init({ contract_version, seed_u64, config_bytes }) -> instance
-input(instance, { sequence_u64, time_step_u64, samples_f32 }) -> Result
-step(instance, { steps_u32 }) -> Result<StateView>
+input(instance, { sequence_u64, samples_f32 }) -> Result
+step(instance) -> Result<StateView>
 state(instance) -> StateView
 ```
 
 - `init` requires an explicit 64-bit seed and validated, versioned configuration.
+  The first adapter release accepts the single V1 configuration byte `[1]`; it
+  rejects other payloads rather than pretending to support custom topologies.
   No entropy, wall clock, locale, device capability, or frame timing may affect
   simulation results.
-- `input` accepts canonical `Float32Array` data plus monotonic sequence and
-  logical-step numbers. Rust copies or consumes the data before returning; it
+- `input` accepts canonical `Float32Array` data plus a monotonic sequence.
+  Rust copies or consumes the data before returning; it
   does not retain a view into resizable JavaScript memory.
-- `step` advances a fixed timestep by an integer count. `requestAnimationFrame`
-  controls presentation only. A capped accumulator may choose how many fixed
-  steps to request, but dropped visual frames never change step mathematics.
+- `step` advances exactly one fixed logical timestep. `requestAnimationFrame`
+  controls presentation only. A capped accumulator may choose how many calls to
+  request, but dropped visual frames never change step mathematics.
 - `state` is a read-only snapshot containing its contract version, seed,
   completed step, neuron/spike buffers, topology identifiers, and stable error
   status. Large numeric fields cross the boundary in typed arrays, not per-item
@@ -142,14 +144,14 @@ decision above places it outside the browser.
 | Package | Canonical repository | Version | Exact commit | Selected features and command suffix | Result / exact blocker |
 | --- | --- | ---: | --- | --- | --- |
 | `kinetic-signals` | `rmems/kinetic-signals` | 0.5.0 | `e829a0d5826c0d1175b8878b024a69ce4e1d538b` | `--no-default-features` | **Pass** |
-| `axon-encoder` | `Limen-Neural/axon-encoder` | 0.4.0 | `bfe010122ab28ca33acedbdceb64ca6ad9125235` | `--no-default-features --features serde` | **Blocked:** `rand 0.10.2` reaches `getrandom 0.4.3`, whose default configuration emits a compile error for `wasm32-unknown-unknown` and requires its `wasm_js` feature. |
-| `neuromod` | `Limen-Neural/neuromod` | 0.6.0 | `5d19fcddd53103a73ef9254a81cc5c87adb415a3` | `--no-default-features` | **Blocked:** the manifest requires `rand = "0.10.1"`, while the committed lockfile resolves `rand 0.10.2`; that resolution reaches `getrandom 0.4.3`, whose default configuration emits the missing-`wasm_js` compile error. |
-| `synaptic-wiring` | `Limen-Neural/synaptic-wiring` | 0.3.0 | `581b90f247e9e4f48542b40e39180d7e78eb3f18` | `--no-default-features` | **Pass** |
+| `axon-encoder` | `Limen-Neural/axon-encoder` | 0.4.0 | `a56276746569e5ecaa78e50882064858835b2438` | `--no-default-features --features serde,wasm-js` | **Pass**. The opt-in `wasm-js` feature enables the supported `getrandom` browser backend; the default-only graph remains intentionally unsupported. |
+| `neuromod` | `Limen-Neural/neuromod` | 0.6.0 | `3fe526116683d7392e309760c017afe8a934619c` | `--no-default-features --features wasm-js` | **Pass**. The opt-in `wasm-js` feature enables the supported `getrandom` browser backend; the default-only graph remains intentionally unsupported. |
+| `synaptic-wiring` | `Limen-Neural/synaptic-wiring` | `=0.3.0` | crates.io checksum `311aed9804c027f786ed5385883bd22469f8cb87fe804b88f77162466b9137b2`; audited source/main `5f70762b4ef09346d0689a65a1a8b20531cfbdab` | `--no-default-features` | **Pass** |
 | `nir-rs` | `Limen-Neural/nir-rs` | 0.4.3 | `1043cbf7bc6acbece250c769b9c2c8f7c58ce681` | `--no-default-features --features serde` (`hdf5` excluded) | **Pass** |
 | `limbic-critic` | `Limen-Neural/limbic-critic` | 0.3.0 | `9bf0c79f5a47fac9c5b921dd9011b013d1ae52bb` | `--no-default-features` | **Pass** |
 | `plasticity-lab` | `Limen-Neural/plasticity-lab` | 0.1.0 | `d47ae33914b6a3044d0539b851cd83621b7f1f4b` | `--no-default-features --features critic` | **Blocked:** its `neuromod 0.6.0` git dependency reaches `getrandom 0.4.3`, which emits the missing-`wasm_js` compile error. |
 | `myelin-accelerator` | `Limen-Neural/myelin-accelerator` | 0.2.0 | `26651ca0edf96b080cd5ef89045543c453bd786c` | `--no-default-features` (`cuda` excluded) | **Pass**, using the crate's non-CUDA stub PTX build path; still excluded from the browser dependency graph. |
-| `corpus-ipc` | `Limen-Neural/corpus-ipc` | 0.1.0 | `d99e6544d7925dc0ccfe69fdff372352b0a9d041` | `--no-default-features` (`zmq` and `server` excluded) | **Pass**; approved for the V1 browser adapter/recorded viewer as the canonical protocol/provenance schema and validation layer. |
+| `corpus-ipc` | `Limen-Neural/corpus-ipc` | `=0.1.0` | crates.io checksum `eec6624caf88783f1c35109fe1c27615fc85c986249d480c8efabb72d5f92081`; audited source/tag `d99e6544d7925dc0ccfe69fdff372352b0a9d041` | `--no-default-features` (`zmq` and `server` excluded) | **Pass**; approved for the V1 browser adapter/recorded viewer as the canonical protocol/provenance schema and validation layer. |
 
 Every row used:
 
@@ -160,12 +162,9 @@ cargo +1.98.1 check --target wasm32-unknown-unknown <selected feature suffix>
 This completed audit did **not** use `--locked`. All future CI checks and
 re-audits must use `--locked` so their dependency resolutions are reproducible.
 
-Merging this ADR and RM-1639 closes only the architecture decision. Full
-RM-1640/GitHub #4 dispatch, plus RM-1650/GitHub #14 and RM-1651/GitHub #15,
-remain blocked: `axon-encoder` and `neuromod` fail the selected WASM target, and
-`plasticity-lab` inherits the `neuromod` blocker. Scaffold-only work or work on a
-compatible subset requires a separately bounded task and cannot satisfy or close
-RM-1640. Re-dispatch requires upstream-supported fixes followed by a locked
-WASM re-audit at exact pinned revisions. The site must also pin the Rust
-toolchain, commit its dependency lockfile, and run those locked target checks in
-CI before enabling the live browser simulation.
+Merging this ADR and RM-1639 closes only the architecture decision. The exact
+upstream browser-entropy fixes above unblock full RM-1640/GitHub #4 dispatch,
+plus RM-1650/GitHub #14 and RM-1651/GitHub #15. `plasticity-lab` remains a
+separate V2-only blocker until it forwards `neuromod`'s opt-in `wasm-js` feature.
+The site must pin the Rust toolchain, commit its dependency lockfile, and run
+locked target checks in CI before enabling the live browser simulation.
