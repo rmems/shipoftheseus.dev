@@ -206,6 +206,14 @@ test('the browser bridge rejects a source range with noncanonical edge order', a
   assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
 });
 
+test('the browser bridge rejects a canonical projection that disagrees with routed CSR topology', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const state = validTopologyState({ topology_targets: new Uint32Array([0]) });
+  const adapter = await adapterForState(runtime, state);
+
+  assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
+});
+
 test('the browser bridge rejects a non-object state and out-of-range topology targets', async () => {
   const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
   const states = [null, {

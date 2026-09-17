@@ -153,6 +153,16 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
       raw.topology_weight_bits,
     ) ||
     !hasMatchingWeightBits(raw.topology_edge_weights, raw.topology_weight_bits) ||
+    !hasMatchingRoutedTopology(
+      raw.topology_rows,
+      raw.topology_targets,
+      raw.topology_weights,
+      raw.topology_delays,
+      raw.topology_edge_sources,
+      raw.topology_edge_targets,
+      raw.topology_edge_weights,
+      raw.topology_edge_delays,
+    ) ||
     !hasValidSpikeNeurons(raw.spike_neurons, raw.membrane_potentials.length)
   ) {
     throw new AdapterUnavailableError('The Rust/WASM runtime returned an invalid contract state.');
@@ -255,6 +265,51 @@ function hasCanonicalEdgeOrder(
     if (weightBits[previous] > weightBits[edge]) return false;
   }
   return true;
+}
+
+function hasMatchingRoutedTopology(
+  rows: Uint32Array,
+  targets: Uint32Array,
+  weights: Float32Array,
+  delays: Uint16Array,
+  canonicalSources: Uint32Array,
+  canonicalTargets: Uint32Array,
+  canonicalWeights: Float32Array,
+  canonicalDelays: Uint16Array,
+): boolean {
+  const canonicalWeightBits = new Uint32Array(
+    canonicalWeights.buffer,
+    canonicalWeights.byteOffset,
+    canonicalWeights.length,
+  );
+  const routedWeightBits = new Uint32Array(weights.buffer, weights.byteOffset, weights.length);
+  const canonicalTuples = new Map<string, number>();
+
+  for (let edge = 0; edge < canonicalSources.length; edge += 1) {
+    const key = topologyTupleKey(
+      canonicalSources[edge],
+      canonicalTargets[edge],
+      canonicalDelays[edge],
+      canonicalWeightBits[edge],
+    );
+    canonicalTuples.set(key, (canonicalTuples.get(key) ?? 0) + 1);
+  }
+
+  for (let source = 0; source < rows.length - 1; source += 1) {
+    for (let edge = rows[source]; edge < rows[source + 1]; edge += 1) {
+      const key = topologyTupleKey(source, targets[edge], delays[edge], routedWeightBits[edge]);
+      const remaining = canonicalTuples.get(key);
+      if (!remaining) return false;
+      if (remaining === 1) canonicalTuples.delete(key);
+      else canonicalTuples.set(key, remaining - 1);
+    }
+  }
+
+  return canonicalTuples.size === 0;
+}
+
+function topologyTupleKey(source: number, target: number, delay: number, weightBits: number): string {
+  return `${source}:${target}:${delay}:${weightBits}`;
 }
 
 /**
