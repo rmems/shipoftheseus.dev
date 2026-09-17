@@ -176,7 +176,6 @@ test('the browser bridge rejects canonical weights whose IEEE-754 bits disagree'
     completed_step: 0n,
     last_sequence: 0n,
     spike_neurons: new Uint32Array(),
-    topology_digest: 'digest',
     topology_weight_bits: new Uint32Array([0]),
   });
   const adapter = await adapterForState(runtime, state);
