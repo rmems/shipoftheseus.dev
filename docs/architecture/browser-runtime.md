@@ -102,6 +102,28 @@ state(instance) -> StateView
   Tests use fixed golden seeds. Any intentional determinism break requires a
   contract-version change.
 
+### Topology projection handoff
+
+`synaptic-wiring = "=0.3.0"` remains the sole owner of graph construction,
+synapse multiplicity, routing relationships, delays, polarity, and the
+versioned topology digest. The adapter reads its `SynapticGraph` and produces a
+browser transport projection; it does not generate a replacement graph.
+
+- `topology_node_ids` contains the exact upstream `NeuronId` domain.
+- Each edge carries the upstream source/target IDs, signed upstream weight,
+  exact `f32` weight bits, delay, and polarity tag. Signed-zero bits are
+  intentionally retained.
+- The adapter sorts the complete edge multiset by `(source, target, delay,
+  polarity_tag, signed_weight_bits)`. Its index is the canonical edge index,
+  scoped by `topology_digest`; it is explicitly not represented as an upstream
+  `EdgeId`.
+- `topology_outgoing_edge_offsets` is a canonical CSR lookup from source
+  `NeuronId` to its canonical outgoing-edge range. This is the sole handoff
+  needed by later spike propagation and rendering work.
+- The runtime seed is simulation provenance for `neuromod`; it does not select
+  or alter `synaptic-wiring` topology. A topology changes only when the
+  adapter configuration or locked upstream topology inputs change.
+
 V1 runs simulation in a dedicated module worker when workers and transferable
 buffers are available. Messages mirror `init/input/step/state`, are tagged with
 instance and sequence IDs, and transfer snapshot buffers to the main thread.

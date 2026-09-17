@@ -14,6 +14,80 @@ pub const CONTRACT_VERSION: u32 = 1;
 const CHANNEL_COUNT: usize = 16;
 const STATUS_OK: &str = "ok";
 
+/// Adapter-owned, canonical transport projection of an upstream topology.
+///
+/// `synaptic-wiring` remains the authority for topology and routing. The
+/// adapter only gives every member of its complete edge multiset a stable
+/// position within the upstream topology digest so browser consumers can
+/// reference an edge without claiming an upstream `EdgeId` exists.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TopologyProjection {
+    pub topology_digest: String,
+    pub node_ids: Vec<u32>,
+    pub edge_sources: Vec<u32>,
+    pub edge_targets: Vec<u32>,
+    pub edge_weights: Vec<f32>,
+    pub edge_weight_bits: Vec<u32>,
+    pub edge_delays: Vec<u16>,
+    /// `0` is excitatory and `1` is inhibitory, matching the stable sort key.
+    pub edge_polarities: Vec<u8>,
+    /// CSR-style ranges into canonical edge arrays, keyed by upstream `NeuronId`.
+    pub outgoing_edge_offsets: Vec<u32>,
+}
+
+impl TopologyProjection {
+    pub fn from_graph(graph: &synaptic_wiring::SynapticGraph) -> Self {
+        let mut edges = Vec::with_capacity(graph.synapse_count());
+        for source in 0..graph.neuron_count() {
+            for (target, weight, delay, polarity) in graph.outgoing(source) {
+                let polarity_tag = match polarity {
+                    synaptic_wiring::Polarity::Excitatory => 0,
+                    synaptic_wiring::Polarity::Inhibitory => 1,
+                };
+                edges.push((source as u32, target, weight, delay, polarity_tag));
+            }
+        }
+        edges.sort_by_key(|(source, target, weight, delay, polarity)| {
+            (*source, *target, *delay, *polarity, weight.to_bits())
+        });
+
+        let mut outgoing_edge_offsets = vec![0_u32; graph.neuron_count() + 1];
+        for (source, _, _, _, _) in &edges {
+            outgoing_edge_offsets[*source as usize + 1] += 1;
+        }
+        for index in 1..outgoing_edge_offsets.len() {
+            outgoing_edge_offsets[index] += outgoing_edge_offsets[index - 1];
+        }
+
+        Self {
+            topology_digest: graph.topology_digest().to_string(),
+            node_ids: (0..graph.neuron_count()).map(|id| id as u32).collect(),
+            edge_sources: edges.iter().map(|(source, _, _, _, _)| *source).collect(),
+            edge_targets: edges.iter().map(|(_, target, _, _, _)| *target).collect(),
+            edge_weights: edges.iter().map(|(_, _, weight, _, _)| *weight).collect(),
+            edge_weight_bits: edges
+                .iter()
+                .map(|(_, _, weight, _, _)| weight.to_bits())
+                .collect(),
+            edge_delays: edges.iter().map(|(_, _, _, delay, _)| *delay).collect(),
+            edge_polarities: edges
+                .iter()
+                .map(|(_, _, _, _, polarity)| *polarity)
+                .collect(),
+            outgoing_edge_offsets,
+        }
+    }
+
+    pub fn canonical_edge_indices(&self) -> Vec<u32> {
+        (0..self.edge_sources.len() as u32).collect()
+    }
+
+    pub fn outgoing_edge_range(&self, source: u32) -> std::ops::Range<u32> {
+        let index = source as usize;
+        self.outgoing_edge_offsets[index]..self.outgoing_edge_offsets[index + 1]
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrowserState {
     pub contract_version: u32,
@@ -26,6 +100,14 @@ pub struct BrowserState {
     pub topology_targets: Vec<u32>,
     pub topology_weights: Vec<f32>,
     pub topology_delays: Vec<u16>,
+    pub topology_node_ids: Vec<u32>,
+    pub topology_edge_sources: Vec<u32>,
+    pub topology_edge_targets: Vec<u32>,
+    pub topology_edge_weights: Vec<f32>,
+    pub topology_edge_delays: Vec<u16>,
+    pub topology_polarities: Vec<u8>,
+    pub topology_weight_bits: Vec<u32>,
+    pub topology_outgoing_edge_offsets: Vec<u32>,
     pub topology_digest: String,
     pub protocol_wire_version: u32,
     pub error_status: String,
@@ -46,6 +128,7 @@ pub struct BrowserRuntime {
     topology_targets: Vec<u32>,
     topology_weights: Vec<f32>,
     topology_delays: Vec<u16>,
+    topology_projection: TopologyProjection,
     topology_digest: String,
     last_error_status: String,
 }
@@ -55,7 +138,8 @@ impl BrowserRuntime {
         let graph = generate_small_world(CHANNEL_COUNT, 4, 0.2, 4, 0.25)
             .map_err(|error| format!("could not construct browser topology: {error}"))?;
         let mesh = SynapticMesh::new(graph);
-        let topology_digest = mesh.topology_digest().to_string();
+        let topology_projection = TopologyProjection::from_graph(mesh.graph());
+        let topology_digest = topology_projection.topology_digest.clone();
         let (topology_rows, topology_targets, topology_weights, topology_delays) =
             mesh.to_gpu_arrays();
 
@@ -73,6 +157,7 @@ impl BrowserRuntime {
             topology_targets,
             topology_weights,
             topology_delays,
+            topology_projection,
             topology_digest,
             last_error_status: STATUS_OK.to_owned(),
         })
@@ -169,6 +254,14 @@ impl BrowserRuntime {
             topology_targets: self.topology_targets.clone(),
             topology_weights: self.topology_weights.clone(),
             topology_delays: self.topology_delays.clone(),
+            topology_node_ids: self.topology_projection.node_ids.clone(),
+            topology_edge_sources: self.topology_projection.edge_sources.clone(),
+            topology_edge_targets: self.topology_projection.edge_targets.clone(),
+            topology_edge_weights: self.topology_projection.edge_weights.clone(),
+            topology_edge_delays: self.topology_projection.edge_delays.clone(),
+            topology_polarities: self.topology_projection.edge_polarities.clone(),
+            topology_weight_bits: self.topology_projection.edge_weight_bits.clone(),
+            topology_outgoing_edge_offsets: self.topology_projection.outgoing_edge_offsets.clone(),
             topology_digest: self.topology_digest.clone(),
             protocol_wire_version: WireCompatibility::CURRENT,
             error_status: self.last_error_status.clone(),
@@ -236,6 +329,38 @@ impl WasmState {
     #[wasm_bindgen(getter)]
     pub fn topology_delays(&self) -> js_sys::Uint16Array {
         js_sys::Uint16Array::from(self.state.topology_delays.as_slice())
+    }
+    #[wasm_bindgen(getter)]
+    pub fn topology_node_ids(&self) -> js_sys::Uint32Array {
+        js_sys::Uint32Array::from(self.state.topology_node_ids.as_slice())
+    }
+    #[wasm_bindgen(getter)]
+    pub fn topology_edge_sources(&self) -> js_sys::Uint32Array {
+        js_sys::Uint32Array::from(self.state.topology_edge_sources.as_slice())
+    }
+    #[wasm_bindgen(getter)]
+    pub fn topology_edge_targets(&self) -> js_sys::Uint32Array {
+        js_sys::Uint32Array::from(self.state.topology_edge_targets.as_slice())
+    }
+    #[wasm_bindgen(getter)]
+    pub fn topology_edge_weights(&self) -> js_sys::Float32Array {
+        js_sys::Float32Array::from(self.state.topology_edge_weights.as_slice())
+    }
+    #[wasm_bindgen(getter)]
+    pub fn topology_edge_delays(&self) -> js_sys::Uint16Array {
+        js_sys::Uint16Array::from(self.state.topology_edge_delays.as_slice())
+    }
+    #[wasm_bindgen(getter)]
+    pub fn topology_polarities(&self) -> js_sys::Uint8Array {
+        js_sys::Uint8Array::from(self.state.topology_polarities.as_slice())
+    }
+    #[wasm_bindgen(getter)]
+    pub fn topology_weight_bits(&self) -> js_sys::Uint32Array {
+        js_sys::Uint32Array::from(self.state.topology_weight_bits.as_slice())
+    }
+    #[wasm_bindgen(getter)]
+    pub fn topology_outgoing_edge_offsets(&self) -> js_sys::Uint32Array {
+        js_sys::Uint32Array::from(self.state.topology_outgoing_edge_offsets.as_slice())
     }
     #[wasm_bindgen(getter)]
     pub fn topology_digest(&self) -> String {

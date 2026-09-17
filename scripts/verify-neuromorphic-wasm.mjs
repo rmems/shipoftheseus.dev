@@ -54,6 +54,10 @@ try {
     "const state = adapter.step();",
     "if (typeof state.seed !== 'bigint' || state.completed_step !== 1n) process.exit(1);",
     "if (!(state.membrane_potentials instanceof Float32Array)) process.exit(1);",
+    "if (!(state.topology_node_ids instanceof Uint32Array) || !(state.topology_edge_sources instanceof Uint32Array)) process.exit(1);",
+    "if (!(state.topology_edge_targets instanceof Uint32Array) || !(state.topology_edge_weights instanceof Float32Array) || !(state.topology_edge_delays instanceof Uint16Array)) process.exit(1);",
+    "if (!(state.topology_polarities instanceof Uint8Array) || !(state.topology_weight_bits instanceof Uint32Array)) process.exit(1);",
+    "if (!(state.topology_outgoing_edge_offsets instanceof Uint32Array)) process.exit(1);",
     "adapter.dispose();",
   ].join(' '), join(output, 'neuromorphic_adapter.js')]);
   run(wasmBindgen, ['--target', 'web', '--out-dir', webOutput, wasm]);
@@ -69,6 +73,10 @@ try {
     "const state = adapter.step();",
     "if (typeof state.seed !== 'bigint' || state.completed_step !== 1n) process.exit(1);",
     "if (!(state.membrane_potentials instanceof Float32Array)) process.exit(1);",
+    "if (!(state.topology_node_ids instanceof Uint32Array) || !(state.topology_edge_sources instanceof Uint32Array)) process.exit(1);",
+    "if (!(state.topology_edge_targets instanceof Uint32Array) || !(state.topology_edge_weights instanceof Float32Array) || !(state.topology_edge_delays instanceof Uint16Array)) process.exit(1);",
+    "if (!(state.topology_polarities instanceof Uint8Array) || !(state.topology_weight_bits instanceof Uint32Array)) process.exit(1);",
+    "if (!(state.topology_outgoing_edge_offsets instanceof Uint32Array)) process.exit(1);",
     "adapter.dispose();",
   ].join(' '), webModule, join(webOutput, 'neuromorphic_adapter_bg.wasm')]);
   process.stdout.write('Generated Rust/WASM adapter smoke test passed.\n');

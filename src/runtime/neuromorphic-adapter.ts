@@ -22,6 +22,14 @@ export interface NeuromorphicState {
   topologyTargets: Uint32Array;
   topologyWeights: Float32Array;
   topologyDelays: Uint16Array;
+  topologyNodeIds: Uint32Array;
+  topologyEdgeSources: Uint32Array;
+  topologyEdgeTargets: Uint32Array;
+  topologyEdgeWeights: Float32Array;
+  topologyEdgeDelays: Uint16Array;
+  topologyPolarities: Uint8Array;
+  topologyWeightBits: Uint32Array;
+  topologyOutgoingEdgeOffsets: Uint32Array;
   topologyDigest: string;
   protocolWireVersion: number;
   errorStatus: string;
@@ -38,6 +46,14 @@ interface RawWasmState {
   topology_targets: Uint32Array;
   topology_weights: Float32Array;
   topology_delays: Uint16Array;
+  topology_node_ids: Uint32Array;
+  topology_edge_sources: Uint32Array;
+  topology_edge_targets: Uint32Array;
+  topology_edge_weights: Float32Array;
+  topology_edge_delays: Uint16Array;
+  topology_polarities: Uint8Array;
+  topology_weight_bits: Uint32Array;
+  topology_outgoing_edge_offsets: Uint32Array;
   topology_digest: string;
   protocol_wire_version: number;
   error_status: string;
@@ -88,11 +104,29 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     !(raw.topology_targets instanceof Uint32Array) ||
     !(raw.topology_weights instanceof Float32Array) ||
     !(raw.topology_delays instanceof Uint16Array) ||
+    !(raw.topology_node_ids instanceof Uint32Array) ||
+    !(raw.topology_edge_sources instanceof Uint32Array) ||
+    !(raw.topology_edge_targets instanceof Uint32Array) ||
+    !(raw.topology_edge_weights instanceof Float32Array) ||
+    !(raw.topology_edge_delays instanceof Uint16Array) ||
+    !(raw.topology_polarities instanceof Uint8Array) ||
+    !(raw.topology_weight_bits instanceof Uint32Array) ||
+    !(raw.topology_outgoing_edge_offsets instanceof Uint32Array) ||
     raw.topology_rows.length < 2 ||
     raw.topology_rows[0] !== 0 ||
     raw.topology_rows.at(-1) !== raw.topology_targets.length ||
     raw.topology_targets.length !== raw.topology_weights.length ||
     raw.topology_targets.length !== raw.topology_delays.length ||
+    raw.topology_edge_sources.length !== raw.topology_targets.length ||
+    raw.topology_edge_sources.length !== raw.topology_edge_targets.length ||
+    raw.topology_edge_sources.length !== raw.topology_edge_weights.length ||
+    raw.topology_edge_sources.length !== raw.topology_edge_delays.length ||
+    raw.topology_edge_sources.length !== raw.topology_polarities.length ||
+    raw.topology_edge_sources.length !== raw.topology_weight_bits.length ||
+    raw.topology_node_ids.length !== raw.topology_rows.length - 1 ||
+    raw.topology_outgoing_edge_offsets.length !== raw.topology_node_ids.length + 1 ||
+    raw.topology_outgoing_edge_offsets[0] !== 0 ||
+    raw.topology_outgoing_edge_offsets.at(-1) !== raw.topology_edge_sources.length ||
     raw.membrane_potentials.length !== raw.topology_rows.length - 1 ||
     typeof raw.topology_digest !== 'string' ||
     !raw.topology_digest.trim() ||
@@ -101,8 +135,16 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     !RUNTIME_ERROR_STATUSES.has(raw.error_status) ||
     !allFinite(raw.membrane_potentials) ||
     !allFinite(raw.topology_weights) ||
+    !allFinite(raw.topology_edge_weights) ||
     !isMonotonicTopologyRows(raw.topology_rows) ||
     !hasValidTopologyTargets(raw.topology_targets, raw.topology_rows.length - 1) ||
+    !hasValidTopologyTargets(raw.topology_edge_sources, raw.topology_node_ids.length) ||
+    !hasValidTopologyTargets(raw.topology_edge_targets, raw.topology_node_ids.length) ||
+    !hasValidTopologyTargets(raw.topology_node_ids, raw.topology_node_ids.length) ||
+    !hasValidTopologyTargets(raw.topology_outgoing_edge_offsets, raw.topology_edge_sources.length + 1) ||
+    !raw.topology_polarities.every((polarity) => polarity === 0 || polarity === 1) ||
+    !isMonotonicTopologyRows(raw.topology_outgoing_edge_offsets) ||
+    !hasCanonicalOutgoingEdges(raw.topology_node_ids, raw.topology_edge_sources, raw.topology_outgoing_edge_offsets) ||
     !hasValidSpikeNeurons(raw.spike_neurons, raw.membrane_potentials.length)
   ) {
     throw new AdapterUnavailableError('The Rust/WASM runtime returned an invalid contract state.');
@@ -119,6 +161,14 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     topologyTargets: new Uint32Array(raw.topology_targets),
     topologyWeights: new Float32Array(raw.topology_weights),
     topologyDelays: new Uint16Array(raw.topology_delays),
+    topologyNodeIds: new Uint32Array(raw.topology_node_ids),
+    topologyEdgeSources: new Uint32Array(raw.topology_edge_sources),
+    topologyEdgeTargets: new Uint32Array(raw.topology_edge_targets),
+    topologyEdgeWeights: new Float32Array(raw.topology_edge_weights),
+    topologyEdgeDelays: new Uint16Array(raw.topology_edge_delays),
+    topologyPolarities: new Uint8Array(raw.topology_polarities),
+    topologyWeightBits: new Uint32Array(raw.topology_weight_bits),
+    topologyOutgoingEdgeOffsets: new Uint32Array(raw.topology_outgoing_edge_offsets),
     topologyDigest: raw.topology_digest,
     protocolWireVersion: raw.protocol_wire_version,
     errorStatus: raw.error_status,
@@ -148,6 +198,20 @@ function hasValidTopologyTargets(targets: Uint32Array, nodeCount: number): boole
 
 function hasValidSpikeNeurons(spikes: Uint32Array, nodeCount: number): boolean {
   return spikes.every((spike) => spike < nodeCount);
+}
+
+function hasCanonicalOutgoingEdges(
+  nodeIds: Uint32Array,
+  sources: Uint32Array,
+  offsets: Uint32Array,
+): boolean {
+  for (let node = 0; node < nodeIds.length; node += 1) {
+    if (nodeIds[node] !== node) return false;
+    for (let edge = offsets[node]; edge < offsets[node + 1]; edge += 1) {
+      if (sources[edge] !== nodeIds[node]) return false;
+    }
+  }
+  return true;
 }
 
 /**

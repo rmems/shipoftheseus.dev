@@ -17,6 +17,14 @@ test('the browser bridge copies typed-array snapshots and preserves lossless u64
     topology_targets: new Uint32Array([1]),
     topology_weights: new Float32Array([0.5]),
     topology_delays: new Uint16Array([0]),
+    topology_node_ids: new Uint32Array([0, 1]),
+    topology_edge_sources: new Uint32Array([0]),
+    topology_edge_targets: new Uint32Array([1]),
+    topology_edge_weights: new Float32Array([0.5]),
+    topology_edge_delays: new Uint16Array([0]),
+    topology_polarities: new Uint8Array([0]),
+    topology_weight_bits: new Uint32Array([0x3f000000]),
+    topology_outgoing_edge_offsets: new Uint32Array([0, 1, 1]),
     topology_digest: 'test-digest',
     protocol_wire_version: 1,
     error_status: 'ok',
@@ -54,6 +62,13 @@ test('the browser bridge copies typed-array snapshots and preserves lossless u64
   assert.equal(first.membranePotentials[0], 0.25);
   assert.equal(second.membranePotentials[0], 99);
   assert.notEqual(first.membranePotentials.buffer, second.membranePotentials.buffer);
+  assert.deepEqual([...first.topologyNodeIds], [0, 1]);
+  assert.deepEqual([...first.topologyEdgeSources], [0]);
+  assert.deepEqual([...first.topologyEdgeTargets], [1]);
+  assert.deepEqual([...first.topologyEdgeWeights], [0.5]);
+  assert.deepEqual([...first.topologyEdgeDelays], [0]);
+  assert.deepEqual([...first.topologyPolarities], [0]);
+  assert.deepEqual([...first.topologyOutgoingEdgeOffsets], [0, 1, 1]);
 });
 
 test('the browser bridge fails closed after disposal and rejects invalid u64 state', async () => {
