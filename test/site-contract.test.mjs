@@ -213,7 +213,8 @@ test('quality CI validates the locked Rust/WASM adapter before the frontend cont
   assert.match(workflow, /cargo test --manifest-path crates\/neuromorphic-adapter\/Cargo\.toml --locked/);
   assert.match(workflow, /cargo check --manifest-path crates\/neuromorphic-adapter\/Cargo\.toml --locked --target wasm32-unknown-unknown/);
   assert.match(workflow, /cargo install wasm-bindgen-cli --version 0\.2\.126 --locked/);
-  assert.match(workflow, /WASM_BINDGEN_BIN="\$\(command -v wasm-bindgen\)" npm run test:wasm-adapter/);
-  assert.match(workflow, /BROWSER_BIN="\$\(command -v google-chrome\)" WASM_BINDGEN_BIN="\$\(command -v wasm-bindgen\)" npm run test:wasm-browser/);
-  assert.match(read('package.json'), /"test:wasm-browser": "node scripts\/verify-neuromorphic-browser\.mjs"/);
+  assert.match(workflow, /WASM_BINDGEN_BIN="\$\(command -v wasm-bindgen\)" BROWSER_BIN="\$\(command -v google-chrome\)" npm run validate/);
+  const packageJson = read('package.json');
+  assert.match(packageJson, /"validate:rust":/);
+  assert.match(packageJson, /"validate": "npm test && npm run lint && npm run typecheck && npm run build && npm run validate:rust && npm run test:wasm-adapter && npm run test:wasm-browser"/);
 });

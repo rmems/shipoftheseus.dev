@@ -20,8 +20,8 @@ async function executableFromEnvironment(name) {
   return executable;
 }
 
-function run(command, arguments_) {
-  const result = spawnSync(command, arguments_, { cwd: repository, encoding: 'utf8' });
+function run(command, arguments_, environment = {}) {
+  const result = spawnSync(command, arguments_, { cwd: repository, encoding: 'utf8', env: { ...process.env, ...environment } });
   if (result.status !== 0) {
     throw new Error(`${command} failed:\n${result.stdout}\n${result.stderr}`);
   }
@@ -58,11 +58,15 @@ if (run(wasmBindgen, ['--version']).trim() !== 'wasm-bindgen 0.2.126') {
 let output;
 try {
   output = await mkdtemp(join(tmpdir(), 'neuromorphic-browser-smoke-'));
-  run('cargo', ['+1.98.1', 'build', '--manifest-path', manifest, '--target', 'wasm32-unknown-unknown', '--release', '--locked']);
   const generated = join(output, 'generated');
   const repeated = join(output, 'repeated');
-  run(wasmBindgen, ['--target', 'web', '--out-dir', generated, wasm]);
-  run(wasmBindgen, ['--target', 'web', '--out-dir', repeated, wasm]);
+  const firstTarget = join(output, 'target-first');
+  const secondTarget = join(output, 'target-second');
+  const deterministicBuild = { CARGO_INCREMENTAL: '0', SOURCE_DATE_EPOCH: '0' };
+  run('cargo', ['+1.98.1', 'build', '--manifest-path', manifest, '--target', 'wasm32-unknown-unknown', '--release', '--locked'], { ...deterministicBuild, CARGO_TARGET_DIR: firstTarget });
+  run('cargo', ['+1.98.1', 'build', '--manifest-path', manifest, '--target', 'wasm32-unknown-unknown', '--release', '--locked'], { ...deterministicBuild, CARGO_TARGET_DIR: secondTarget });
+  run(wasmBindgen, ['--target', 'web', '--out-dir', generated, join(firstTarget, 'wasm32-unknown-unknown/release/neuromorphic_adapter.wasm')]);
+  run(wasmBindgen, ['--target', 'web', '--out-dir', repeated, join(secondTarget, 'wasm32-unknown-unknown/release/neuromorphic_adapter.wasm')]);
   await assertReproducible(generated, repeated);
   await rename(join(generated, 'neuromorphic_adapter.js'), join(generated, 'neuromorphic_adapter.mjs'));
   const page = join(generated, 'index.html');
