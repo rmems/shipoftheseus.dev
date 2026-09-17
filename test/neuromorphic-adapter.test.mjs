@@ -30,6 +30,20 @@ function validTopologyState(overrides = {}) {
   };
 }
 
+async function adapterForState(runtime, state) {
+  return runtime.initNeuromorphicAdapter(
+    async () => ({
+      async default() {},
+      WasmAdapter: {
+        init() {
+          return { input() {}, step() { return state; }, state() { return state; }, dispose() {} };
+        },
+      },
+    }),
+    1n,
+  );
+}
+
 test('the browser bridge copies typed-array snapshots and preserves lossless u64 values', async () => {
   const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
   const state = validTopologyState();
@@ -165,17 +179,7 @@ test('the browser bridge rejects canonical weights whose IEEE-754 bits disagree'
     topology_digest: 'digest',
     topology_weight_bits: new Uint32Array([0]),
   });
-  const adapter = await runtime.initNeuromorphicAdapter(
-    async () => ({
-      async default() {},
-      WasmAdapter: {
-        init() {
-          return { input() {}, step() { return state; }, state() { return state; }, dispose() {} };
-        },
-      },
-    }),
-    1n,
-  );
+  const adapter = await adapterForState(runtime, state);
 
   assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
 });
@@ -197,17 +201,7 @@ test('the browser bridge rejects a source range with noncanonical edge order', a
     topology_weight_bits: new Uint32Array([0x3f000000, 0x3e800000]),
     topology_outgoing_edge_offsets: new Uint32Array([0, 2, 2]),
   });
-  const adapter = await runtime.initNeuromorphicAdapter(
-    async () => ({
-      async default() {},
-      WasmAdapter: {
-        init() {
-          return { input() {}, step() { return state; }, state() { return state; }, dispose() {} };
-        },
-      },
-    }),
-    1n,
-  );
+  const adapter = await adapterForState(runtime, state);
 
   assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
 });
