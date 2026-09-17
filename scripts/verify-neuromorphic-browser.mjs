@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -28,6 +28,27 @@ function run(command, arguments_) {
   return result.stdout;
 }
 
+async function generatedFiles(directory, relative = '') {
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const child = join(relative, entry.name);
+    if (entry.isDirectory()) files.push(...await generatedFiles(join(directory, entry.name), child));
+    else if (entry.isFile()) files.push(child);
+  }
+  return files.sort();
+}
+
+async function assertReproducible(first, second) {
+  const firstFiles = await generatedFiles(first);
+  const secondFiles = await generatedFiles(second);
+  if (firstFiles.join('\n') !== secondFiles.join('\n')) throw new Error('wasm-bindgen generated different file sets.');
+  for (const file of firstFiles) {
+    if (!(await readFile(join(first, file))).equals(await readFile(join(second, file)))) {
+      throw new Error(`wasm-bindgen generated different contents for ${file}.`);
+    }
+  }
+}
+
 const browser = await executableFromEnvironment('BROWSER_BIN');
 const wasmBindgen = await executableFromEnvironment('WASM_BINDGEN_BIN');
 if (run(wasmBindgen, ['--version']).trim() !== 'wasm-bindgen 0.2.126') {
@@ -38,9 +59,13 @@ let output;
 try {
   output = await mkdtemp(join(tmpdir(), 'neuromorphic-browser-smoke-'));
   run('cargo', ['+1.98.1', 'build', '--manifest-path', manifest, '--target', 'wasm32-unknown-unknown', '--release', '--locked']);
-  run(wasmBindgen, ['--target', 'web', '--out-dir', output, wasm]);
-  await rename(join(output, 'neuromorphic_adapter.js'), join(output, 'neuromorphic_adapter.mjs'));
-  const page = join(output, 'index.html');
+  const generated = join(output, 'generated');
+  const repeated = join(output, 'repeated');
+  run(wasmBindgen, ['--target', 'web', '--out-dir', generated, wasm]);
+  run(wasmBindgen, ['--target', 'web', '--out-dir', repeated, wasm]);
+  await assertReproducible(generated, repeated);
+  await rename(join(generated, 'neuromorphic_adapter.js'), join(generated, 'neuromorphic_adapter.mjs'));
+  const page = join(generated, 'index.html');
   await writeFile(page, `<!doctype html><body><script type="module">\nimport init, { WasmAdapter } from './neuromorphic_adapter.mjs';\ntry {\n  await init('./neuromorphic_adapter_bg.wasm');\n  const adapter = WasmAdapter.init(9n, new Uint8Array([1]));\n  adapter.input(1n, new Float32Array([1, 0.5]));\n  if (adapter.step().completed_step !== 1n) throw new Error('unexpected step');\n  adapter.dispose();\n  document.body.textContent = 'BROWSER_SMOKE_PASS';\n} catch (error) { document.body.textContent = 'BROWSER_SMOKE_FAIL:' + error.message; }\n</script>`);
   const dom = run(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--allow-file-access-from-files', '--virtual-time-budget=3000', '--dump-dom', page]);
   if (!dom.includes('BROWSER_SMOKE_PASS')) {
