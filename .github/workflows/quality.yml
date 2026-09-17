@@ -38,4 +38,4 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Validate site
-        run: WASM_BINDGEN_BIN="$(command -v wasm-bindgen)" BROWSER_BIN="$(command -v google-chrome)" npm run validate
+        run: WASM_BINDGEN_BIN="$(command -v wasm-bindgen)" BROWSER_BIN="$(command -v google-chrome-stable)" npm run validate
