@@ -145,6 +145,7 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     !raw.topology_polarities.every((polarity) => polarity === 0 || polarity === 1) ||
     !isMonotonicTopologyRows(raw.topology_outgoing_edge_offsets) ||
     !hasCanonicalOutgoingEdges(raw.topology_node_ids, raw.topology_edge_sources, raw.topology_outgoing_edge_offsets) ||
+    !hasMatchingWeightBits(raw.topology_edge_weights, raw.topology_weight_bits) ||
     !hasValidSpikeNeurons(raw.spike_neurons, raw.membrane_potentials.length)
   ) {
     throw new AdapterUnavailableError('The Rust/WASM runtime returned an invalid contract state.');
@@ -212,6 +213,11 @@ function hasCanonicalOutgoingEdges(
     }
   }
   return true;
+}
+
+function hasMatchingWeightBits(weights: Float32Array, bits: Uint32Array): boolean {
+  const weightBits = new Uint32Array(weights.buffer, weights.byteOffset, weights.length);
+  return weightBits.every((weight, index) => weight === bits[index]);
 }
 
 /**
