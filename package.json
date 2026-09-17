@@ -12,7 +12,9 @@
     "typecheck": "astro check",
     "test": "node --test test/**/*.test.mjs",
     "test:wasm-adapter": "node scripts/verify-neuromorphic-wasm.mjs",
-    "validate": "npm test && npm run lint && npm run typecheck && npm run build"
+    "test:wasm-browser": "node scripts/verify-neuromorphic-browser.mjs",
+    "validate:rust": "cargo +1.98.1 fmt --manifest-path crates/neuromorphic-adapter/Cargo.toml --check && cargo +1.98.1 clippy --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --all-targets -- -D warnings && cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked && cargo +1.98.1 check --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --target wasm32-unknown-unknown && node scripts/verify-browser-dependencies.mjs",
+    "validate": "npm test && npm run lint && npm run typecheck && npm run build && npm run validate:rust && npm run test:wasm-adapter && npm run test:wasm-browser"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",

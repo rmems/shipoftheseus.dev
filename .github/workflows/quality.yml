@@ -11,16 +11,40 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        # v4.2.2
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Use Rust 1.98.1 with the browser target
+        # 1.98.1 action revision
+        uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
       - name: Use Node.js
-        uses: actions/setup-node@v4
+        # v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22.12.0
           cache: npm
+      - name: Validate the locked Rust adapter
+        run: |
+          cargo fmt --manifest-path crates/neuromorphic-adapter/Cargo.toml --check
+          cargo clippy --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --all-targets -- -D warnings
+          cargo test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked
+          cargo check --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --target wasm32-unknown-unknown
+      - name: Enforce browser dependency policy
+        run: node scripts/verify-browser-dependencies.mjs
+      - name: Install pinned wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - name: Provision stable Chrome for browser smoke coverage
+        id: chrome
+        # v1.7.3
+        uses: browser-actions/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce
+        with:
+          chrome-version: stable
       - name: Install dependencies
         run: npm ci
       - name: Validate site
-        run: npm run validate
+        run: WASM_BINDGEN_BIN="$(command -v wasm-bindgen)" BROWSER_BIN="${{ steps.chrome.outputs.chrome-path }}" npm run validate

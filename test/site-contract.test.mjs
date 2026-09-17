@@ -202,3 +202,27 @@ test('portfolio stays static without a repository hosting configuration', () => 
     assert.equal(existsSync(new URL(`../${path}`, import.meta.url)), false, `${path} requires explicit approval`);
   }
 });
+
+test('quality CI validates the locked Rust/WASM adapter before the frontend contract', () => {
+  const workflow = read('.github/workflows/quality.yml');
+  const readme = read('README.md');
+
+  assert.match(workflow, /actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/);
+  assert.match(workflow, /dtolnay\/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e/);
+  assert.match(workflow, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/);
+  assert.match(workflow, /wasm32-unknown-unknown/);
+  assert.match(workflow, /cargo fmt --manifest-path crates\/neuromorphic-adapter\/Cargo\.toml --check/);
+  assert.match(workflow, /cargo clippy --manifest-path crates\/neuromorphic-adapter\/Cargo\.toml --locked --all-targets -- -D warnings/);
+  assert.match(workflow, /cargo test --manifest-path crates\/neuromorphic-adapter\/Cargo\.toml --locked/);
+  assert.match(workflow, /cargo check --manifest-path crates\/neuromorphic-adapter\/Cargo\.toml --locked --target wasm32-unknown-unknown/);
+  assert.match(workflow, /cargo install wasm-bindgen-cli --version 0\.2\.126 --locked/);
+  assert.match(workflow, /browser-actions\/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce/);
+  assert.match(workflow, /chrome-version: stable/);
+  assert.match(workflow, /BROWSER_BIN="\$\{\{ steps\.chrome\.outputs\.chrome-path \}\}" npm run validate/);
+  const packageJson = read('package.json');
+  assert.match(packageJson, /"validate:rust":/);
+  assert.match(packageJson, /"validate": "npm test && npm run lint && npm run typecheck && npm run build && npm run validate:rust && npm run test:wasm-adapter && npm run test:wasm-browser"/);
+  assert.match(readme, /Rust 1\.98\.1/);
+  assert.match(readme, /wasm32-unknown-unknown/);
+  assert.match(readme, /wasm-bindgen-cli 0\.2\.126/);
+});
