@@ -1,0 +1,29 @@
+test/site-contract.test.mjs
+  s_f16f54b18a5a4b::t_25bcb60820c552 217-218
+  s_f16f54b18a5a4b::t_9b040ade9b95c7 205-216,219
+.github/workflows/quality.yml
+  s_f16f54b18a5a4b::t_9d2870a24a20bb 14,18-30,38-39
+  s_f16f54b18a5a4b::t_af877740a3ca7c 40-41
+scripts/verify-neuromorphic-browser.mjs
+  s_f16f54b18a5a4b::t_eacdf397c2e253 1-52
+package.json
+  s_f16f54b18a5a4b::t_af877740a3ca7c 15
+test/verify-neuromorphic-browser.test.mjs
+  s_f16f54b18a5a4b::t_dfa0b64f6db2c3 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ab6605d44f5105296bb401dae20ed8f742299272",
+  "prompts": {},
+  "sessions": {
+    "s_f16f54b18a5a4b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a810-892a-72e3-8453-445e6d21e8f5",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
