@@ -21,3 +21,10 @@ test('the browser smoke script launches Rust from its fixed Cargo launcher', asy
   assert.match(source, /const cargo = join\(cargoHome, 'bin', 'cargo'\);/);
   assert.doesNotMatch(source, /run\('cargo',/);
 });
+
+test('the browser smoke success marker cannot be serialized from inline source', async () => {
+  const source = await readFile('scripts/verify-neuromorphic-browser.mjs', 'utf8');
+
+  assert.match(source, /\['BROWSER', 'SMOKE', 'PASS'\]\.join\('_'\)/);
+  assert.doesNotMatch(source, /document\.body\.textContent = 'BROWSER_SMOKE_PASS'/);
+});

@@ -82,7 +82,7 @@ try {
   await assertReproducible(generated, repeated);
   await rename(join(generated, 'neuromorphic_adapter.js'), join(generated, 'neuromorphic_adapter.mjs'));
   const page = join(generated, 'index.html');
-  await writeFile(page, `<!doctype html><body><script type="module">\nimport init, { WasmAdapter } from './neuromorphic_adapter.mjs';\ntry {\n  await init('./neuromorphic_adapter_bg.wasm');\n  const adapter = WasmAdapter.init(9n, new Uint8Array([1]));\n  adapter.input(1n, new Float32Array([1, 0.5]));\n  if (adapter.step().completed_step !== 1n) throw new Error('unexpected step');\n  adapter.dispose();\n  document.body.textContent = 'BROWSER_SMOKE_PASS';\n} catch (error) { document.body.textContent = 'BROWSER_SMOKE_FAIL:' + error.message; }\n</script>`);
+  await writeFile(page, `<!doctype html><body><script type="module">\nimport init, { WasmAdapter } from './neuromorphic_adapter.mjs';\ntry {\n  await init('./neuromorphic_adapter_bg.wasm');\n  const adapter = WasmAdapter.init(9n, new Uint8Array([1]));\n  adapter.input(1n, new Float32Array([1, 0.5]));\n  if (adapter.step().completed_step !== 1n) throw new Error('unexpected step');\n  adapter.dispose();\n  document.body.textContent = ['BROWSER', 'SMOKE', 'PASS'].join('_');\n} catch (error) { document.body.textContent = 'BROWSER_SMOKE_FAIL:' + error.message; }\n</script>`);
   const dom = run(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--allow-file-access-from-files', '--virtual-time-budget=3000', '--dump-dom', page]);
   if (!dom.includes('BROWSER_SMOKE_PASS')) {
     throw new Error(`browser Rust/WASM smoke failed:\n${dom}`);

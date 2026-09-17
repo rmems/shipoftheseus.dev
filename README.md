@@ -17,7 +17,13 @@ Then open the local URL Astro prints (normally `http://localhost:4321`).
 npm run validate
 ```
 
-The validation command runs content/route contracts, linting, Astro type checks, and a production build. Pull requests run the same command in CI; no deployment workflow is included.
+The validation command runs content/route contracts, linting, Astro type checks, a production build, and the locked Rust/WASM adapter checks. Before running it locally, install Rust 1.98.1 with the `wasm32-unknown-unknown` target, `wasm-bindgen-cli 0.2.126`, and a local Chrome or Chromium executable. Supply absolute executable paths for the browser smoke check:
+
+```bash
+WASM_BINDGEN_BIN="$(command -v wasm-bindgen)" BROWSER_BIN="$(command -v google-chrome)" npm run validate
+```
+
+Pull requests provision these dependencies and run the same command in CI; no deployment workflow is included.
 
 ## Content and assets
 

@@ -11,7 +11,7 @@ const cargoMetadata = await stat(cargo);
 if (!cargoMetadata.isFile() || (cargoMetadata.mode & 0o111) === 0) {
   throw new Error(`expected an executable cargo binary at ${cargo}`);
 }
-const result = spawnSync(cargo, ['+1.98.1', 'metadata', '--manifest-path', manifest, '--locked', '--format-version', '1'], {
+const result = spawnSync(cargo, ['+1.98.1', 'metadata', '--manifest-path', manifest, '--locked', '--format-version', '1', '--filter-platform', 'wasm32-unknown-unknown'], {
   cwd: repository,
   encoding: 'utf8',
 });
