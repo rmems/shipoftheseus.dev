@@ -12,6 +12,7 @@
     "typecheck": "astro check",
     "test": "node --test test/**/*.test.mjs",
     "test:wasm-adapter": "node scripts/verify-neuromorphic-wasm.mjs",
+    "test:wasm-browser": "node scripts/verify-neuromorphic-browser.mjs",
     "validate": "npm test && npm run lint && npm run typecheck && npm run build"
   },
   "devDependencies": {
