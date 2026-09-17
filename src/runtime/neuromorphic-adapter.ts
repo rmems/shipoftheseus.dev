@@ -1,6 +1,8 @@
 /** Browser-safe bridge for the generated `neuromorphic-adapter` WASM package. */
 export const NEUROMORPHIC_CONTRACT_VERSION = 2;
 export const CORPUS_IPC_WIRE_VERSION = 1;
+const BROWSER_TOPOLOGY_DIGEST =
+  'synaptic-wiring.topology.digest.v1:sha256:26875faf05121b9afda27a533760369da67ba9110599fb61533f08961ff6e971';
 const MAX_U64 = (1n << 64n) - 1n;
 const RUNTIME_ERROR_STATUSES = new Set([
   'ok',
@@ -129,7 +131,7 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     raw.topology_outgoing_edge_offsets.at(-1) !== raw.topology_edge_sources.length ||
     raw.membrane_potentials.length !== raw.topology_rows.length - 1 ||
     typeof raw.topology_digest !== 'string' ||
-    !raw.topology_digest.trim() ||
+    raw.topology_digest !== BROWSER_TOPOLOGY_DIGEST ||
     raw.protocol_wire_version !== CORPUS_IPC_WIRE_VERSION ||
     typeof raw.error_status !== 'string' ||
     !RUNTIME_ERROR_STATUSES.has(raw.error_status) ||

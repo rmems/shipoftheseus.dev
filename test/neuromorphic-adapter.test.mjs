@@ -23,7 +23,7 @@ function validTopologyState(overrides = {}) {
     topology_polarities: new Uint8Array([0]),
     topology_weight_bits: new Uint32Array([0x3f000000]),
     topology_outgoing_edge_offsets: new Uint32Array([0, 1, 1]),
-    topology_digest: 'test-digest',
+    topology_digest: 'synaptic-wiring.topology.digest.v1:sha256:26875faf05121b9afda27a533760369da67ba9110599fb61533f08961ff6e971',
     protocol_wire_version: 1,
     error_status: 'ok',
     ...overrides,
@@ -209,6 +209,16 @@ test('the browser bridge rejects a source range with noncanonical edge order', a
 test('the browser bridge rejects a canonical projection that disagrees with routed CSR topology', async () => {
   const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
   const state = validTopologyState({ topology_targets: new Uint32Array([0]) });
+  const adapter = await adapterForState(runtime, state);
+
+  assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
+});
+
+test('the browser bridge rejects a stale digest for the fixed exported topology', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const state = validTopologyState({
+    topology_digest: 'synaptic-wiring.topology.digest.v1:sha256:stale',
+  });
   const adapter = await adapterForState(runtime, state);
 
   assert.throws(() => adapter.state(), runtime.AdapterUnavailableError);
