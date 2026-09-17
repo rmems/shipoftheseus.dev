@@ -47,7 +47,8 @@ dependencies = [
 [[package]]
 name = "corpus-ipc"
 version = "0.1.0"
-source = "git+https://github.com/Limen-Neural/corpus-ipc.git?rev=d99e6544d7925dc0ccfe69fdff372352b0a9d041#d99e6544d7925dc0ccfe69fdff372352b0a9d041"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eec6624caf88783f1c35109fe1c27615fc85c986249d480c8efabb72d5f92081"
 dependencies = [
  "serde",
  "serde_json",
