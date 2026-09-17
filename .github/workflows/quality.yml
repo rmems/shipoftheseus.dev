@@ -26,6 +26,8 @@ jobs:
           cargo clippy --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --all-targets -- -D warnings
           cargo test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked
           cargo check --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --target wasm32-unknown-unknown
+      - name: Enforce browser dependency policy
+        run: node scripts/verify-browser-dependencies.mjs
       - name: Install pinned wasm-bindgen CLI
         run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
       - name: Use Node.js
