@@ -13,9 +13,38 @@ fn a_seeded_runtime_preserves_topology_provenance_and_advances_deterministically
     let left_state = left.step().expect("runtime can advance one tick");
     let right_state = right.step().expect("runtime can advance one tick");
 
-    assert_eq!(left_state.contract_version, 1);
+    assert_eq!(left_state.contract_version, 2);
     assert_eq!(left_state.completed_step, 1);
     assert_eq!(left_state.topology_digest, right_state.topology_digest);
+    assert_eq!(left_state.topology_node_ids, right_state.topology_node_ids);
+    assert_eq!(
+        left_state.topology_edge_sources,
+        right_state.topology_edge_sources
+    );
+    assert_eq!(
+        left_state.topology_edge_targets,
+        right_state.topology_edge_targets
+    );
+    assert_eq!(
+        left_state.topology_edge_weights,
+        right_state.topology_edge_weights
+    );
+    assert_eq!(
+        left_state.topology_edge_delays,
+        right_state.topology_edge_delays
+    );
+    assert_eq!(
+        left_state.topology_polarities,
+        right_state.topology_polarities
+    );
+    assert_eq!(
+        left_state.topology_weight_bits,
+        right_state.topology_weight_bits
+    );
+    assert_eq!(
+        left_state.topology_outgoing_edge_offsets,
+        right_state.topology_outgoing_edge_offsets
+    );
     assert_eq!(left_state.spike_neurons, right_state.spike_neurons);
     assert_eq!(
         left_state.membrane_potentials,
@@ -116,4 +145,77 @@ fn logical_steps_advance_delays_and_do_not_require_a_second_input() {
         .expect("second logical tick advances queued delays without input");
     assert_eq!(runtime.mesh_tick(), 2);
     assert_eq!(runtime.state().completed_step, 2);
+}
+
+#[test]
+fn runtime_seed_is_provenance_not_topology_and_state_exposes_canonical_edge_lookup() {
+    let left = BrowserRuntime::new(1).expect("the fixed browser topology is valid");
+    let right = BrowserRuntime::new(99).expect("the fixed browser topology is valid");
+
+    let left = left.state();
+    let right = right.state();
+
+    assert_eq!(left.seed, 1);
+    assert_eq!(right.seed, 99);
+    assert_eq!(left.topology_digest, right.topology_digest);
+    assert_eq!(left.topology_node_ids, right.topology_node_ids);
+    assert_eq!(left.topology_edge_sources, right.topology_edge_sources);
+    assert_eq!(left.topology_edge_targets, right.topology_edge_targets);
+    assert_eq!(
+        left.topology_edge_weights
+            .iter()
+            .map(|weight| weight.to_bits())
+            .collect::<Vec<_>>(),
+        right
+            .topology_edge_weights
+            .iter()
+            .map(|weight| weight.to_bits())
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(left.topology_edge_delays, right.topology_edge_delays);
+    assert_eq!(left.topology_polarities, right.topology_polarities);
+    assert_eq!(left.topology_weight_bits, right.topology_weight_bits);
+    assert_eq!(
+        left.topology_outgoing_edge_offsets,
+        right.topology_outgoing_edge_offsets
+    );
+    assert_eq!(left.topology_node_ids, (0..16).collect::<Vec<_>>());
+    assert_eq!(
+        left.topology_edge_sources.len(),
+        left.topology_targets.len()
+    );
+    assert_eq!(
+        left.topology_edge_sources.len(),
+        left.topology_edge_targets.len()
+    );
+    assert_eq!(
+        left.topology_edge_sources.len(),
+        left.topology_edge_weights.len()
+    );
+    assert_eq!(
+        left.topology_edge_sources.len(),
+        left.topology_edge_delays.len()
+    );
+    assert_eq!(
+        left.topology_edge_sources.len(),
+        left.topology_polarities.len()
+    );
+    assert_eq!(
+        left.topology_edge_sources.len(),
+        left.topology_weight_bits.len()
+    );
+    assert_eq!(
+        left.topology_outgoing_edge_offsets.len(),
+        left.topology_node_ids.len() + 1
+    );
+    assert_eq!(left.topology_outgoing_edge_offsets.first(), Some(&0));
+    assert_eq!(
+        left.topology_outgoing_edge_offsets.last(),
+        Some(&(left.topology_edge_sources.len() as u32))
+    );
+    assert!(
+        left.topology_outgoing_edge_offsets
+            .windows(2)
+            .all(|offsets| offsets[0] <= offsets[1])
+    );
 }
