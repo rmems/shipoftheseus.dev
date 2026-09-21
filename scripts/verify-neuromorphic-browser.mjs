@@ -7,6 +7,30 @@ const repository = resolve(import.meta.dirname, '..');
 const manifest = join(repository, 'crates/neuromorphic-adapter/Cargo.toml');
 const wasm = join(repository, 'crates/neuromorphic-adapter/target/wasm32-unknown-unknown/release/neuromorphic_adapter.wasm');
 const topologyContractSource = String.raw`
+const EXPECTED_TOPOLOGY_DIGEST = 'synaptic-wiring.topology.digest.v1:sha256:26875faf05121b9afda27a533760369da67ba9110599fb61533f08961ff6e971';
+const EXPECTED_TOPOLOGY_EDGE_TARGETS = new Uint32Array([
+  1, 2, 12, 14, 3, 8, 12, 15, 0, 1, 3, 4, 2, 4, 5, 8,
+  2, 3, 7, 14, 3, 4, 6, 7, 0, 5, 7, 8, 5, 6, 11, 15,
+  6, 7, 9, 10, 8, 10, 11, 14, 4, 8, 9, 13, 9, 12, 13, 15,
+  10, 11, 13, 14, 11, 12, 14, 15, 0, 9, 12, 15, 0, 5, 13, 14,
+]);
+const EXPECTED_TOPOLOGY_EDGE_DELAYS = new Uint16Array([
+  3, 1, 1, 4, 1, 4, 1, 1, 1, 2, 1, 2, 3, 1, 3, 3,
+  2, 4, 1, 2, 3, 1, 3, 1, 3, 1, 4, 1, 1, 2, 1, 2,
+  2, 3, 2, 3, 4, 2, 4, 4, 2, 3, 1, 2, 1, 1, 1, 4,
+  1, 2, 1, 2, 2, 3, 2, 3, 3, 3, 3, 2, 2, 1, 3, 1,
+]);
+const EXPECTED_TOPOLOGY_WEIGHT_BITS = new Uint32Array([
+  3210213374, 3209821784, 3205905881, 3205122701, 3209004865, 3207046914, 3205480553, 3204163308,
+  3209754308, 3209362717, 3208579536, 3208187946, 3208545798, 3207762618, 3207371028, 3206196257,
+  1060636822, 1060245232, 1058678871, 1054910871, 1059819904, 1059428314, 1058645133, 1058253543,
+  1060569346, 1058611395, 1057828214, 1057436624, 1058186066, 1057794476, 1054708442, 1062658772,
+  1057369148, 1056977558, 1055424146, 1054640966, 1055356670, 1053790309, 1063374476, 1062199706,
+  1057301672, 1054506013, 1053722833, 1062165968, 1063307000, 1062132230, 1061740639, 1060957458,
+  1062490082, 1062098491, 1061315310, 1060923720, 1061673163, 1061281572, 1060498392, 1060106802,
+  1057166719, 1062031015, 1060856244, 1059681474, 1056518174, 1063172048, 1060039326, 1059647736,
+]);
+
 function assertTopologyContract(state) {
   if (!(state.membrane_potentials instanceof Float32Array) ||
       !(state.topology_rows instanceof Uint32Array) ||
@@ -52,8 +76,12 @@ function assertTopologyContract(state) {
     state.topology_edge_weights.byteOffset,
     edgeCount,
   );
+  if (state.topology_digest !== EXPECTED_TOPOLOGY_DIGEST || nodeCount !== 16 || edgeCount !== 64) {
+    throw new Error('topology contract does not match the fixed topology identity');
+  }
   for (let node = 0; node < nodeCount; node += 1) {
-    if (state.topology_node_ids[node] !== node ||
+    if (state.topology_node_ids[node] !== node || state.topology_edge_sources[node * 4] !== node ||
+        state.topology_outgoing_edge_offsets[node] !== node * 4 ||
         state.topology_rows[node] > state.topology_rows[node + 1] ||
         state.topology_outgoing_edge_offsets[node] > state.topology_outgoing_edge_offsets[node + 1]) {
       throw new Error('topology contract has invalid node offsets');
@@ -70,7 +98,12 @@ function assertTopologyContract(state) {
     if (state.topology_edge_sources[edge] >= nodeCount ||
         state.topology_edge_targets[edge] >= nodeCount ||
         state.topology_polarities[edge] > 1 ||
-        canonicalWeightBits[edge] !== state.topology_weight_bits[edge]) {
+        canonicalWeightBits[edge] !== state.topology_weight_bits[edge] ||
+        state.topology_edge_sources[edge] !== Math.floor(edge / 4) ||
+        state.topology_edge_targets[edge] !== EXPECTED_TOPOLOGY_EDGE_TARGETS[edge] ||
+        state.topology_edge_delays[edge] !== EXPECTED_TOPOLOGY_EDGE_DELAYS[edge] ||
+        state.topology_polarities[edge] !== (edge < 16 ? 1 : 0) ||
+        state.topology_weight_bits[edge] !== EXPECTED_TOPOLOGY_WEIGHT_BITS[edge]) {
       throw new Error('topology contract has invalid canonical edge data');
     }
     if (edge > 0) {
@@ -82,6 +115,23 @@ function assertTopologyContract(state) {
       }
     }
   }
+
+  const canonicalTuples = new Map();
+  for (let edge = 0; edge < edgeCount; edge += 1) {
+    const key = [state.topology_edge_sources[edge], state.topology_edge_targets[edge], state.topology_edge_delays[edge], canonicalWeightBits[edge]].join(':');
+    canonicalTuples.set(key, (canonicalTuples.get(key) || 0) + 1);
+  }
+  const routedWeightBits = new Uint32Array(state.topology_weights.buffer, state.topology_weights.byteOffset, edgeCount);
+  for (let source = 0; source < nodeCount; source += 1) {
+    for (let edge = state.topology_rows[source]; edge < state.topology_rows[source + 1]; edge += 1) {
+      const key = [source, state.topology_targets[edge], state.topology_delays[edge], routedWeightBits[edge]].join(':');
+      const remaining = canonicalTuples.get(key);
+      if (!remaining) throw new Error('routed topology does not match the fixed projection');
+      if (remaining === 1) canonicalTuples.delete(key);
+      else canonicalTuples.set(key, remaining - 1);
+    }
+  }
+  if (canonicalTuples.size !== 0) throw new Error('routed topology does not match the fixed projection');
 }
 `;
 

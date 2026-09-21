@@ -34,4 +34,7 @@ test('the browser smoke checks the generated topology contract before reporting 
 
   assert.match(source, /function assertTopologyContract\(state\)/);
   assert.match(source, /assertTopologyContract\(state\);/);
+  assert.match(source, /EXPECTED_TOPOLOGY_DIGEST/);
+  assert.match(source, /EXPECTED_TOPOLOGY_EDGE_TARGETS/);
+  assert.match(source, /routed topology does not match the fixed projection/);
 });
