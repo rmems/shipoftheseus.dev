@@ -1,0 +1,28 @@
+test/verify-neuromorphic-browser.test.mjs
+  s_f16f54b18a5a4b::t_1d9f48a66d01c2 31-37
+scripts/verify-neuromorphic-browser.mjs
+  s_f16f54b18a5a4b::t_4202bde628495c 9-86,163
+test/neuromorphic-adapter.test.mjs
+  s_f16f54b18a5a4b::t_f1dc2ac637abd9 6-42,45-60,70-78,80-81
+  s_f16f54b18a5a4b::t_bc0ca73b3caf16 140,142-145,147,281-288
+  s_f16f54b18a5a4b::t_1619ba24c0f818 279-280,289-292
+  s_f16f54b18a5a4b::t_da861b2a3cf42c 68
+src/runtime/neuromorphic-adapter.ts
+  s_f16f54b18a5a4b::t_e8a6d3ac2cf576 6-27,32-41,171,279,281-287,291-295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2d9b0a29f279647662c4875c0e3e40193688588c",
+  "prompts": {},
+  "sessions": {
+    "s_f16f54b18a5a4b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a810-892a-72e3-8453-445e6d21e8f5",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
