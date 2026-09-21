@@ -3,10 +3,41 @@ export const NEUROMORPHIC_CONTRACT_VERSION = 2;
 export const CORPUS_IPC_WIRE_VERSION = 1;
 const BROWSER_TOPOLOGY_DIGEST =
   'synaptic-wiring.topology.digest.v1:sha256:26875faf05121b9afda27a533760369da67ba9110599fb61533f08961ff6e971';
-// Audited canonical tags for the fixed `synaptic-wiring` browser projection.
+// Audited canonical projection for the fixed `synaptic-wiring` browser topology.
+// The bridge recomputes this identity from exported contents instead of trusting
+// the digest string reported by the generated Rust/WASM package.
+const BROWSER_TOPOLOGY_NODE_IDS = new Uint32Array([...Array(16).keys()]);
+const BROWSER_TOPOLOGY_OUTGOING_EDGE_OFFSETS = new Uint32Array(
+  [...Array(17).keys()].map((index) => index * 4),
+);
+const BROWSER_TOPOLOGY_EDGE_SOURCES = new Uint32Array(
+  [...Array(16).keys()].flatMap((source) => Array(4).fill(source)),
+);
+const BROWSER_TOPOLOGY_EDGE_TARGETS = new Uint32Array([
+  1, 2, 12, 14, 3, 8, 12, 15, 0, 1, 3, 4, 2, 4, 5, 8,
+  2, 3, 7, 14, 3, 4, 6, 7, 0, 5, 7, 8, 5, 6, 11, 15,
+  6, 7, 9, 10, 8, 10, 11, 14, 4, 8, 9, 13, 9, 12, 13, 15,
+  10, 11, 13, 14, 11, 12, 14, 15, 0, 9, 12, 15, 0, 5, 13, 14,
+]);
+const BROWSER_TOPOLOGY_EDGE_DELAYS = new Uint16Array([
+  3, 1, 1, 4, 1, 4, 1, 1, 1, 2, 1, 2, 3, 1, 3, 3,
+  2, 4, 1, 2, 3, 1, 3, 1, 3, 1, 4, 1, 1, 2, 1, 2,
+  2, 3, 2, 3, 4, 2, 4, 4, 2, 3, 1, 2, 1, 1, 1, 4,
+  1, 2, 1, 2, 2, 3, 2, 3, 3, 3, 3, 2, 2, 1, 3, 1,
+]);
 const BROWSER_TOPOLOGY_POLARITIES = new Uint8Array([
   ...Array(16).fill(1),
   ...Array(48).fill(0),
+]);
+const BROWSER_TOPOLOGY_WEIGHT_BITS = new Uint32Array([
+  3210213374, 3209821784, 3205905881, 3205122701, 3209004865, 3207046914, 3205480553, 3204163308,
+  3209754308, 3209362717, 3208579536, 3208187946, 3208545798, 3207762618, 3207371028, 3206196257,
+  1060636822, 1060245232, 1058678871, 1054910871, 1059819904, 1059428314, 1058645133, 1058253543,
+  1060569346, 1058611395, 1057828214, 1057436624, 1058186066, 1057794476, 1054708442, 1062658772,
+  1057369148, 1056977558, 1055424146, 1054640966, 1055356670, 1053790309, 1063374476, 1062199706,
+  1057301672, 1054506013, 1053722833, 1062165968, 1063307000, 1062132230, 1061740639, 1060957458,
+  1062490082, 1062098491, 1061315310, 1060923720, 1061673163, 1061281572, 1060498392, 1060106802,
+  1057166719, 1062031015, 1060856244, 1059681474, 1056518174, 1063172048, 1060039326, 1059647736,
 ]);
 const MAX_U64 = (1n << 64n) - 1n;
 const RUNTIME_ERROR_STATUSES = new Set([
@@ -137,7 +168,7 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     raw.membrane_potentials.length !== raw.topology_rows.length - 1 ||
     typeof raw.topology_digest !== 'string' ||
     raw.topology_digest !== BROWSER_TOPOLOGY_DIGEST ||
-    !hasExpectedTopologyPolarities(raw.topology_polarities) ||
+    !hasExpectedTopologyProjection(raw) ||
     raw.protocol_wire_version !== CORPUS_IPC_WIRE_VERSION ||
     typeof raw.error_status !== 'string' ||
     !RUNTIME_ERROR_STATUSES.has(raw.error_status) ||
@@ -245,11 +276,23 @@ function hasMatchingWeightBits(weights: Float32Array, bits: Uint32Array): boolea
   return weightBits.every((weight, index) => weight === bits[index]);
 }
 
-function hasExpectedTopologyPolarities(polarities: Uint8Array): boolean {
+function hasExpectedTopologyProjection(raw: RawWasmState): boolean {
   return (
-    polarities.length === BROWSER_TOPOLOGY_POLARITIES.length &&
-    polarities.every((polarity, index) => polarity === BROWSER_TOPOLOGY_POLARITIES[index])
+    hasMatchingTypedArray(raw.topology_node_ids, BROWSER_TOPOLOGY_NODE_IDS) &&
+    hasMatchingTypedArray(raw.topology_edge_sources, BROWSER_TOPOLOGY_EDGE_SOURCES) &&
+    hasMatchingTypedArray(raw.topology_edge_targets, BROWSER_TOPOLOGY_EDGE_TARGETS) &&
+    hasMatchingTypedArray(raw.topology_edge_delays, BROWSER_TOPOLOGY_EDGE_DELAYS) &&
+    hasMatchingTypedArray(raw.topology_polarities, BROWSER_TOPOLOGY_POLARITIES) &&
+    hasMatchingTypedArray(raw.topology_weight_bits, BROWSER_TOPOLOGY_WEIGHT_BITS) &&
+    hasMatchingTypedArray(raw.topology_outgoing_edge_offsets, BROWSER_TOPOLOGY_OUTGOING_EDGE_OFFSETS)
   );
+}
+
+function hasMatchingTypedArray(
+  actual: Uint8Array | Uint16Array | Uint32Array,
+  expected: Uint8Array | Uint16Array | Uint32Array,
+): boolean {
+  return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 }
 
 function hasCanonicalEdgeOrder(

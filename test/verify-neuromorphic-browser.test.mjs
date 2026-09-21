@@ -28,3 +28,10 @@ test('the browser smoke success marker cannot be serialized from inline source',
   assert.match(source, /\['BROWSER', 'SMOKE', 'PASS'\]\.join\('_'\)/);
   assert.doesNotMatch(source, /document\.body\.textContent = 'BROWSER_SMOKE_PASS'/);
 });
+
+test('the browser smoke checks the generated topology contract before reporting success', async () => {
+  const source = await readFile('scripts/verify-neuromorphic-browser.mjs', 'utf8');
+
+  assert.match(source, /function assertTopologyContract\(state\)/);
+  assert.match(source, /assertTopologyContract\(state\);/);
+});

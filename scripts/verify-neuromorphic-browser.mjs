@@ -6,6 +6,84 @@ import { isAbsolute, join, resolve } from 'node:path';
 const repository = resolve(import.meta.dirname, '..');
 const manifest = join(repository, 'crates/neuromorphic-adapter/Cargo.toml');
 const wasm = join(repository, 'crates/neuromorphic-adapter/target/wasm32-unknown-unknown/release/neuromorphic_adapter.wasm');
+const topologyContractSource = String.raw`
+function assertTopologyContract(state) {
+  if (!(state.membrane_potentials instanceof Float32Array) ||
+      !(state.topology_rows instanceof Uint32Array) ||
+      !(state.topology_targets instanceof Uint32Array) ||
+      !(state.topology_weights instanceof Float32Array) ||
+      !(state.topology_delays instanceof Uint16Array) ||
+      !(state.topology_node_ids instanceof Uint32Array) ||
+      !(state.topology_edge_sources instanceof Uint32Array) ||
+      !(state.topology_edge_targets instanceof Uint32Array) ||
+      !(state.topology_edge_weights instanceof Float32Array) ||
+      !(state.topology_edge_delays instanceof Uint16Array) ||
+      !(state.topology_polarities instanceof Uint8Array) ||
+      !(state.topology_weight_bits instanceof Uint32Array) ||
+      !(state.topology_outgoing_edge_offsets instanceof Uint32Array)) {
+    throw new Error('topology contract returned an unexpected typed array');
+  }
+
+  const nodeCount = state.topology_node_ids.length;
+  const edgeCount = state.topology_edge_sources.length;
+  const canonicalArrays = [
+    state.topology_edge_targets,
+    state.topology_edge_weights,
+    state.topology_edge_delays,
+    state.topology_polarities,
+    state.topology_weight_bits,
+  ];
+  if (nodeCount !== state.membrane_potentials.length ||
+      state.topology_rows.length !== nodeCount + 1 ||
+      state.topology_outgoing_edge_offsets.length !== nodeCount + 1 ||
+      canonicalArrays.some((values) => values.length !== edgeCount) ||
+      state.topology_targets.length !== edgeCount ||
+      state.topology_weights.length !== edgeCount ||
+      state.topology_delays.length !== edgeCount ||
+      state.topology_rows[0] !== 0 ||
+      state.topology_rows.at(-1) !== edgeCount ||
+      state.topology_outgoing_edge_offsets[0] !== 0 ||
+      state.topology_outgoing_edge_offsets.at(-1) !== edgeCount) {
+    throw new Error('topology contract has inconsistent cardinality');
+  }
+
+  const canonicalWeightBits = new Uint32Array(
+    state.topology_edge_weights.buffer,
+    state.topology_edge_weights.byteOffset,
+    edgeCount,
+  );
+  for (let node = 0; node < nodeCount; node += 1) {
+    if (state.topology_node_ids[node] !== node ||
+        state.topology_rows[node] > state.topology_rows[node + 1] ||
+        state.topology_outgoing_edge_offsets[node] > state.topology_outgoing_edge_offsets[node + 1]) {
+      throw new Error('topology contract has invalid node offsets');
+    }
+    for (let edge = state.topology_outgoing_edge_offsets[node]; edge < state.topology_outgoing_edge_offsets[node + 1]; edge += 1) {
+      if (state.topology_edge_sources[edge] !== node) throw new Error('topology contract has inconsistent canonical sources');
+    }
+    for (let edge = state.topology_rows[node]; edge < state.topology_rows[node + 1]; edge += 1) {
+      if (state.topology_targets[edge] >= nodeCount) throw new Error('topology contract has an out-of-range routed target');
+    }
+  }
+
+  for (let edge = 0; edge < edgeCount; edge += 1) {
+    if (state.topology_edge_sources[edge] >= nodeCount ||
+        state.topology_edge_targets[edge] >= nodeCount ||
+        state.topology_polarities[edge] > 1 ||
+        canonicalWeightBits[edge] !== state.topology_weight_bits[edge]) {
+      throw new Error('topology contract has invalid canonical edge data');
+    }
+    if (edge > 0) {
+      const previous = edge - 1;
+      const before = [state.topology_edge_sources[previous], state.topology_edge_targets[previous], state.topology_edge_delays[previous], state.topology_polarities[previous], state.topology_weight_bits[previous]];
+      const current = [state.topology_edge_sources[edge], state.topology_edge_targets[edge], state.topology_edge_delays[edge], state.topology_polarities[edge], state.topology_weight_bits[edge]];
+      if (before.some((value, index) => value > current[index] && before.slice(0, index).every((prior, priorIndex) => prior === current[priorIndex]))) {
+        throw new Error('topology contract is not canonically ordered');
+      }
+    }
+  }
+}
+`;
 
 async function executableFromEnvironment(name) {
   const requested = process.env[name];
@@ -82,7 +160,7 @@ try {
   await assertReproducible(generated, repeated);
   await rename(join(generated, 'neuromorphic_adapter.js'), join(generated, 'neuromorphic_adapter.mjs'));
   const page = join(generated, 'index.html');
-  await writeFile(page, `<!doctype html><body><script type="module">\nimport init, { WasmAdapter } from './neuromorphic_adapter.mjs';\ntry {\n  await init('./neuromorphic_adapter_bg.wasm');\n  const adapter = WasmAdapter.init(9n, new Uint8Array([2]));\n  adapter.input(1n, new Float32Array([1, 0.5]));\n  if (adapter.step().completed_step !== 1n) throw new Error('unexpected step');\n  adapter.dispose();\n  document.body.textContent = ['BROWSER', 'SMOKE', 'PASS'].join('_');\n} catch (error) { document.body.textContent = 'BROWSER_SMOKE_FAIL:' + error.message; }\n</script>`);
+  await writeFile(page, `<!doctype html><body><script type="module">\nimport init, { WasmAdapter } from './neuromorphic_adapter.mjs';\n${topologyContractSource}\ntry {\n  await init('./neuromorphic_adapter_bg.wasm');\n  const adapter = WasmAdapter.init(9n, new Uint8Array([2]));\n  adapter.input(1n, new Float32Array([1, 0.5]));\n  const state = adapter.step();\n  if (state.completed_step !== 1n) throw new Error('unexpected step');\n  assertTopologyContract(state);\n  adapter.dispose();\n  document.body.textContent = ['BROWSER', 'SMOKE', 'PASS'].join('_');\n} catch (error) { document.body.textContent = 'BROWSER_SMOKE_FAIL:' + error.message; }\n</script>`);
   const dom = run(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--allow-file-access-from-files', '--virtual-time-budget=3000', '--dump-dom', page]);
   if (!dom.includes('BROWSER_SMOKE_PASS')) {
     throw new Error(`browser Rust/WASM smoke failed:\n${dom}`);
