@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Draft CodeRabbit config for rmems/shipoftheseus.dev (generated locally, not pushed).
+language: en-US
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  fail_commit_status: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+  - '!**/target/**'
+  - '!dist/**'
+  - '!.astro/**'
+  path_instructions:
+  - path: src/**/*.{astro,ts,mjs}
+    instructions: Astro + TypeScript. Node engines `^20.19.0 || >=22.12.0` (CI 22.12.0). Must pass `npm run lint` (eslint.config.mjs), `npm run typecheck` (`astro check`) and `npm run build`; keep pages static-friendly and check accessibility (alt text, heading order, link text).
+  - path: crates/neuromorphic-adapter/**/*.rs
+    instructions: 'Rust edition 2024; `rust-version = "1.98.1"`; crate `rust-toolchain.toml` pins 1.98.1 with target `wasm32-unknown-unknown`. Do not suggest downgrading the edition or using std/language APIs newer than the pinned toolchain/MSRV. CI gate: `cargo +1.98.1 fmt/clippy/test/check --target wasm32-unknown-unknown`, then the wasm-bindgen 0.2.126 adapter and browser verification. Flag anything that would fail `cargo fmt --check` or clippy `-D warnings`. Code must compile for `wasm32-unknown-unknown`: no threads, filesystem or `std::time::Instant` without a wasm-safe path; the `wasm-bindgen` version must match CLI 0.2.126.'
+  - path: test/**
+    instructions: Node `node --test` suites and fixtures; keep them runnable offline.
+  - path: .github/workflows/**
+    instructions: GitHub Actions workflows. Keep `permissions:` least-privilege and job commands in sync with the local gates documented in the repo. Every `uses:` is pinned to a full commit SHA today; new or bumped actions must be too.
+  tools:
+    eslint:
+      enabled: true
+    clippy:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
