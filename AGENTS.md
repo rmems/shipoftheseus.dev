@@ -14,9 +14,10 @@ repo has no deployment workflow.
 | Path | Contents |
 |------|----------|
 | `src/pages/`, `src/components/`, `src/layouts/`, `src/styles/` | Astro site |
-| `src/data/site.ts`, `src/data/projects.ts` | Site identity/placeholders; project cards and briefs |
+| `src/data/site.ts`, `src/data/projects.ts` | Site identity (profile links, contact, résumé path); project cards and briefs |
 | `src/content/notes/` | Markdown notes (`src/content.config.ts`) |
-| `src/runtime/`, `src/native-evidence/` | Browser runtime for WASM demos; recorded CUDA/FPGA evidence |
+| `src/content/native-evidence/` | Recorded CUDA/FPGA evidence as versioned JSON artifacts (`CONTENT.md`) |
+| `src/runtime/`, `src/native-evidence/` | Browser runtime for WASM demos; native-evidence parser, loader, catalog and view code |
 | `crates/neuromorphic-adapter/` | Rust → `wasm32-unknown-unknown` adapter (own `Cargo.lock`, `rust-toolchain.toml`) |
 | `scripts/verify-*.mjs` | WASM adapter, browser and browser-dependency verification |
 | `test/*.test.mjs` (+ `test/fixtures/`) | `node --test` suite |
@@ -52,8 +53,11 @@ npm run validate:rust       # cargo +1.98.1 fmt/clippy/test/check (wasm32) on cr
 
 - Don't add deployment/hosting configuration. The README says the site is local-only until
   deployment is explicitly approved, and out-of-scope hosting config was removed (#28).
-- Use `CONTENT.md` as the checklist before publishing content changes. The social URLs and email in
-  `src/data/site.ts` are placeholders.
-- Rust checks always pin `cargo +1.98.1` and `--locked`.
+- Use `CONTENT.md` as the checklist before publishing content changes. In `src/data/site.ts` the
+  GitHub, LinkedIn and Hugging Face links are live; `email` is still `null` until a public address is
+  chosen. Don't invent benchmark numbers for native evidence; leave the catalog empty without a
+  measured capture.
+- Rust checks pin `cargo +1.98.1`. clippy, test and check also pass `--locked`; `cargo fmt` doesn't
+  take that flag.
 - Commit subjects mostly follow Conventional Commits with scopes (`feat(wasm):`, `ci(web):`) and
   the PR number.
