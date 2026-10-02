@@ -1,0 +1,59 @@
+# AGENTS.md
+
+Guidance for coding agents (Amp, Codex, Cursor, Claude Code, and others) working in this repository.
+
+## Purpose
+
+`shipoftheseus.dev` is a static Astro + TypeScript portfolio for AI/ML systems engineering (see
+`README.md`). It includes live WASM demos backed by a small Rust crate
+(`crates/neuromorphic-adapter`). It is local-only until explicitly approved for deployment, and the
+repo has no deployment workflow.
+
+## Layout
+
+| Path | Contents |
+|------|----------|
+| `src/pages/`, `src/components/`, `src/layouts/`, `src/styles/` | Astro site |
+| `src/data/site.ts`, `src/data/projects.ts` | Site identity/placeholders; project cards and briefs |
+| `src/content/notes/` | Markdown notes (`src/content.config.ts`) |
+| `src/runtime/`, `src/native-evidence/` | Browser runtime for WASM demos; recorded CUDA/FPGA evidence |
+| `crates/neuromorphic-adapter/` | Rust → `wasm32-unknown-unknown` adapter (own `Cargo.lock`, `rust-toolchain.toml`) |
+| `scripts/verify-*.mjs` | WASM adapter, browser and browser-dependency verification |
+| `test/*.test.mjs` (+ `test/fixtures/`) | `node --test` suite |
+| `docs/architecture/` | Browser runtime and native-evidence architecture |
+| `CONTENT.md` | Publishing checklist |
+
+## Toolchain
+
+- Node: `engines` `^20.19.0 || >=22.12.0`; CI uses **22.12.0**. Install with `npm ci` (lockfile committed).
+- Rust **1.98.1** with target `wasm32-unknown-unknown` (crate `rust-toolchain.toml`, quality.yml),
+  plus rustfmt and clippy.
+- `wasm-bindgen-cli` **0.2.126** (`cargo install wasm-bindgen-cli --version 0.2.126 --locked`).
+- A Chrome/Chromium binary for the browser check. CI sets `BROWSER_BIN` from `setup-chrome`.
+
+## Commands (from `.github/workflows/quality.yml` and `package.json`)
+
+```bash
+npm ci
+npm run dev                 # local dev server (http://localhost:4321)
+
+# Full gate, as in CI: test, lint, typecheck, build, Rust checks, WASM adapter + browser checks
+WASM_BINDGEN_BIN="$(command -v wasm-bindgen)" BROWSER_BIN="<path to chrome>" npm run validate
+
+# Pieces
+npm test                    # node --test test/**/*.test.mjs
+npm run lint                # eslint .
+npm run typecheck           # astro check
+npm run build               # astro build
+npm run validate:rust       # cargo +1.98.1 fmt/clippy/test/check (wasm32) on crates/neuromorphic-adapter
+```
+
+## Conventions visible in the repo
+
+- Don't add deployment/hosting configuration. The README says the site is local-only until
+  deployment is explicitly approved, and out-of-scope hosting config was removed (#28).
+- Use `CONTENT.md` as the checklist before publishing content changes. The social URLs and email in
+  `src/data/site.ts` are placeholders.
+- Rust checks always pin `cargo +1.98.1` and `--locked`.
+- Commit subjects mostly follow Conventional Commits with scopes (`feat(wasm):`, `ci(web):`) and
+  the PR number.
