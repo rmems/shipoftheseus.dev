@@ -1,6 +1,19 @@
 /** Browser-safe bridge for the generated `neuromorphic-adapter` WASM package. */
 export const NEUROMORPHIC_CONTRACT_VERSION = 3;
+export const NEUROMORPHIC_CONTRACT_VERSION_V4 = 4;
 export const CORPUS_IPC_WIRE_VERSION = 1;
+/**
+ * Selectable v1 encoder modes. The discriminants match the Rust `EncoderMode`
+ * enum so the browser can request them through the WASM `init` config.
+ */
+export const ENCODER_MODES = {
+  delta: 0,
+  temporal: 1,
+  rate: 2,
+} as const;
+export type EncoderModeName = keyof typeof ENCODER_MODES;
+export const ENCODER_MODE_NAMES = Object.keys(ENCODER_MODES) as EncoderModeName[];
+export const DEFAULT_ENCODER_MODE: EncoderModeName = 'temporal';
 const BROWSER_TOPOLOGY_DIGEST =
   'synaptic-wiring.topology.digest.v1:sha256:26875faf05121b9afda27a533760369da67ba9110599fb61533f08961ff6e971';
 // Audited canonical projection for the fixed `synaptic-wiring` browser topology.
@@ -71,6 +84,11 @@ export interface NeuromorphicState {
   topologyDigest: string;
   protocolWireVersion: number;
   errorStatus: string;
+  encoderMode: number;
+  encoderName: string;
+  encodedSpikeCount: number;
+  encodedSpikeChannels: number;
+  encodedSpikeTotal: bigint;
 }
 
 interface RawWasmState {
@@ -95,6 +113,16 @@ interface RawWasmState {
   topology_digest: string;
   protocol_wire_version: number;
   error_status: string;
+  encoder_mode: number;
+  encoder_name: string;
+  encoded_spike_count: number;
+  encoded_spike_channels: number;
+  encoded_spike_total: bigint;
+}
+
+export interface NeuromorphicAdapterOptions {
+  contractVersion?: typeof NEUROMORPHIC_CONTRACT_VERSION | typeof NEUROMORPHIC_CONTRACT_VERSION_V4;
+  encoderMode?: EncoderModeName;
 }
 
 interface RawWasmAdapter {
@@ -125,11 +153,38 @@ export class AdapterUnavailableError extends Error {
   }
 }
 
+const ENCODER_MODE_VALUES = new Set<number>(Object.values(ENCODER_MODES));
+
+function isValidEncoderDiagnostics(raw: RawWasmState): boolean {
+  if (
+    typeof raw.encoder_mode !== 'number' ||
+    !ENCODER_MODE_VALUES.has(raw.encoder_mode) ||
+    typeof raw.encoder_name !== 'string' ||
+    raw.encoder_name !== ENCODER_MODE_NAMES[raw.encoder_mode] ||
+    typeof raw.encoded_spike_count !== 'number' ||
+    !Number.isInteger(raw.encoded_spike_count) ||
+    raw.encoded_spike_count < 0 ||
+    raw.encoded_spike_count > 16 ||
+    typeof raw.encoded_spike_channels !== 'number' ||
+    !Number.isInteger(raw.encoded_spike_channels) ||
+    raw.encoded_spike_channels < 0 ||
+    raw.encoded_spike_channels > 16 ||
+    raw.encoded_spike_channels > raw.encoded_spike_count ||
+    typeof raw.encoded_spike_total !== 'bigint' ||
+    !isU64(raw.encoded_spike_total) ||
+    raw.encoded_spike_total < BigInt(raw.encoded_spike_count)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function snapshot(raw: RawWasmState): NeuromorphicState {
   if (
     !raw ||
     typeof raw !== 'object' ||
-    raw.contract_version !== NEUROMORPHIC_CONTRACT_VERSION ||
+    (raw.contract_version !== NEUROMORPHIC_CONTRACT_VERSION &&
+      raw.contract_version !== NEUROMORPHIC_CONTRACT_VERSION_V4) ||
     typeof raw.seed !== 'bigint' ||
     typeof raw.completed_step !== 'bigint' ||
     typeof raw.last_sequence !== 'bigint' ||
@@ -202,7 +257,8 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
       raw.topology_edge_weights,
       raw.topology_edge_delays,
     ) ||
-    !hasValidSpikeNeurons(raw.spike_neurons, raw.membrane_potentials.length)
+    !hasValidSpikeNeurons(raw.spike_neurons, raw.membrane_potentials.length) ||
+    (raw.contract_version === NEUROMORPHIC_CONTRACT_VERSION_V4 && !isValidEncoderDiagnostics(raw))
   ) {
     throw new AdapterUnavailableError('The Rust/WASM runtime returned an invalid contract state.');
   }
@@ -229,6 +285,11 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
     topologyDigest: raw.topology_digest,
     protocolWireVersion: raw.protocol_wire_version,
     errorStatus: raw.error_status,
+    encoderMode: raw.contract_version === NEUROMORPHIC_CONTRACT_VERSION_V4 ? raw.encoder_mode : ENCODER_MODES.delta,
+    encoderName: raw.contract_version === NEUROMORPHIC_CONTRACT_VERSION_V4 ? raw.encoder_name : 'delta',
+    encodedSpikeCount: raw.contract_version === NEUROMORPHIC_CONTRACT_VERSION_V4 ? raw.encoded_spike_count : 0,
+    encodedSpikeChannels: raw.contract_version === NEUROMORPHIC_CONTRACT_VERSION_V4 ? raw.encoded_spike_channels : 0,
+    encodedSpikeTotal: raw.contract_version === NEUROMORPHIC_CONTRACT_VERSION_V4 ? raw.encoded_spike_total : 0n,
   };
 }
 
@@ -377,6 +438,7 @@ function topologyTupleKey(source: number, target: number, delay: number, weightB
 export async function initNeuromorphicAdapter(
   loadWasmModule: () => Promise<NeuromorphicWasmModule>,
   seed: bigint,
+  options: NeuromorphicAdapterOptions = {},
 ): Promise<NeuromorphicAdapter> {
   if (typeof WebAssembly === 'undefined') {
     throw new AdapterUnavailableError('WebAssembly is unavailable in this browser.');
@@ -384,10 +446,27 @@ export async function initNeuromorphicAdapter(
   if (!isU64(seed)) {
     throw new AdapterUnavailableError('The Rust/WASM runtime seed must be a u64 value.');
   }
+  // Legacy callers omit options and keep the contract-3 delta-only config.
+  const encoderMode = options.encoderMode ?? 'delta';
+  if (!ENCODER_MODE_NAMES.includes(encoderMode)) {
+    throw new AdapterUnavailableError('The requested encoder mode is not supported.');
+  }
+  const contract = options.contractVersion ?? (
+    options.encoderMode === undefined ? NEUROMORPHIC_CONTRACT_VERSION : NEUROMORPHIC_CONTRACT_VERSION_V4
+  );
+  if (contract !== NEUROMORPHIC_CONTRACT_VERSION && contract !== NEUROMORPHIC_CONTRACT_VERSION_V4) {
+    throw new AdapterUnavailableError('The requested contract version is not supported.');
+  }
+  if (contract === NEUROMORPHIC_CONTRACT_VERSION && encoderMode !== 'delta') {
+    throw new AdapterUnavailableError('Contract 3 only supports the delta encoder mode.');
+  }
 
   const wasm = await loadWasmModule();
   await wasm.default();
-  const runtime = wasm.WasmAdapter.init(seed, new Uint8Array([NEUROMORPHIC_CONTRACT_VERSION]));
+  const config = contract === NEUROMORPHIC_CONTRACT_VERSION_V4
+    ? new Uint8Array([NEUROMORPHIC_CONTRACT_VERSION_V4, ENCODER_MODES[encoderMode]])
+    : new Uint8Array([NEUROMORPHIC_CONTRACT_VERSION]);
+  const runtime = wasm.WasmAdapter.init(seed, config);
   let disposed = false;
 
   const ensureActive = (): void => {
