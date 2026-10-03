@@ -243,6 +243,21 @@ test('a worker failure before initialization retries once on the main thread', a
   assert.deepEqual(wasmCalls, [true, false]);
 });
 
+test('the first promotion to live resumes both sessions (resume is the initial start)', async () => {
+  const { seams, rendererEvents, wasmEvents } = connectedSeams();
+  const demo = runtime.createDemoRuntime({
+    capabilities: capable,
+    seams,
+    inViewport: true,
+  });
+
+  await demo.startIfAllowed();
+
+  assert.equal(demo.getSnapshot().mode, 'live');
+  assert.ok(rendererEvents.includes('resume'), 'renderer session must be started');
+  assert.ok(wasmEvents.includes('resume'), 'wasm session must be started');
+});
+
 test('worker unavailability uses a single bounded main-thread attempt', async () => {
   const { seams, wasmCalls } = connectedSeams();
   const demo = runtime.createDemoRuntime({
@@ -745,8 +760,8 @@ test('Play-Pause-Play resumes the same renderer and WASM sessions', async () => 
 
   await demo.startIfAllowed();
   assert.equal(demo.getSnapshot().mode, 'live');
-  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 0);
-  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 0);
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 1);
   await demo.play();
   assert.equal(demo.getSnapshot().mode, 'awaiting-play');
   await demo.play();
@@ -756,9 +771,9 @@ test('Play-Pause-Play resumes the same renderer and WASM sessions', async () => 
   assert.equal(rendererEvents.filter((event) => event === 'dispose').length, 0);
   assert.equal(wasmDisposeCount.value, 0);
   assert.equal(rendererEvents.filter((event) => event === 'pause').length, 1);
-  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 2);
   assert.equal(wasmEvents.filter((event) => event === 'pause').length, 1);
-  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 2);
 
   demo.dispose();
   assert.equal(rendererEvents.filter((event) => event === 'dispose').length, 1);
@@ -860,8 +875,8 @@ test('foreground and viewport return resume existing sessions exactly once', asy
 
   await demo.startIfAllowed();
   assert.equal(demo.getSnapshot().mode, 'live');
-  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 0);
-  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 0);
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 1);
 
   await demo.setInViewport(false);
   assert.equal(demo.getSnapshot().mode, 'live');
@@ -870,13 +885,13 @@ test('foreground and viewport return resume existing sessions exactly once', asy
 
   await demo.setInViewport(true);
   assert.equal(demo.getSnapshot().mode, 'live');
-  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 1);
-  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 2);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 2);
   assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
 
   await demo.setInViewport(true);
-  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 1);
-  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 2);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 2);
 
   await demo.setDocumentHidden(true);
   assert.equal(rendererEvents.filter((event) => event === 'pause').length, 2);
@@ -884,8 +899,8 @@ test('foreground and viewport return resume existing sessions exactly once', asy
 
   await demo.setDocumentHidden(false);
   assert.equal(demo.getSnapshot().mode, 'live');
-  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 2);
-  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 2);
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 3);
+  assert.equal(wasmEvents.filter((event) => event === 'resume').length, 3);
   assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
 });
 
@@ -1568,7 +1583,7 @@ test('explicit Play after a live reduced-motion flip keeps camera motion off on 
   assert.equal(live.reason, 'reduced-motion');
   assert.equal(live.cameraMotionEnabled, false);
   assert.equal(rendererEvents.filter((event) => event === 'create').length, 1);
-  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 1);
+  assert.equal(rendererEvents.filter((event) => event === 'resume').length, 2);
   assert.equal(cameraEvents.at(-1), 'camera:off');
   assert.deepEqual(wasmCalls, [true]);
 });

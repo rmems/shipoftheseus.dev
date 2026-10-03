@@ -988,11 +988,14 @@ export class DemoRuntime {
       return;
     }
 
-    const shouldResume = this.clockPaused;
+    // resume() is also the initial start: sessions are created idle and only
+    // begin ticking/rendering once resumed. Already-running sessions (still
+    // live and unpaused) must not be resumed again.
+    const needsStart = this.mode !== 'live' || this.clockPaused;
     this.mode = 'live';
     this.reason = this.prefersReducedMotion ? 'reduced-motion' : 'ok';
     this.applyCameraMotionEnabled(!this.prefersReducedMotion);
-    if (shouldResume) {
+    if (needsStart) {
       this.rendererSession.resume();
       this.wasmSession.resume();
     }
