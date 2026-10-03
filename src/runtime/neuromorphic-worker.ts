@@ -75,7 +75,12 @@ function postState(id: number, state: NeuromorphicState): void {
 }
 
 function postError(id: number, error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error);
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : 'unknown simulation error';
   ctx.postMessage({ id, type: 'error', message });
 }
 

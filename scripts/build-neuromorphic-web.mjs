@@ -6,7 +6,7 @@
 // The committed output is deterministic: same crate lockfile, Rust toolchain,
 // and wasm-bindgen 0.2.126 produce byte-identical files (asserted by
 // scripts/verify-neuromorphic-browser.mjs as well).
-import { mkdtemp, cp, readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -42,16 +42,17 @@ function run(command, args) {
 }
 
 async function generatedFiles(directory, relative = '') {
-  const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const child = join(relative, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await generatedFiles(join(directory, entry.name), child)));
-    } else if (entry.isFile()) {
-      files.push(child);
-    }
-  }
-  return files.sort();
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map((entry) => {
+      const child = join(relative, entry.name);
+      if (entry.isDirectory()) {
+        return generatedFiles(join(directory, entry.name), child);
+      }
+      return Promise.resolve(entry.isFile() ? [child] : []);
+    }),
+  );
+  return nested.flat().sort((left, right) => left.localeCompare(right));
 }
 
 const wasmBindgen = await executableFromEnvironment('WASM_BINDGEN_BIN');
@@ -88,14 +89,20 @@ try {
         'committed browser package file set is stale; regenerate with npm run build:wasm-web',
       );
     }
-    for (const file of expected) {
-      const committed = await readFile(join(destination, file));
-      const fresh = await readFile(join(output, file));
-      if (!committed.equals(fresh)) {
-        throw new Error(
-          `committed browser package drifted at ${file}; regenerate with npm run build:wasm-web`,
-        );
-      }
+    const comparisons = await Promise.all(
+      expected.map(async (file) => {
+        const [committed, fresh] = await Promise.all([
+          readFile(join(destination, file)),
+          readFile(join(output, file)),
+        ]);
+        return committed.equals(fresh) ? null : file;
+      }),
+    );
+    const drifted = comparisons.filter(Boolean);
+    if (drifted.length > 0) {
+      throw new Error(
+        `committed browser package drifted at ${drifted[0]}; regenerate with npm run build:wasm-web`,
+      );
     }
     process.stdout.write('Committed browser WASM package matches the locked toolchain output.\n');
   } else {
