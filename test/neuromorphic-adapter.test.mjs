@@ -61,7 +61,7 @@ function routedWeights() {
 
 function validTopologyState(overrides = {}) {
   return {
-    contract_version: 2,
+    contract_version: 3,
     seed: 2n ** 63n + 1n,
     completed_step: 7n,
     last_sequence: 2n ** 63n + 2n,
@@ -110,7 +110,7 @@ test('the browser bridge copies typed-array snapshots and preserves lossless u64
       WasmAdapter: {
         init(seed, config) {
           assert.equal(seed, 9n);
-          assert.deepEqual([...config], [2]);
+          assert.deepEqual([...config], [3]);
           return {
             input(sequence, samples) {
               assert.equal(sequence, 4n);

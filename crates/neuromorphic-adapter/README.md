@@ -20,8 +20,10 @@ and `target/` are generated locally and intentionally not committed.
 
 ## Boundary guarantees
 
-- `WasmAdapter.init(seed, config)` accepts only the versioned V2 config byte
-  `[2]`; it rejects unknown configuration rather than ignoring it.
+- `WasmAdapter.init(seed, config)` accepts only the versioned V3 config byte
+  `[3]`; it rejects unknown configuration rather than ignoring it. V3 was
+  introduced because seeding LIF weights changed deterministic simulation
+  state relative to V2.
 - `input(sequence, Float32Array)` requires finite samples and a strictly
   increasing `bigint` sequence.
 - `step()` uses a caller-seeded `neuromod::StdRng` and returns copied typed

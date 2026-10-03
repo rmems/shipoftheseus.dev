@@ -13,7 +13,7 @@ fn a_seeded_runtime_preserves_topology_provenance_and_advances_deterministically
     let left_state = left.step().expect("runtime can advance one tick");
     let right_state = right.step().expect("runtime can advance one tick");
 
-    assert_eq!(left_state.contract_version, 2);
+    assert_eq!(left_state.contract_version, 3);
     assert_eq!(left_state.completed_step, 1);
     assert_eq!(left_state.topology_digest, right_state.topology_digest);
     assert_eq!(left_state.topology_node_ids, right_state.topology_node_ids);
@@ -276,10 +276,10 @@ fn a_rebuilt_adapter_replays_the_same_trace_after_dispose() {
     }
 
     let mut adapter =
-        neuromorphic_adapter::WasmAdapter::init(9, &[2]).expect("contract version is accepted");
+        neuromorphic_adapter::WasmAdapter::init(9, &[3]).expect("contract version is accepted");
     let first = run(&mut adapter);
     adapter.dispose();
     let mut rebuilt =
-        neuromorphic_adapter::WasmAdapter::init(9, &[2]).expect("re-init is accepted");
+        neuromorphic_adapter::WasmAdapter::init(9, &[3]).expect("re-init is accepted");
     assert_eq!(first, run(&mut rebuilt));
 }

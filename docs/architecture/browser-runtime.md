@@ -141,6 +141,9 @@ only: it never reimplements equations, thresholds, or integrators.
   convention (`examples/rstdp_demo.rs`), the adapter seeds each neuron's
   weights uniformly to `WEIGHT_BUDGET / num_channels` (2.0 / 16). This is
   initialization through the crate's public API, not site-local dynamics.
+  Because seeding changed the deterministic states a fixed seed produces,
+  `CONTRACT_VERSION` was raised to 3 (from 2) — replays recorded under V2
+  semantics are not valid under V3.
 - **Feature gating.** `neuromod` and `axon-encoder` are linked with
   `default-features = false` plus the opt-in `wasm-js` feature. That feature
   only enables the `getrandom 0.4.3` `wasm_js` backend so the crates link on

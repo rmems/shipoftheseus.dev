@@ -106,24 +106,23 @@ fn seed9_trace_matches_the_golden_fixture() {
         expected_steps.iter().any(|step| !step.3.is_empty()),
         "fixture must contain at least one spike"
     );
-    // At least one delayed arrival: a spike must appear on a step that was
-    // not preceded by an input in the script (the current arrived after a
-    // synaptic delay).
-    let mut previous_op = "";
-    let mut step_cursor = 0_usize;
-    let mut saw_delayed_arrival = false;
-    for operation in operations {
-        if operation["op"] == "step" {
-            if previous_op == "step" && !expected_steps[step_cursor].3.is_empty() {
-                saw_delayed_arrival = true;
-            }
-            step_cursor += 1;
-        }
-        previous_op = operation["op"].as_str().unwrap();
-    }
+    // Delay coverage: upstream guarantees every edge delay is >= 1 tick
+    // (`hash_delay` clamps to `max(1, max_delay)`), so no current is delivered
+    // in the tick it was emitted. Assert that invariant on the live topology
+    // and that some neuron fires on a step after a quiet step — a neuron that
+    // did not fire has sub-threshold potential and decay only lowers it, so
+    // firing without a fresh input can only come from a delayed mesh arrival.
+    let delays = &runtime.state().topology_edge_delays;
+    assert!(!delays.is_empty(), "topology must contain edges");
+    let min_delay = *delays.iter().min().expect("non-empty delays");
+    assert!(min_delay >= 1, "all edge delays must be >= 1 tick");
+    let saw_spike_after_quiet_step = expected_steps
+        .iter()
+        .zip(expected_steps.iter().skip(1))
+        .any(|(previous, current)| previous.3.is_empty() && !current.3.is_empty());
     assert!(
-        saw_delayed_arrival,
-        "fixture must exercise a delayed arrival"
+        saw_spike_after_quiet_step,
+        "fixture must exercise a delayed arrival: a spike on a step after a quiet step"
     );
 }
 

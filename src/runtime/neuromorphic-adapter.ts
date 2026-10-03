@@ -1,5 +1,5 @@
 /** Browser-safe bridge for the generated `neuromorphic-adapter` WASM package. */
-export const NEUROMORPHIC_CONTRACT_VERSION = 2;
+export const NEUROMORPHIC_CONTRACT_VERSION = 3;
 export const CORPUS_IPC_WIRE_VERSION = 1;
 const BROWSER_TOPOLOGY_DIGEST =
   'synaptic-wiring.topology.digest.v1:sha256:26875faf05121b9afda27a533760369da67ba9110599fb61533f08961ff6e971';
