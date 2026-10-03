@@ -492,9 +492,10 @@ test('runtime sources do not add a WebGPU fallback or a local simulator', () => 
   // Izhikevich quadratic membrane term must not appear as local dynamics.
   assert.doesNotMatch(crateSources, /0\.04\s*\*\s*v\s*\*\s*v|v\s*=\s*c\b/);
 
-  // `neuromod` stays upstream-pinned: fixed revision, no defaults, wasm-js only.
+  // `neuromod` stays registry-pinned: exact version, no defaults, wasm-js only.
   const manifest = readSource('../crates/neuromorphic-adapter/Cargo.toml');
-  assert.match(manifest, /neuromod\s*=\s*\{[^}]*rev\s*=\s*"3fe526116683d7392e309760c017afe8a934619c"[^}]*\}/);
+  assert.match(manifest, /neuromod\s*=\s*\{[^}]*version\s*=\s*"=0\.7\.0"[^}]*\}/);
+  assert.doesNotMatch(manifest, /neuromod\s*=\s*\{[^}]*git\s*=/);
   assert.match(manifest, /neuromod\s*=\s*\{[^}]*default-features\s*=\s*false[^}]*\}/);
   assert.match(manifest, /neuromod\s*=\s*\{[^}]*features\s*=\s*\[\s*"wasm-js"\s*\][^}]*\}/);
 });
