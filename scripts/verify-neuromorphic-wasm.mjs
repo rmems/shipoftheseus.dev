@@ -1,7 +1,9 @@
-import { mkdtemp, realpath, rename, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+
+import { replayTraceFixture } from './replay-trace-fixture.mjs';
 
 const repository = resolve(import.meta.dirname, '..');
 const manifest = join(repository, 'crates/neuromorphic-adapter/Cargo.toml');
@@ -55,6 +57,16 @@ function requireWasmBindgenVersion() {
 
 let output;
 
+const fixtureJson = JSON.stringify(
+  JSON.parse(
+    await readFile(
+      join(repository, 'crates/neuromorphic-adapter/tests/fixtures/seed9-trace.json'),
+      'utf8',
+    ),
+  ),
+);
+const traceSource = replayTraceFixture.toString();
+
 try {
   requireWasmBindgenVersion();
   output = await mkdtemp(join(tmpdir(), 'neuromorphic-adapter-smoke-'));
@@ -69,6 +81,9 @@ try {
     "if (typeof state.seed !== 'bigint' || state.completed_step !== 1n) process.exit(1);",
     stateContractChecks,
     "adapter.dispose();",
+    `const fixture = ${fixtureJson};`,
+    `const replayTraceFixture = ${traceSource};`,
+    "replayTraceFixture(fixture, (seed) => wasm.WasmAdapter.init(seed, new Uint8Array([2]))).catch((error) => { console.error(error); process.exit(1); });",
   ].join(' '), join(output, 'neuromorphic_adapter.js')]);
   run(wasmBindgen, ['--target', 'web', '--out-dir', webOutput, wasm]);
   const webModule = join(webOutput, 'neuromorphic_adapter.mjs');
@@ -84,6 +99,9 @@ try {
     "if (typeof state.seed !== 'bigint' || state.completed_step !== 1n) process.exit(1);",
     stateContractChecks,
     "adapter.dispose();",
+    `const fixture = ${fixtureJson};`,
+    `const replayTraceFixture = ${traceSource};`,
+    "replayTraceFixture(fixture, (seed) => wasm.WasmAdapter.init(seed, new Uint8Array([2]))).catch((error) => { console.error(error); process.exit(1); });",
   ].join(' '), webModule, join(webOutput, 'neuromorphic_adapter_bg.wasm')]);
   process.stdout.write('Generated Rust/WASM adapter smoke test passed.\n');
 } finally {

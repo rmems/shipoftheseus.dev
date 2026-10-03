@@ -219,3 +219,67 @@ fn runtime_seed_is_provenance_not_topology_and_state_exposes_canonical_edge_look
             .all(|offsets| offsets[0] <= offsets[1])
     );
 }
+
+#[test]
+fn two_seed9_runtimes_replay_an_identical_trace() {
+    fn run(runtime: &mut neuromorphic_adapter::BrowserRuntime) -> Vec<(Vec<u32>, Vec<u32>)> {
+        let mut trace = Vec::new();
+        runtime.input(1, &[1.0, 0.0, 0.5, 0.25]).unwrap();
+        trace.push(runtime.step().unwrap());
+        runtime.input(2, &[1.0, 0.9, 0.8, 0.7, 0.6, 0.5]).unwrap();
+        for _ in 0..5 {
+            trace.push(runtime.step().unwrap());
+        }
+        trace
+            .into_iter()
+            .map(|state| {
+                (
+                    state.spike_neurons,
+                    state
+                        .membrane_potentials
+                        .iter()
+                        .map(|potential| potential.to_bits())
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    let mut left = BrowserRuntime::new(9).unwrap();
+    let mut right = BrowserRuntime::new(9).unwrap();
+    assert_eq!(run(&mut left), run(&mut right));
+}
+
+#[test]
+fn a_rebuilt_adapter_replays_the_same_trace_after_dispose() {
+    fn run(adapter: &mut neuromorphic_adapter::WasmAdapter) -> Vec<(Vec<u32>, Vec<u32>)> {
+        let mut trace = Vec::new();
+        adapter.input(1, &[1.0, 0.0, 0.5, 0.25]).unwrap();
+        trace.push(adapter.step().unwrap().browser_state().clone());
+        adapter.input(2, &[0.9, 0.7, 0.5, 0.3]).unwrap();
+        for _ in 0..4 {
+            trace.push(adapter.step().unwrap().browser_state().clone());
+        }
+        trace
+            .into_iter()
+            .map(|state| {
+                (
+                    state.spike_neurons,
+                    state
+                        .membrane_potentials
+                        .iter()
+                        .map(|potential| potential.to_bits())
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    let mut adapter =
+        neuromorphic_adapter::WasmAdapter::init(9, &[2]).expect("contract version is accepted");
+    let first = run(&mut adapter);
+    adapter.dispose();
+    let mut rebuilt =
+        neuromorphic_adapter::WasmAdapter::init(9, &[2]).expect("re-init is accepted");
+    assert_eq!(first, run(&mut rebuilt));
+}

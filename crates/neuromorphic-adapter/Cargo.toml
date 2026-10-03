@@ -16,3 +16,6 @@ js-sys = "=0.3.103"
 neuromod = { git = "https://github.com/Limen-Neural/neuromod.git", rev = "3fe526116683d7392e309760c017afe8a934619c", default-features = false, features = ["wasm-js"] }
 synaptic-wiring = "=0.3.0"
 wasm-bindgen = "=0.2.126"
+
+[dev-dependencies]
+serde_json = "=1.0.151"

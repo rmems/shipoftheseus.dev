@@ -382,3 +382,35 @@ test('the browser bridge rejects out-of-range u64 inputs before invoking WASM', 
   assert.throws(() => adapter.input(1n << 64n, new Float32Array([0.25])), runtime.AdapterUnavailableError);
   assert.equal(inputCalls, 0);
 });
+
+test('the adapter snapshot exposes exactly the minimum render and inspection state', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const state = validTopologyState();
+  const adapter = await runtime.initNeuromorphicAdapter(
+    async () => ({
+      async default() {},
+      WasmAdapter: {
+        init() {
+          return { input() {}, step() { return state; }, state() { return state; }, dispose() {} };
+        },
+      },
+    }),
+    9n,
+  );
+
+  assert.deepEqual(
+    Object.keys(adapter.state()).sort(),
+    [
+      // provenance: seed, step, sequence, digest, versions, status
+      'contractVersion', 'seed', 'completedStep', 'lastSequence',
+      'topologyDigest', 'protocolWireVersion', 'errorStatus',
+      // neuron state: spikes and potentials
+      'spikeNeurons', 'membranePotentials',
+      // topology: node ids, edges, offsets, weight bits
+      'topologyNodeIds', 'topologyRows', 'topologyTargets', 'topologyWeights',
+      'topologyDelays', 'topologyEdgeSources', 'topologyEdgeTargets',
+      'topologyEdgeWeights', 'topologyEdgeDelays', 'topologyPolarities',
+      'topologyWeightBits', 'topologyOutgoingEdgeOffsets',
+    ].sort(),
+  );
+});

@@ -124,6 +124,67 @@ browser transport projection; it does not generate a replacement graph.
   or alter `synaptic-wiring` topology. A topology changes only when the
   adapter configuration or locked upstream topology inputs change.
 
+### `neuromod` engine integration
+
+`neuromod` owns neuron dynamics and spike generation. `synaptic-wiring` owns
+topology and delays. The adapter owns orchestration and browser-safe transfer
+only: it never reimplements equations, thresholds, or integrators.
+
+- **LIF-only V1.** The adapter constructs `SpikingNetwork` through a private
+  `NeuronModel` enum; `NeuronModel::Lif` is the only constructible variant.
+  `Izhikevich` is a reserved extension point: enabling it requires a browser
+  performance review and a `CONTRACT_VERSION` increase that tags the state
+  with the selected model.
+- **Weight initialization.** `SpikingNetwork::with_dimensions` zero-initializes
+  LIF synaptic weights, and `neuromod` gates all stimulus current on those
+  weights, so a default network can never fire. Following upstream's own demo
+  convention (`examples/rstdp_demo.rs`), the adapter seeds each neuron's
+  weights uniformly to `WEIGHT_BUDGET / num_channels` (2.0 / 16). This is
+  initialization through the crate's public API, not site-local dynamics.
+- **Feature gating.** `neuromod` and `axon-encoder` are linked with
+  `default-features = false` plus the opt-in `wasm-js` feature. That feature
+  only enables the `getrandom 0.4.3` `wasm_js` backend so the crates link on
+  `wasm32-unknown-unknown`; the simulation never draws entropy.
+- **RNG and replay rules.** One `StdRng::seed_from_u64(seed)` is created at
+  init and passed only into `step_with_rng`. Replay requires the same seed,
+  the same `rand` version from the committed lockfile, and the same ordered
+  input script. Snapshots do not include RNG state, so mid-run resume is not
+  supported: replay always restarts from `init`.
+- **Float determinism.** Verified 2026-10-03: the committed seed-9 golden trace
+  (`crates/neuromorphic-adapter/tests/fixtures/seed9-trace.json`) replays
+  bit-exactly — spike indices and `f32` potential bits — on native
+  `x86_64-unknown-linux-gnu`, wasm-bindgen `nodejs` bindings under Node.js, and
+  `web` bindings under headless Chrome. One fixture is authoritative for all
+  targets. Native and wasm32 results are identical at the pinned revisions.
+- **Verification coverage.** The native Rust test, the Node WASM smoke test
+  (`scripts/verify-neuromorphic-wasm.mjs`, `nodejs` and `web` bindings), and
+  the headless-Chrome smoke test (`scripts/verify-neuromorphic-browser.mjs`)
+  all replay the fixture. The browser test replays it three times, including
+  once after `dispose` plus a fresh `init`. CI covers the Chrome path only.
+- **Confirmed upstream API facts** (at pinned revision
+  `3fe526116683d7392e309760c017afe8a934619c`):
+  `with_dimensions(num_lif, num_izh, num_channels)`; `step_with_rng(&[f32],
+  &NeuroModulators, &mut R) -> Result<Vec<usize>, StepError>` consumes one RNG
+  draw per channel whose `|stimulus| > 0.01`;
+  `get_membrane_potentials()` returns the LIF bank's potentials.
+
+#### Minimum render/inspection state
+
+Every snapshot field exists for a concrete consumer; nothing else may be added
+in V1 without a contract-version increase.
+
+- `contract_version` — lets consumers reject a mismatched contract.
+- `seed`, `completed_step`, `last_sequence` — provenance for replay and
+  input ordering.
+- `error_status` — the UI's structured status channel.
+- `topology_digest`, `protocol_wire_version` — topology and wire-format
+  provenance.
+- `spike_neurons`, `membrane_potentials` — the neuron state raster and
+  inspection views render.
+- `topology_node_ids`, `topology_rows/targets/weights/delays`,
+  `topology_edge_*`, `topology_outgoing_edge_offsets` — the canonical and
+  routed topology the renderer and spike-propagation issues consume.
+
 V1 runs simulation in a dedicated module worker when workers and transferable
 buffers are available. Messages mirror `init/input/step/state`, are tagged with
 instance and sequence IDs, and transfer snapshot buffers to the main thread.

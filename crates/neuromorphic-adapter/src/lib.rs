@@ -14,6 +14,31 @@ pub const CONTRACT_VERSION: u32 = 2;
 const CHANNEL_COUNT: usize = 16;
 const STATUS_OK: &str = "ok";
 
+/// Neuron model the adapter selects inside `neuromod::SpikingNetwork`.
+///
+/// v1 runs the LIF bank only. `Izhikevich` is a reserved extension point:
+/// enabling it requires a browser performance review and a `CONTRACT_VERSION`
+/// increase that tags the state with the selected model. See
+/// `docs/architecture/browser-runtime.md`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NeuronModel {
+    Lif,
+    #[allow(dead_code)]
+    Izhikevich,
+}
+
+const V1_NEURON_MODEL: NeuronModel = NeuronModel::Lif;
+
+impl NeuronModel {
+    fn network_dimensions(self) -> (usize, usize, usize) {
+        match self {
+            NeuronModel::Lif => (CHANNEL_COUNT, 0, CHANNEL_COUNT),
+            // Reserved for a future contract version; unreachable in v1.
+            NeuronModel::Izhikevich => unreachable!("Izhikevich is not enabled in contract v1"),
+        }
+    }
+}
+
 /// Adapter-owned, canonical transport projection of an upstream topology.
 ///
 /// `synaptic-wiring` remains the authority for topology and routing. The
@@ -113,6 +138,26 @@ pub struct BrowserState {
     pub error_status: String,
 }
 
+/// Construct the `neuromod` network for the selected model. All dynamics and
+/// spike generation live inside `neuromod`; the adapter only picks dimensions
+/// and initial synaptic weights.
+fn build_network(model: NeuronModel) -> SpikingNetwork {
+    let (num_lif, num_izh, num_channels) = model.network_dimensions();
+    let mut network = SpikingNetwork::with_dimensions(num_lif, num_izh, num_channels);
+    // `with_dimensions` zero-initializes LIF weights, and `neuromod` gates all
+    // stimulus current on those weights, so a default network can never fire.
+    // Upstream's own demos (e.g. `examples/rstdp_demo.rs`) seed each neuron's
+    // weights uniformly to `WEIGHT_BUDGET / num_channels` (= 2.0 / N); the
+    // engine's L1 renormalization pass then keeps that budget as an exact
+    // no-op. Follow the same convention here — this is initialization, not
+    // site-local dynamics.
+    let seed = 2.0 / num_channels as f32;
+    for neuron in &mut network.neurons {
+        neuron.weights = vec![seed; num_channels];
+    }
+    network
+}
+
 /// Deterministic, browser-safe composition of the audited V1 crate surfaces.
 pub struct BrowserRuntime {
     seed: u64,
@@ -149,7 +194,7 @@ impl BrowserRuntime {
             last_sequence: None,
             encoder: DeltaEncoder::new(0.05, CHANNEL_COUNT),
             mesh,
-            network: SpikingNetwork::with_dimensions(CHANNEL_COUNT, 0, CHANNEL_COUNT),
+            network: build_network(V1_NEURON_MODEL),
             rng: StdRng::seed_from_u64(seed),
             pending_source_spikes: vec![false; CHANNEL_COUNT],
             last_spikes: Vec::new(),
@@ -216,6 +261,9 @@ impl BrowserRuntime {
                 );
             }
         };
+        // The simulation path uses only the caller-seeded `StdRng`; it never
+        // touches entropy (`getrandom`), which exists solely for `wasm-js`
+        // linking on wasm32.
         let spikes =
             match self
                 .network
@@ -286,6 +334,13 @@ pub struct WasmAdapter {
 #[wasm_bindgen]
 pub struct WasmState {
     state: BrowserState,
+}
+
+impl WasmState {
+    /// Native-test access to the wrapped state. Not part of the WASM contract.
+    pub fn browser_state(&self) -> &BrowserState {
+        &self.state
+    }
 }
 
 #[wasm_bindgen]

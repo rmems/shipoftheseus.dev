@@ -194,6 +194,7 @@ dependencies = [
  "js-sys",
  "kinetic-signals",
  "neuromod",
+ "serde_json",
  "synaptic-wiring",
  "wasm-bindgen",
 ]
