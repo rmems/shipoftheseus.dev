@@ -221,7 +221,7 @@ test('quality CI validates the locked Rust/WASM adapter before the frontend cont
   assert.match(workflow, /BROWSER_BIN="\$\{\{ steps\.chrome\.outputs\.chrome-path \}\}" npm run validate/);
   const packageJson = read('package.json');
   assert.match(packageJson, /"validate:rust":/);
-  assert.match(packageJson, /"validate": "npm test && npm run lint && npm run typecheck && npm run build && npm run validate:rust && npm run test:wasm-adapter && npm run test:wasm-browser"/);
+  assert.match(packageJson, /"validate": "npm test && npm run lint && npm run typecheck && npm run build && npm run validate:rust && npm run test:wasm-adapter && npm run test:wasm-web-pkg && npm run test:wasm-browser"/);
   assert.match(readme, /Rust 1\.98\.1/);
   assert.match(readme, /wasm32-unknown-unknown/);
   assert.match(readme, /wasm-bindgen-cli 0\.2\.126/);

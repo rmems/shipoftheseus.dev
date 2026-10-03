@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": "^20.19.0 || >=22.12.0" },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
@@ -14,7 +16,9 @@
     "test:wasm-adapter": "node scripts/verify-neuromorphic-wasm.mjs",
     "test:wasm-browser": "node scripts/verify-neuromorphic-browser.mjs",
     "validate:rust": "cargo +1.98.1 fmt --manifest-path crates/neuromorphic-adapter/Cargo.toml --check && cargo +1.98.1 clippy --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --all-targets -- -D warnings && cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked && cargo +1.98.1 check --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --target wasm32-unknown-unknown && node scripts/verify-browser-dependencies.mjs",
-    "validate": "npm test && npm run lint && npm run typecheck && npm run build && npm run validate:rust && npm run test:wasm-adapter && npm run test:wasm-browser"
+    "validate": "npm test && npm run lint && npm run typecheck && npm run build && npm run validate:rust && npm run test:wasm-adapter && npm run test:wasm-web-pkg && npm run test:wasm-browser",
+    "build:wasm-web": "node scripts/build-neuromorphic-web.mjs",
+    "test:wasm-web-pkg": "node scripts/build-neuromorphic-web.mjs --check"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
@@ -22,5 +26,9 @@
     "eslint": "^9.39.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.47.0"
+  },
+  "dependencies": {
+    "@types/three": "^0.186.0",
+    "three": "^0.186.1"
   }
 }

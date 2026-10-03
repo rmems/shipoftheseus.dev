@@ -142,14 +142,14 @@ interface PauseResume {
 
 const REASON_SET = new Set<string>(REASON_CODES);
 
-let seamProvider: () => DemoSeams = () => ({});
+let seamProvider: (island?: HTMLElement) => DemoSeams = () => ({});
 
-export function provideDemoSeams(provider: () => DemoSeams): void {
+export function provideDemoSeams(provider: (island?: HTMLElement) => DemoSeams): void {
   seamProvider = provider;
 }
 
-export function getDemoSeams(): DemoSeams {
-  return seamProvider();
+export function getDemoSeams(island?: HTMLElement): DemoSeams {
+  return seamProvider(island);
 }
 
 export function isReasonCode(value: unknown): value is ReasonCode {
