@@ -6,6 +6,7 @@ import {
   type DemoRuntime,
   type DemoViewElements,
 } from './demo-runtime';
+import { provideLiveDemoSeams } from './live-seams';
 
 interface BoundIsland {
   dispose: () => void;
@@ -43,7 +44,7 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
     runtime ??
     createDemoRuntime({
       capabilities: detectCapabilities(window),
-      seams: getDemoSeams(),
+      seams: getDemoSeams(root),
       inViewport: false,
       documentHidden: document.hidden,
     });
@@ -147,6 +148,7 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
 }
 
 export function enhanceNeuromorphicDemos(scope: ParentNode = document): BoundIsland[] {
+  provideLiveDemoSeams();
   const islands: BoundIsland[] = [];
 
   for (const root of scope.querySelectorAll<HTMLElement>('[data-neuromorphic-demo]')) {

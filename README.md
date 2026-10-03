@@ -23,6 +23,8 @@ The validation command runs content/route contracts, linting, Astro type checks,
 WASM_BINDGEN_BIN="$(command -v wasm-bindgen)" BROWSER_BIN="$(command -v google-chrome)" npm run validate
 ```
 
+The browser-loadable adapter package committed at `public/wasm/neuromorphic-adapter/` is generated output — deterministic under the locked toolchain. Regenerate it after changing the crate or its dependencies with `WASM_BINDGEN_BIN="$(command -v wasm-bindgen)" npm run build:wasm-web`; `npm run test:wasm-web-pkg` (part of `validate`) fails on drift.
+
 Pull requests provision these dependencies and run the same command in CI; no deployment workflow is included.
 
 ## Content and assets

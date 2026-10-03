@@ -1,0 +1,36 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_wasmadapter_free: (a: number, b: number) => void;
+export const __wbg_wasmstate_free: (a: number, b: number) => void;
+export const wasmadapter_dispose: (a: number) => void;
+export const wasmadapter_init: (a: bigint, b: number, c: number) => [number, number, number];
+export const wasmadapter_input: (a: number, b: bigint, c: number, d: number) => [number, number];
+export const wasmadapter_state: (a: number) => [number, number, number];
+export const wasmadapter_step: (a: number) => [number, number, number];
+export const wasmstate_completed_step: (a: number) => bigint;
+export const wasmstate_contract_version: (a: number) => number;
+export const wasmstate_error_status: (a: number) => [number, number];
+export const wasmstate_last_sequence: (a: number) => bigint;
+export const wasmstate_membrane_potentials: (a: number) => any;
+export const wasmstate_protocol_wire_version: (a: number) => number;
+export const wasmstate_seed: (a: number) => bigint;
+export const wasmstate_spike_neurons: (a: number) => any;
+export const wasmstate_topology_delays: (a: number) => any;
+export const wasmstate_topology_digest: (a: number) => [number, number];
+export const wasmstate_topology_edge_delays: (a: number) => any;
+export const wasmstate_topology_edge_sources: (a: number) => any;
+export const wasmstate_topology_edge_targets: (a: number) => any;
+export const wasmstate_topology_edge_weights: (a: number) => any;
+export const wasmstate_topology_node_ids: (a: number) => any;
+export const wasmstate_topology_outgoing_edge_offsets: (a: number) => any;
+export const wasmstate_topology_polarities: (a: number) => any;
+export const wasmstate_topology_rows: (a: number) => any;
+export const wasmstate_topology_targets: (a: number) => any;
+export const wasmstate_topology_weight_bits: (a: number) => any;
+export const wasmstate_topology_weights: (a: number) => any;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_start: () => void;
