@@ -13,6 +13,9 @@ axon-encoder = { git = "https://github.com/Limen-Neural/axon-encoder.git", rev =
 corpus-ipc = { version = "=0.1.0", default-features = false }
 kinetic-signals = { git = "https://github.com/rmems/kinetic-signals.git", rev = "e829a0d5826c0d1175b8878b024a69ce4e1d538b" }
 js-sys = "=0.3.103"
-neuromod = { git = "https://github.com/Limen-Neural/neuromod.git", rev = "3fe526116683d7392e309760c017afe8a934619c", default-features = false, features = ["wasm-js"] }
+neuromod = { version = "=0.7.0", default-features = false, features = ["wasm-js"] }
 synaptic-wiring = "=0.3.0"
 wasm-bindgen = "=0.2.126"
+
+[dev-dependencies]
+serde_json = "=1.0.151"

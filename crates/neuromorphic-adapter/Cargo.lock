@@ -177,8 +177,9 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "neuromod"
-version = "0.6.0"
-source = "git+https://github.com/Limen-Neural/neuromod.git?rev=3fe526116683d7392e309760c017afe8a934619c#3fe526116683d7392e309760c017afe8a934619c"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24e8c6418345bd055f33bfb45d90cdb98f3caad2fd16c62b43fca6d91c1182d0"
 dependencies = [
  "getrandom",
  "rand",
@@ -194,6 +195,7 @@ dependencies = [
  "js-sys",
  "kinetic-signals",
  "neuromod",
+ "serde_json",
  "synaptic-wiring",
  "wasm-bindgen",
 ]

@@ -1,7 +1,9 @@
-import { mkdtemp, realpath, rename, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+
+import { replayTraceFixture } from './replay-trace-fixture.mjs';
 
 const repository = resolve(import.meta.dirname, '..');
 const manifest = join(repository, 'crates/neuromorphic-adapter/Cargo.toml');
@@ -55,6 +57,16 @@ function requireWasmBindgenVersion() {
 
 let output;
 
+const fixtureJson = JSON.stringify(
+  JSON.parse(
+    await readFile(
+      join(repository, 'crates/neuromorphic-adapter/tests/fixtures/seed9-trace.json'),
+      'utf8',
+    ),
+  ),
+);
+const traceSource = replayTraceFixture.toString();
+
 try {
   requireWasmBindgenVersion();
   output = await mkdtemp(join(tmpdir(), 'neuromorphic-adapter-smoke-'));
@@ -63,12 +75,15 @@ try {
   run(wasmBindgen, ['--target', 'nodejs', '--out-dir', output, wasm]);
   run('node', ['--input-type=commonjs', '--eval', [
     "const wasm = require(process.argv[1]);",
-    "const adapter = wasm.WasmAdapter.init(9n, new Uint8Array([2]));",
+    "const adapter = wasm.WasmAdapter.init(9n, new Uint8Array([3]));",
     "adapter.input(1n, new Float32Array([1, 0.5]));",
     "const state = adapter.step();",
     "if (typeof state.seed !== 'bigint' || state.completed_step !== 1n) process.exit(1);",
     stateContractChecks,
     "adapter.dispose();",
+    `const fixture = ${fixtureJson};`,
+    `const replayTraceFixture = ${traceSource};`,
+    "replayTraceFixture(fixture, (seed) => wasm.WasmAdapter.init(seed, new Uint8Array([3]))).catch((error) => { console.error(error); process.exit(1); });",
   ].join(' '), join(output, 'neuromorphic_adapter.js')]);
   run(wasmBindgen, ['--target', 'web', '--out-dir', webOutput, wasm]);
   const webModule = join(webOutput, 'neuromorphic_adapter.mjs');
@@ -78,12 +93,15 @@ try {
     "import { pathToFileURL } from 'node:url';",
     "const wasm = await import(pathToFileURL(process.argv[1]).href);",
     "await wasm.default(await readFile(process.argv[2]));",
-    "const adapter = wasm.WasmAdapter.init(9n, new Uint8Array([2]));",
+    "const adapter = wasm.WasmAdapter.init(9n, new Uint8Array([3]));",
     "adapter.input(1n, new Float32Array([1, 0.5]));",
     "const state = adapter.step();",
     "if (typeof state.seed !== 'bigint' || state.completed_step !== 1n) process.exit(1);",
     stateContractChecks,
     "adapter.dispose();",
+    `const fixture = ${fixtureJson};`,
+    `const replayTraceFixture = ${traceSource};`,
+    "replayTraceFixture(fixture, (seed) => wasm.WasmAdapter.init(seed, new Uint8Array([3]))).catch((error) => { console.error(error); process.exit(1); });",
   ].join(' '), webModule, join(webOutput, 'neuromorphic_adapter_bg.wasm')]);
   process.stdout.write('Generated Rust/WASM adapter smoke test passed.\n');
 } finally {

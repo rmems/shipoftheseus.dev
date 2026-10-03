@@ -124,6 +124,70 @@ browser transport projection; it does not generate a replacement graph.
   or alter `synaptic-wiring` topology. A topology changes only when the
   adapter configuration or locked upstream topology inputs change.
 
+### `neuromod` engine integration
+
+`neuromod` owns neuron dynamics and spike generation. `synaptic-wiring` owns
+topology and delays. The adapter owns orchestration and browser-safe transfer
+only: it never reimplements equations, thresholds, or integrators.
+
+- **LIF-only V1.** The adapter constructs `SpikingNetwork` through a private
+  `NeuronModel` enum; `NeuronModel::Lif` is the only constructible variant.
+  `Izhikevich` is a reserved extension point: enabling it requires a browser
+  performance review and a `CONTRACT_VERSION` increase that tags the state
+  with the selected model.
+- **Weight initialization.** `SpikingNetwork::with_dimensions` zero-initializes
+  LIF synaptic weights, and `neuromod` gates all stimulus current on those
+  weights, so a default network can never fire. Following upstream's own demo
+  convention (`examples/rstdp_demo.rs`), the adapter seeds each neuron's
+  weights uniformly to `WEIGHT_BUDGET / num_channels` (2.0 / 16). This is
+  initialization through the crate's public API, not site-local dynamics.
+  Because seeding changed the deterministic states a fixed seed produces,
+  `CONTRACT_VERSION` was raised to 3 (from 2) — replays recorded under V2
+  semantics are not valid under V3.
+- **Feature gating.** `neuromod` and `axon-encoder` are linked with
+  `default-features = false` plus the opt-in `wasm-js` feature. That feature
+  only enables the `getrandom 0.4.3` `wasm_js` backend so the crates link on
+  `wasm32-unknown-unknown`; the simulation never draws entropy.
+- **RNG and replay rules.** One `StdRng::seed_from_u64(seed)` is created at
+  init and passed only into `step_with_rng`. Replay requires the same seed,
+  the same `rand` version from the committed lockfile, and the same ordered
+  input script. Snapshots do not include RNG state, so mid-run resume is not
+  supported: replay always restarts from `init`.
+- **Float determinism.** Verified 2026-10-03: the committed seed-9 golden trace
+  (`crates/neuromorphic-adapter/tests/fixtures/seed9-trace.json`) replays
+  bit-exactly — spike indices and `f32` potential bits — on native
+  `x86_64-unknown-linux-gnu`, wasm-bindgen `nodejs` bindings under Node.js, and
+  `web` bindings under headless Chrome. One fixture is authoritative for all
+  targets. Native and wasm32 results are identical at the pinned versions.
+- **Verification coverage.** The native Rust test, the Node WASM smoke test
+  (`scripts/verify-neuromorphic-wasm.mjs`, `nodejs` and `web` bindings), and
+  the headless-Chrome smoke test (`scripts/verify-neuromorphic-browser.mjs`)
+  all replay the fixture. The browser test replays it three times, including
+  once after `dispose` plus a fresh `init`. CI covers the Chrome path only.
+- **Confirmed upstream API facts** (at the pinned release
+  `neuromod =0.7.0`, crates.io):
+  `with_dimensions(num_lif, num_izh, num_channels)`; `step_with_rng(&[f32],
+  &NeuroModulators, &mut R) -> Result<Vec<usize>, StepError>` consumes one RNG
+  draw per channel whose `|stimulus| > 0.01`;
+  `get_membrane_potentials()` returns the LIF bank's potentials.
+
+#### Minimum render/inspection state
+
+Every snapshot field exists for a concrete consumer; nothing else may be added
+in V1 without a contract-version increase.
+
+- `contract_version` — lets consumers reject a mismatched contract.
+- `seed`, `completed_step`, `last_sequence` — provenance for replay and
+  input ordering.
+- `error_status` — the UI's structured status channel.
+- `topology_digest`, `protocol_wire_version` — topology and wire-format
+  provenance.
+- `spike_neurons`, `membrane_potentials` — the neuron state raster and
+  inspection views render.
+- `topology_node_ids`, `topology_rows/targets/weights/delays`,
+  `topology_edge_*`, `topology_outgoing_edge_offsets` — the canonical and
+  routed topology the renderer and spike-propagation issues consume.
+
 V1 runs simulation in a dedicated module worker when workers and transferable
 buffers are available. Messages mirror `init/input/step/state`, are tagged with
 instance and sequence IDs, and transfer snapshot buffers to the main thread.
@@ -167,7 +231,7 @@ decision above places it outside the browser.
 | --- | --- | ---: | --- | --- | --- |
 | `kinetic-signals` | `rmems/kinetic-signals` | 0.5.0 | `e829a0d5826c0d1175b8878b024a69ce4e1d538b` | `--no-default-features` | **Pass** |
 | `axon-encoder` | `Limen-Neural/axon-encoder` | 0.4.0 | `a56276746569e5ecaa78e50882064858835b2438` | `--no-default-features --features serde,wasm-js` | **Pass**. The opt-in `wasm-js` feature enables the supported `getrandom` browser backend; the default-only graph remains intentionally unsupported. |
-| `neuromod` | `Limen-Neural/neuromod` | 0.6.0 | `3fe526116683d7392e309760c017afe8a934619c` | `--no-default-features --features wasm-js` | **Pass**. The opt-in `wasm-js` feature enables the supported `getrandom` browser backend; the default-only graph remains intentionally unsupported. |
+| `neuromod` | `Limen-Neural/neuromod` (crates.io) | =0.7.0 | `a897cc9` (v0.7.0 tag) | `--no-default-features --features wasm-js` | **Pass**. The opt-in `wasm-js` feature enables the supported `getrandom` browser backend; the default-only graph remains intentionally unsupported. |
 | `synaptic-wiring` | `Limen-Neural/synaptic-wiring` | `=0.3.0` | crates.io checksum `311aed9804c027f786ed5385883bd22469f8cb87fe804b88f77162466b9137b2`; audited source/main `5f70762b4ef09346d0689a65a1a8b20531cfbdab` | `--no-default-features` | **Pass** |
 | `nir-rs` | `Limen-Neural/nir-rs` | 0.4.3 | `1043cbf7bc6acbece250c769b9c2c8f7c58ce681` | `--no-default-features --features serde` (`hdf5` excluded) | **Pass** |
 | `limbic-critic` | `Limen-Neural/limbic-critic` | 0.3.0 | `9bf0c79f5a47fac9c5b921dd9011b013d1ae52bb` | `--no-default-features` | **Pass** |

@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
+import { replayTraceFixture } from './replay-trace-fixture.mjs';
+
 const repository = resolve(import.meta.dirname, '..');
 const manifest = join(repository, 'crates/neuromorphic-adapter/Cargo.toml');
 const wasm = join(repository, 'crates/neuromorphic-adapter/target/wasm32-unknown-unknown/release/neuromorphic_adapter.wasm');
@@ -210,7 +212,15 @@ try {
   await assertReproducible(generated, repeated);
   await rename(join(generated, 'neuromorphic_adapter.js'), join(generated, 'neuromorphic_adapter.mjs'));
   const page = join(generated, 'index.html');
-  await writeFile(page, `<!doctype html><body><script type="module">\nimport init, { WasmAdapter } from './neuromorphic_adapter.mjs';\n${topologyContractSource}\ntry {\n  await init('./neuromorphic_adapter_bg.wasm');\n  const adapter = WasmAdapter.init(9n, new Uint8Array([2]));\n  adapter.input(1n, new Float32Array([1, 0.5]));\n  const state = adapter.step();\n  if (state.completed_step !== 1n) throw new Error('unexpected step');\n  assertTopologyContract(state);\n  adapter.dispose();\n  document.body.textContent = ['BROWSER', 'SMOKE', 'PASS'].join('_');\n} catch (error) { document.body.textContent = 'BROWSER_SMOKE_FAIL:' + error.message; }\n</script>`);
+  const fixtureJson = JSON.stringify(
+    JSON.parse(
+      await readFile(
+        join(repository, 'crates/neuromorphic-adapter/tests/fixtures/seed9-trace.json'),
+        'utf8',
+      ),
+    ),
+  );
+  await writeFile(page, `<!doctype html><body><script type="module">\nimport init, { WasmAdapter } from './neuromorphic_adapter.mjs';\n${topologyContractSource}\nconst fixture = ${fixtureJson};\nconst replayTraceFixture = ${replayTraceFixture.toString()};\ntry {\n  await init('./neuromorphic_adapter_bg.wasm');\n  const adapter = WasmAdapter.init(9n, new Uint8Array([3]));\n  adapter.input(1n, new Float32Array([1, 0.5]));\n  const state = adapter.step();\n  if (state.completed_step !== 1n) throw new Error('unexpected step');\n  assertTopologyContract(state);\n  adapter.dispose();\n\n  const initAdapter = (seed) => WasmAdapter.init(seed, new Uint8Array([3]));\n  const first = await replayTraceFixture(fixture, initAdapter);\n  first.dispose();\n  const second = await replayTraceFixture(fixture, initAdapter);\n  second.dispose();\n  const third = initAdapter(BigInt(fixture.seed));\n  third.dispose();\n  const rebuilt = await replayTraceFixture(fixture, initAdapter);\n  rebuilt.dispose();\n\n  document.body.textContent = ['BROWSER', 'SMOKE', 'PASS'].join('_');\n} catch (error) { document.body.textContent = 'BROWSER_SMOKE_FAIL:' + error.message; }\n</script>`);
   const dom = run(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--allow-file-access-from-files', '--virtual-time-budget=3000', '--dump-dom', page]);
   if (!dom.includes('BROWSER_SMOKE_PASS')) {
     throw new Error(`browser Rust/WASM smoke failed:\n${dom}`);

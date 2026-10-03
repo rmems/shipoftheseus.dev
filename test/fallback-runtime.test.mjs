@@ -479,6 +479,25 @@ test('runtime sources do not add a WebGPU fallback or a local simulator', () => 
   assert.doesNotMatch(files, /webgpu/i);
   assert.doesNotMatch(files, /navigator\.gpu/);
   assert.doesNotMatch(files, /spikeTrain|fakeNeuron|toySnn|simulateNetwork/i);
+
+  // Spike provenance: neuron dynamics and spike generation live in `neuromod`.
+  // The adapter crate must never grow site-local equations, thresholds, or
+  // integrators.
+  const crateSources = [
+    readSource('../crates/neuromorphic-adapter/src/lib.rs'),
+  ].join('\n');
+  assert.doesNotMatch(crateSources, /fn\s+integrate/);
+  assert.doesNotMatch(crateSources, /fn\s+check_fire/);
+  assert.doesNotMatch(crateSources, /fn\s+step_neuron|fn\s+advance_neuron|fn\s+update_potential/);
+  // Izhikevich quadratic membrane term must not appear as local dynamics.
+  assert.doesNotMatch(crateSources, /0\.04\s*\*\s*v\s*\*\s*v|v\s*=\s*c\b/);
+
+  // `neuromod` stays registry-pinned: exact version, no defaults, wasm-js only.
+  const manifest = readSource('../crates/neuromorphic-adapter/Cargo.toml');
+  assert.match(manifest, /neuromod\s*=\s*\{[^}]*version\s*=\s*"=0\.7\.0"[^}]*\}/);
+  assert.doesNotMatch(manifest, /neuromod\s*=\s*\{[^}]*git\s*=/);
+  assert.match(manifest, /neuromod\s*=\s*\{[^}]*default-features\s*=\s*false[^}]*\}/);
+  assert.match(manifest, /neuromod\s*=\s*\{[^}]*features\s*=\s*\[\s*"wasm-js"\s*\][^}]*\}/);
 });
 
 function deferred() {

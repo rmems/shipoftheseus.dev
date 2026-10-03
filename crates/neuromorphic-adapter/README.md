@@ -20,13 +20,35 @@ and `target/` are generated locally and intentionally not committed.
 
 ## Boundary guarantees
 
-- `WasmAdapter.init(seed, config)` accepts only the versioned V2 config byte
-  `[2]`; it rejects unknown configuration rather than ignoring it.
+- `WasmAdapter.init(seed, config)` accepts only the versioned V3 config byte
+  `[3]`; it rejects unknown configuration rather than ignoring it. V3 was
+  introduced because seeding LIF weights changed deterministic simulation
+  state relative to V2.
 - `input(sequence, Float32Array)` requires finite samples and a strictly
   increasing `bigint` sequence.
 - `step()` uses a caller-seeded `neuromod::StdRng` and returns copied typed
   arrays plus topology and `corpus-ipc` wire-version provenance.
 - `dispose()` makes all later runtime operations fail closed.
+
+## Engine
+
+V1 runs `neuromod`'s LIF bank only (`NeuronModel::Lif`; Izhikevich is a
+reserved extension point gated on a contract-version increase). Upstream
+`with_dimensions` zero-initializes weights, so the adapter seeds each neuron's
+weights uniformly to `WEIGHT_BUDGET / num_channels`, matching
+`neuromod`'s `examples/rstdp_demo.rs` convention. See the `neuromod` engine
+integration section of `docs/architecture/browser-runtime.md` (ADR-0001).
+
+## Golden trace fixture
+
+`tests/fixtures/seed9-trace.json` is the generated seed-9 replay golden shared
+by the native test, `scripts/verify-neuromorphic-wasm.mjs`, and
+`scripts/verify-neuromorphic-browser.mjs`. Never hand-edit expected values;
+regenerate it with:
+
+```text
+cargo test --locked regenerate_seed9_trace -- --ignored --exact
+```
 
 Custom topology payloads are deliberately not accepted here. The later
 `synaptic-wiring` integration owns that separate versioned topology contract.
