@@ -93,9 +93,12 @@ commit.
    skipped, or red, uploads did not complete; Codecov/Qlty will not post checks.
 3. **`qlty check` is not coverage** — the passing Qlty check on many PRs comes
    from the Qlty GitHub App analyzing the diff, not from the coverage upload step.
-4. **Codecov GitHub App** — install the [Codecov app](https://github.com/apps/codecov)
-   on `rmems/shipoftheseus.dev` in addition to `CODECOV_TOKEN`. The token uploads
-   reports; the app posts PR checks and comments reliably.
+4. **Codecov GitHub App** — the app must be installed **and** CI must upload LCOV for
+   the commit. The app does not scan the repo by itself; it reacts to uploads from
+   the `coverage report and uploads` job. `CODECOV_TOKEN` (or OIDC) performs the
+   upload; the app posts PR checks and comments. If the app is already installed but
+   checks are missing, open [Codecov → shipoftheseus.dev → Commits](https://app.codecov.io/gh/rmems/shipoftheseus.dev)
+   and confirm the PR head SHA appears after a green upload job.
 5. **First `main` upload** — patch/project checks need a baseline on the default
    branch; merge or push a green `coverage-report` run on `main` once.
 
