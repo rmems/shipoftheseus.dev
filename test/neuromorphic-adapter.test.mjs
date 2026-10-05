@@ -462,6 +462,33 @@ test('the browser bridge selects temporal and rate encoder modes without changin
   }
 });
 
+test('the browser bridge defaults explicit contract-4 init to the temporal encoder mode', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const state = validTopologyState({
+    encoder_mode: 1,
+    encoder_name: 'temporal',
+    encoded_spike_count: 0,
+    encoded_spike_channels: 0,
+    encoded_spike_total: 0n,
+  });
+  let seenConfig;
+  const adapter = await runtime.initNeuromorphicAdapter(
+    async () => ({
+      async default() {},
+      WasmAdapter: {
+        init(seed, config) {
+          seenConfig = [...config];
+          return { input() {}, step() { return state; }, state() { return state; }, dispose() {} };
+        },
+      },
+    }),
+    9n,
+    { contractVersion: 4 },
+  );
+  assert.deepEqual(seenConfig, [4, 1]);
+  assert.equal(adapter.state().encoderName, 'temporal');
+});
+
 test('the browser bridge keeps legacy contract-3 delta-only init and rejects mismatched modes', async () => {
   const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
   const legacy = validTopologyState({

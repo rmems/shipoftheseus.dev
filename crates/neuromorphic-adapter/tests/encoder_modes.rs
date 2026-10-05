@@ -84,3 +84,25 @@ fn normalization_contract_is_stable_and_mode_independent() {
     assert_eq!(features.len(), 16);
     assert!(features.iter().all(|feature| (0.0..=1.0).contains(feature)));
 }
+
+#[test]
+fn contract_3_rejects_non_delta_modes() {
+    assert!(BrowserRuntime::with_mode(9, EncoderMode::Delta, 3).is_ok());
+    for mode in [EncoderMode::Temporal, EncoderMode::Rate] {
+        match BrowserRuntime::with_mode(9, mode, 3) {
+            Err(error) => assert_eq!(error, "contract 3 supports only delta encoding"),
+            Ok(_) => panic!("contract 3 must stay delta-only"),
+        }
+    }
+}
+
+#[test]
+fn normalization_ignores_samples_beyond_first_sixteen() {
+    let first_sixteen: Vec<f32> = (0..16).map(|index| index as f32 * 0.25).collect();
+    let mut with_trailing = first_sixteen.clone();
+    with_trailing.extend([100.0, -100.0, 50.0, 25.0]);
+    assert_eq!(
+        normalize_to_encoder_input(&first_sixteen),
+        normalize_to_encoder_input(&with_trailing)
+    );
+}

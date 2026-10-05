@@ -140,7 +140,11 @@ impl V1Encoder {
 /// same features produce.
 #[must_use]
 pub fn normalize_to_encoder_input(samples: &[f32]) -> [f32; ENCODER_CHANNELS] {
-    let raw: Vec<f64> = samples.iter().map(|sample| f64::from(*sample)).collect();
+    let raw: Vec<f64> = samples
+        .iter()
+        .take(ENCODER_CHANNELS)
+        .map(|sample| f64::from(*sample))
+        .collect();
     let stats = compute_signal_stats(&raw);
     let scale = stats.variance.sqrt().max(NORMALIZATION_FLOOR);
     let mut features = [0.0_f32; ENCODER_CHANNELS];

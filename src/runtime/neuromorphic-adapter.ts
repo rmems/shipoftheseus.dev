@@ -447,13 +447,15 @@ export async function initNeuromorphicAdapter(
     throw new AdapterUnavailableError('The Rust/WASM runtime seed must be a u64 value.');
   }
   // Legacy callers omit options and keep the contract-3 delta-only config.
-  const encoderMode = options.encoderMode ?? 'delta';
-  if (!ENCODER_MODE_NAMES.includes(encoderMode)) {
-    throw new AdapterUnavailableError('The requested encoder mode is not supported.');
-  }
   const contract = options.contractVersion ?? (
     options.encoderMode === undefined ? NEUROMORPHIC_CONTRACT_VERSION : NEUROMORPHIC_CONTRACT_VERSION_V4
   );
+  const encoderMode = options.encoderMode ?? (
+    contract === NEUROMORPHIC_CONTRACT_VERSION_V4 ? DEFAULT_ENCODER_MODE : 'delta'
+  );
+  if (!ENCODER_MODE_NAMES.includes(encoderMode)) {
+    throw new AdapterUnavailableError('The requested encoder mode is not supported.');
+  }
   if (contract !== NEUROMORPHIC_CONTRACT_VERSION && contract !== NEUROMORPHIC_CONTRACT_VERSION_V4) {
     throw new AdapterUnavailableError('The requested contract version is not supported.');
   }

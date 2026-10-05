@@ -211,6 +211,9 @@ impl BrowserRuntime {
         if contract != CONTRACT_VERSION && contract != CONTRACT_VERSION_V4_U32 {
             return Err(format!("unsupported contract version {contract}"));
         }
+        if contract == CONTRACT_VERSION && mode != EncoderMode::Delta {
+            return Err("contract 3 supports only delta encoding".to_owned());
+        }
         if ENCODER_CHANNELS != CHANNEL_COUNT {
             return Err("encoder channel contract breached".to_owned());
         }
