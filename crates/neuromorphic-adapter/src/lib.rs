@@ -3,14 +3,22 @@
 //! This crate orchestrates the selected upstream crates; it does not reimplement
 //! encoding, neural dynamics, topology generation, or protocol compatibility.
 
-use axon_encoder::prelude::{DeltaEncoder, Encoder};
 use corpus_ipc::WireCompatibility;
-use kinetic_signals::{ZScore, compute_signal_stats};
 use neuromod::{NeuroModulators, SeedableRng, SpikingNetwork, StdRng};
 use synaptic_wiring::{SynapticMesh, topology::generate_small_world};
 use wasm_bindgen::prelude::*;
 
+pub mod encoder;
+
+use encoder::{
+    CONTRACT_VERSION_V4, ENCODER_CHANNELS, EncoderMode, V1Encoder,
+    normalize_to_encoder_input_for_contract,
+};
+
 pub const CONTRACT_VERSION: u32 = 3;
+/// Contract version that adds selectable encoder modes and spike-train
+/// diagnostics. Version 3 stays accepted as the legacy delta-only alias.
+pub const CONTRACT_VERSION_V4_U32: u32 = CONTRACT_VERSION_V4 as u32;
 const CHANNEL_COUNT: usize = 16;
 const STATUS_OK: &str = "ok";
 
@@ -136,6 +144,16 @@ pub struct BrowserState {
     pub topology_digest: String,
     pub protocol_wire_version: u32,
     pub error_status: String,
+    /// Active encoder mode discriminant (see [`EncoderMode`]).
+    pub encoder_mode: u8,
+    /// Active encoder name (`"delta"`, `"temporal"`, or `"rate"`).
+    pub encoder_name: String,
+    /// Encoded spike count from the most recent `input` call.
+    pub encoded_spike_count: u32,
+    /// Distinct channels that spiked in the most recent `input` call.
+    pub encoded_spike_channels: u32,
+    /// Cumulative encoded spikes since construction.
+    pub encoded_spike_total: u64,
 }
 
 /// Construct the `neuromod` network for the selected model. All dynamics and
@@ -161,9 +179,13 @@ fn build_network(model: NeuronModel) -> SpikingNetwork {
 /// Deterministic, browser-safe composition of the audited V1 crate surfaces.
 pub struct BrowserRuntime {
     seed: u64,
+    contract_version: u32,
     completed_step: u64,
     last_sequence: Option<u64>,
-    encoder: DeltaEncoder,
+    encoder: V1Encoder,
+    encoded_spike_count: u32,
+    encoded_spike_channels: u32,
+    encoded_spike_total: u64,
     mesh: SynapticMesh,
     network: SpikingNetwork,
     rng: StdRng,
@@ -179,7 +201,23 @@ pub struct BrowserRuntime {
 }
 
 impl BrowserRuntime {
+    /// Legacy contract-3 constructor: delta-only encoding, unchanged
+    /// deterministic behavior for the seed-9 golden trace.
     pub fn new(seed: u64) -> Result<Self, String> {
+        Self::with_mode(seed, EncoderMode::Delta, CONTRACT_VERSION)
+    }
+
+    /// Contract-4 constructor with an explicitly selected encoder mode.
+    pub fn with_mode(seed: u64, mode: EncoderMode, contract: u32) -> Result<Self, String> {
+        if contract != CONTRACT_VERSION && contract != CONTRACT_VERSION_V4_U32 {
+            return Err(format!("unsupported contract version {contract}"));
+        }
+        if contract == CONTRACT_VERSION && mode != EncoderMode::Delta {
+            return Err("contract 3 supports only delta encoding".to_owned());
+        }
+        if ENCODER_CHANNELS != CHANNEL_COUNT {
+            return Err("encoder channel contract breached".to_owned());
+        }
         let graph = generate_small_world(CHANNEL_COUNT, 4, 0.2, 4, 0.25)
             .map_err(|error| format!("could not construct browser topology: {error}"))?;
         let mesh = SynapticMesh::new(graph);
@@ -190,9 +228,13 @@ impl BrowserRuntime {
 
         Ok(Self {
             seed,
+            contract_version: contract,
             completed_step: 0,
             last_sequence: None,
-            encoder: DeltaEncoder::new(0.05, CHANNEL_COUNT),
+            encoder: V1Encoder::for_mode(mode),
+            encoded_spike_count: 0,
+            encoded_spike_channels: 0,
+            encoded_spike_total: 0,
             mesh,
             network: build_network(V1_NEURON_MODEL),
             rng: StdRng::seed_from_u64(seed),
@@ -228,19 +270,21 @@ impl BrowserRuntime {
         if samples.iter().any(|sample| !sample.is_finite()) {
             return self.fail("input-non-finite-samples", "input samples must be finite");
         }
-        let raw: Vec<f64> = samples.iter().map(|sample| f64::from(*sample)).collect();
-        let stats = compute_signal_stats(&raw);
-        let scale = stats.variance.sqrt().max(0.001);
-        let mut features = vec![0.0_f32; CHANNEL_COUNT];
-        for (index, sample) in raw.iter().take(CHANNEL_COUNT).enumerate() {
-            features[index] = (ZScore::compute(*sample, stats.mean, scale).abs() as f32).min(1.0);
-        }
+        // Contract 3 keeps the legacy all-samples statistics so existing
+        // replays reproduce; contract 4+ uses first-16 statistics.
+        let features = normalize_to_encoder_input_for_contract(samples, self.contract_version);
 
-        let encoded = self.encoder.encode_step(&features);
+        let channels = self.encoder.encode_step(&features);
         let mut source_spikes = vec![false; CHANNEL_COUNT];
-        for spike in encoded.spikes {
-            source_spikes[usize::from(spike.channel)] = true;
+        for channel in &channels {
+            source_spikes[usize::from(*channel)] = true;
         }
+        let distinct = source_spikes.iter().filter(|spiked| **spiked).count();
+        self.encoded_spike_count = channels.len().try_into().unwrap_or(u32::MAX);
+        self.encoded_spike_channels = distinct.try_into().unwrap_or(u32::MAX);
+        self.encoded_spike_total = self
+            .encoded_spike_total
+            .saturating_add(channels.len() as u64);
         for (pending, spike) in self.pending_source_spikes.iter_mut().zip(source_spikes) {
             *pending |= spike;
         }
@@ -292,7 +336,7 @@ impl BrowserRuntime {
 
     pub fn state(&self) -> BrowserState {
         BrowserState {
-            contract_version: CONTRACT_VERSION,
+            contract_version: self.contract_version,
             seed: self.seed,
             completed_step: self.completed_step,
             last_sequence: self.last_sequence.unwrap_or(0),
@@ -313,6 +357,11 @@ impl BrowserRuntime {
             topology_digest: self.topology_digest.clone(),
             protocol_wire_version: WireCompatibility::CURRENT,
             error_status: self.last_error_status.clone(),
+            encoder_mode: self.encoder.mode() as u8,
+            encoder_name: self.encoder.mode().name().to_owned(),
+            encoded_spike_count: self.encoded_spike_count,
+            encoded_spike_channels: self.encoded_spike_channels,
+            encoded_spike_total: self.encoded_spike_total,
         }
     }
 
@@ -429,19 +478,49 @@ impl WasmState {
     pub fn error_status(&self) -> String {
         self.state.error_status.clone()
     }
+    #[wasm_bindgen(getter)]
+    pub fn encoder_mode(&self) -> u32 {
+        u32::from(self.state.encoder_mode)
+    }
+    #[wasm_bindgen(getter)]
+    pub fn encoder_name(&self) -> String {
+        self.state.encoder_name.clone()
+    }
+    #[wasm_bindgen(getter)]
+    pub fn encoded_spike_count(&self) -> u32 {
+        self.state.encoded_spike_count
+    }
+    #[wasm_bindgen(getter)]
+    pub fn encoded_spike_channels(&self) -> u32 {
+        self.state.encoded_spike_channels
+    }
+    #[wasm_bindgen(getter)]
+    pub fn encoded_spike_total(&self) -> u64 {
+        self.state.encoded_spike_total
+    }
 }
 
 #[wasm_bindgen]
 impl WasmAdapter {
+    /// `config` is `[3]` for the legacy delta-only contract, `[4]` for the
+    /// default v1 encoder mode, or `[4, mode]` to select it explicitly
+    /// (`0 = delta`, `1 = temporal`, `2 = rate`).
     #[wasm_bindgen(js_name = init)]
     pub fn init(seed: u64, config: &[u8]) -> Result<WasmAdapter, JsValue> {
-        if config != [CONTRACT_VERSION as u8] {
-            return Err(JsValue::from_str(
-                "adapter config must contain exactly the supported contract version",
-            ));
+        let invalid = || JsValue::from_str("adapter config must be [3], [4], or [4, mode]");
+        let runtime = match config {
+            [3] => BrowserRuntime::new(seed),
+            [4] => BrowserRuntime::with_mode(seed, EncoderMode::DEFAULT, CONTRACT_VERSION_V4_U32),
+            [4, mode] => {
+                let selected =
+                    EncoderMode::parse(*mode).map_err(|error| JsValue::from_str(&error))?;
+                BrowserRuntime::with_mode(seed, selected, CONTRACT_VERSION_V4_U32)
+            }
+            _ => return Err(invalid()),
         }
+        .map_err(|error| JsValue::from_str(&error))?;
         Ok(Self {
-            runtime: Some(BrowserRuntime::new(seed).map_err(|error| JsValue::from_str(&error))?),
+            runtime: Some(runtime),
         })
     }
 

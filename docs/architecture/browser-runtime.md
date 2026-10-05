@@ -83,8 +83,9 @@ state(instance) -> StateView
   controls presentation only. A capped accumulator may choose how many calls to
   request, but dropped visual frames never change step mathematics.
 - `state` is a read-only snapshot containing its contract version, seed,
-  completed step, neuron/spike buffers, topology identifiers, and stable error
-  status. Large numeric fields cross the boundary in typed arrays, not per-item
+  completed step, neuron/spike buffers, topology identifiers, stable error
+  status, and (on contract 4) the active encoder mode plus derived spike-train
+  diagnostics. Large numeric fields cross the boundary in typed arrays, not per-item
   JavaScript objects. Every exported snapshot is materialized into independent,
   JS-owned `ArrayBuffer`s; it is never a writable or live view of WASM linear
   memory. A worker transfers each snapshot buffer to the main thread exactly
@@ -101,6 +102,41 @@ state(instance) -> StateView
   inputs, seed, and step count must produce byte-equivalent exported state.
   Tests use fixed golden seeds. Any intentional determinism break requires a
   contract-version change.
+
+### Selectable `axon-encoder` modes (GitHub #15 / Linear RM-1651)
+
+The adapter orchestrates upstream `axon-encoder` surfaces; it never reimplements
+an encoding algorithm. Pointer/touch/demo telemetry flows through the stable,
+mode-independent input contract first — `kinetic-signals` z-score magnitudes
+clamped to `[0, 1]` on 16 channels — and then through exactly one selected
+upstream encoder per step: `DeltaEncoder`, `TemporalEncoder`, or `RateEncoder`
+(at the pinned `axon-encoder = 0.4.0`, `a562767`). Only the streaming
+`Encoder::encode_step` path is used; the batch `Encoder::encode` path on rate
+encoders draws from thread-local RNG and is never called, so every v1 mode is
+deterministic for identical ordered input. The per-tick order is fixed:
+`input` encodes and queues source spikes, then `step` propagates them through
+`synaptic-wiring` (`mesh.propagate`) before advancing `neuromod` dynamics
+(`network.step_with_rng`); the resulting state snapshot feeds the renderer.
+
+- **Init config.** `[3]` keeps the legacy delta-only contract (unchanged
+  seed-9 golden trace). `[4]` selects contract 4 with the default `temporal`
+  mode; `[4, mode]` selects explicitly (`0 = delta`, `1 = temporal`,
+  `2 = rate`). Modes `3` (`population`) and `4` (`predictive`) are the
+  reserved v1 extension path: recognized but rejected until a later contract
+  version wires a browser-safe upstream for them.
+- **Renderer contract stability.** Selecting a mode changes only which spikes
+  the same normalized features produce. The snapshot gains `encoder_mode`,
+  `encoder_name`, `encoded_spike_count`, `encoded_spike_channels`, and
+  `encoded_spike_total` (cumulative since construction); every existing
+  renderer-facing field is unchanged.
+- **Browser compatibility.** The bridge (`initNeuromorphicAdapter`) validates
+  mode/config pairs before loading WASM, keeps contract-3 callers delta-only,
+  and surfaces the active mode plus diagnostics on every contract-4 snapshot
+  for inspection. WASM is required; there is no JavaScript encoding fallback.
+  The dedicated worker and main-thread session paths keep the legacy delta
+  configuration until a later issue wires selection through them — mode
+  selection is a bridge-level opt-in that does not change what the renderer
+  consumes.
 
 ### Topology projection handoff
 
@@ -184,6 +220,11 @@ in V1 without a contract-version increase.
   provenance.
 - `spike_neurons`, `membrane_potentials` — the neuron state raster and
   inspection views render.
+- `encoder_mode`, `encoder_name`, `encoded_spike_count`,
+  `encoded_spike_channels`, `encoded_spike_total` — contract-4 encoder
+  inspection: the active mode and the derived spike-train diagnostics from the
+  most recent `input` (count and distinct channels) plus the cumulative total
+  since construction.
 - `topology_node_ids`, `topology_rows/targets/weights/delays`,
   `topology_edge_*`, `topology_outgoing_edge_offsets` — the canonical and
   routed topology the renderer and spike-propagation issues consume.

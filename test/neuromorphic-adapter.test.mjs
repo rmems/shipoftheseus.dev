@@ -60,8 +60,13 @@ function routedWeights() {
 }
 
 function validTopologyState(overrides = {}) {
-  return {
-    contract_version: 3,
+  const state = {
+    contract_version: 4,
+    encoder_mode: 0,
+    encoder_name: 'delta',
+    encoded_spike_count: 0,
+    encoded_spike_channels: 0,
+    encoded_spike_total: 0n,
     seed: 2n ** 63n + 1n,
     completed_step: 7n,
     last_sequence: 2n ** 63n + 2n,
@@ -84,6 +89,7 @@ function validTopologyState(overrides = {}) {
     error_status: 'ok',
     ...overrides,
   };
+  return state;
 }
 
 async function adapterForState(runtime, state) {
@@ -404,6 +410,9 @@ test('the adapter snapshot exposes exactly the minimum render and inspection sta
       // provenance: seed, step, sequence, digest, versions, status
       'contractVersion', 'seed', 'completedStep', 'lastSequence',
       'topologyDigest', 'protocolWireVersion', 'errorStatus',
+      // encoder inspection: active mode and derived spike-train diagnostics
+      'encoderMode', 'encoderName', 'encodedSpikeCount', 'encodedSpikeChannels',
+      'encodedSpikeTotal',
       // neuron state: spikes and potentials
       'spikeNeurons', 'membranePotentials',
       // topology: node ids, edges, offsets, weight bits
@@ -412,5 +421,124 @@ test('the adapter snapshot exposes exactly the minimum render and inspection sta
       'topologyEdgeWeights', 'topologyEdgeDelays', 'topologyPolarities',
       'topologyWeightBits', 'topologyOutgoingEdgeOffsets',
     ].sort(),
+  );
+});
+
+test('the browser bridge selects temporal and rate encoder modes without changing the renderer contract', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const baseKeys = Object.keys(
+    (await adapterForState(runtime, validTopologyState())).state(),
+  ).sort();
+  for (const [encoderMode, expectedConfig] of [['temporal', [4, 1]], ['rate', [4, 2]]]) {
+    const state = validTopologyState({
+      encoder_mode: expectedConfig[1],
+      encoder_name: encoderMode,
+      encoded_spike_count: 3,
+      encoded_spike_channels: 2,
+      encoded_spike_total: 3n,
+    });
+    let seenConfig;
+    const adapter = await runtime.initNeuromorphicAdapter(
+      async () => ({
+        async default() {},
+        WasmAdapter: {
+          init(seed, config) {
+            seenConfig = [...config];
+            return { input() {}, step() { return state; }, state() { return state; }, dispose() {} };
+          },
+        },
+      }),
+      9n,
+      { encoderMode },
+    );
+    assert.deepEqual(seenConfig, expectedConfig);
+    const snapshot = adapter.state();
+    assert.equal(snapshot.encoderMode, expectedConfig[1]);
+    assert.equal(snapshot.encoderName, encoderMode);
+    assert.equal(snapshot.encodedSpikeCount, 3);
+    assert.equal(snapshot.encodedSpikeChannels, 2);
+    assert.equal(snapshot.encodedSpikeTotal, 3n);
+    assert.deepEqual(Object.keys(snapshot).sort(), baseKeys);
+  }
+});
+
+test('the browser bridge defaults explicit contract-4 init to the temporal encoder mode', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const state = validTopologyState({
+    encoder_mode: 1,
+    encoder_name: 'temporal',
+    encoded_spike_count: 0,
+    encoded_spike_channels: 0,
+    encoded_spike_total: 0n,
+  });
+  let seenConfig;
+  const adapter = await runtime.initNeuromorphicAdapter(
+    async () => ({
+      async default() {},
+      WasmAdapter: {
+        init(seed, config) {
+          seenConfig = [...config];
+          return { input() {}, step() { return state; }, state() { return state; }, dispose() {} };
+        },
+      },
+    }),
+    9n,
+    { contractVersion: 4 },
+  );
+  assert.deepEqual(seenConfig, [4, 1]);
+  assert.equal(adapter.state().encoderName, 'temporal');
+});
+
+test('the browser bridge keeps legacy contract-3 delta-only init and rejects mismatched modes', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const legacy = validTopologyState({
+    contract_version: 3,
+    encoder_mode: undefined,
+    encoder_name: undefined,
+    encoded_spike_count: undefined,
+    encoded_spike_channels: undefined,
+    encoded_spike_total: undefined,
+  });
+  delete legacy.encoder_mode;
+  delete legacy.encoder_name;
+  delete legacy.encoded_spike_count;
+  delete legacy.encoded_spike_channels;
+  delete legacy.encoded_spike_total;
+  let seenConfig;
+  const adapter = await runtime.initNeuromorphicAdapter(
+    async () => ({
+      async default() {},
+      WasmAdapter: {
+        init(seed, config) {
+          seenConfig = [...config];
+          return { input() {}, step() { return legacy; }, state() { return legacy; }, dispose() {} };
+        },
+      },
+    }),
+    9n,
+  );
+  assert.deepEqual(seenConfig, [3]);
+  const snapshot = adapter.state();
+  assert.equal(snapshot.encoderMode, 0);
+  assert.equal(snapshot.encoderName, 'delta');
+  assert.equal(snapshot.encodedSpikeCount, 0);
+  assert.equal(snapshot.encodedSpikeChannels, 0);
+  assert.equal(snapshot.encodedSpikeTotal, 0n);
+
+  const loadWasmModule = async () => ({
+    async default() {},
+    WasmAdapter: { init() { throw new Error('not reached'); } },
+  });
+  await assert.rejects(
+    () => runtime.initNeuromorphicAdapter(loadWasmModule, 1n, { contractVersion: 3, encoderMode: 'temporal' }),
+    runtime.AdapterUnavailableError,
+  );
+  await assert.rejects(
+    () => runtime.initNeuromorphicAdapter(loadWasmModule, 1n, { contractVersion: 3, encoderMode: 'rate' }),
+    runtime.AdapterUnavailableError,
+  );
+  await assert.rejects(
+    () => runtime.initNeuromorphicAdapter(loadWasmModule, 1n, { encoderMode: 'population' }),
+    runtime.AdapterUnavailableError,
   );
 });

@@ -21,6 +21,9 @@ export class WasmAdapter {
         wasm.wasmadapter_dispose(this.__wbg_ptr);
     }
     /**
+     * `config` is `[3]` for the legacy delta-only contract, `[4]` for the
+     * default v1 encoder mode, or `[4, mode]` to select it explicitly
+     * (`0 = delta`, `1 = temporal`, `2 = rate`).
      * @param {bigint} seed
      * @param {Uint8Array} config
      * @returns {WasmAdapter}
@@ -99,6 +102,49 @@ export class WasmState {
     get contract_version() {
         const ret = wasm.wasmstate_contract_version(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get encoded_spike_channels() {
+        const ret = wasm.wasmstate_encoded_spike_channels(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get encoded_spike_count() {
+        const ret = wasm.wasmstate_encoded_spike_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {bigint}
+     */
+    get encoded_spike_total() {
+        const ret = wasm.wasmstate_encoded_spike_total(this.__wbg_ptr);
+        return BigInt.asUintN(64, ret);
+    }
+    /**
+     * @returns {number}
+     */
+    get encoder_mode() {
+        const ret = wasm.wasmstate_encoder_mode(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {string}
+     */
+    get encoder_name() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmstate_encoder_name(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * @returns {string}

@@ -6,6 +6,11 @@ export class WasmAdapter {
     free(): void;
     [Symbol.dispose](): void;
     dispose(): void;
+    /**
+     * `config` is `[3]` for the legacy delta-only contract, `[4]` for the
+     * default v1 encoder mode, or `[4, mode]` to select it explicitly
+     * (`0 = delta`, `1 = temporal`, `2 = rate`).
+     */
     static init(seed: bigint, config: Uint8Array): WasmAdapter;
     input(sequence: bigint, samples: Float32Array): void;
     state(): WasmState;
@@ -18,6 +23,11 @@ export class WasmState {
     [Symbol.dispose](): void;
     readonly completed_step: bigint;
     readonly contract_version: number;
+    readonly encoded_spike_channels: number;
+    readonly encoded_spike_count: number;
+    readonly encoded_spike_total: bigint;
+    readonly encoder_mode: number;
+    readonly encoder_name: string;
     readonly error_status: string;
     readonly last_sequence: bigint;
     readonly membrane_potentials: Float32Array;
@@ -52,6 +62,11 @@ export interface InitOutput {
     readonly wasmadapter_step: (a: number) => [number, number, number];
     readonly wasmstate_completed_step: (a: number) => bigint;
     readonly wasmstate_contract_version: (a: number) => number;
+    readonly wasmstate_encoded_spike_channels: (a: number) => number;
+    readonly wasmstate_encoded_spike_count: (a: number) => number;
+    readonly wasmstate_encoded_spike_total: (a: number) => bigint;
+    readonly wasmstate_encoder_mode: (a: number) => number;
+    readonly wasmstate_encoder_name: (a: number) => [number, number];
     readonly wasmstate_error_status: (a: number) => [number, number];
     readonly wasmstate_last_sequence: (a: number) => bigint;
     readonly wasmstate_membrane_potentials: (a: number) => any;
