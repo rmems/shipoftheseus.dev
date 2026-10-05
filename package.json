@@ -13,6 +13,9 @@
     "lint": "eslint .",
     "typecheck": "astro check",
     "test": "node --test test/**/*.test.mjs",
+    "test:coverage": "c8 node --test test/**/*.test.mjs",
+    "test:coverage:rust": "cargo +1.98.1 llvm-cov --manifest-path crates/neuromorphic-adapter/Cargo.toml --all-targets --locked --lcov --output-path coverage/rust.lcov",
+    "coverage": "npm run test:coverage && npm run test:coverage:rust",
     "test:wasm-adapter": "node scripts/verify-neuromorphic-wasm.mjs",
     "test:wasm-browser": "node scripts/verify-neuromorphic-browser.mjs",
     "validate:rust": "cargo +1.98.1 fmt --manifest-path crates/neuromorphic-adapter/Cargo.toml --check && cargo +1.98.1 clippy --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --all-targets -- -D warnings && cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked && cargo +1.98.1 check --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --target wasm32-unknown-unknown && node scripts/verify-browser-dependencies.mjs",
@@ -23,6 +26,7 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
     "astro": "^5.16.6",
+    "c8": "^10.1.3",
     "eslint": "^9.39.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.47.0"

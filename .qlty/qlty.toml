@@ -1,0 +1,42 @@
+# Qlty: GitHub Actions workflow lint (actionlint) and maintainability smells.
+# Rust fmt/clippy and ESLint remain authoritative in the Quality workflow.
+# Codecov is the primary coverage dashboard; this file also lists coverage ignores
+# when LCOV is published to Qlty Cloud from CI.
+config_version = "0"
+
+exclude_patterns = [
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/.astro/**",
+  "**/public/wasm/**",
+  "**/target/**",
+  "**/.worktrees/**",
+]
+
+test_patterns = [
+  "test/**",
+  "crates/**/tests/**",
+  "**/tests/**",
+]
+
+[smells]
+mode = "comment"
+
+[coverage]
+ignores = [
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/.astro/**",
+  "**/public/wasm/**",
+  "**/target/**",
+  "test/**",
+  "**/fixtures/**",
+  "**/*.test.mjs",
+]
+
+[[source]]
+name = "default"
+default = true
+
+[[plugin]]
+name = "actionlint"

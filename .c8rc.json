@@ -1,0 +1,16 @@
+{
+  "all": false,
+  "include": [
+    "scripts/**/*.mjs"
+  ],
+  "exclude": [
+    "node_modules/**",
+    "dist/**",
+    ".astro/**",
+    "public/**",
+    "test/**",
+    "coverage/**"
+  ],
+  "reporter": ["lcov", "text-summary"],
+  "reports-dir": "coverage"
+}

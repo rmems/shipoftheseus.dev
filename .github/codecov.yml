@@ -1,0 +1,33 @@
+# Baseline (local llvm-cov + c8, 2026-10-05): neuromorphic-adapter ~72% lines;
+# Node verification scripts ~52% statements. Confirm hosted values on main after merge.
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 2%
+        informational: true
+    patch:
+      default:
+        target: auto
+        informational: true
+    changes: false
+
+comment:
+  layout: "reach,diff,flags,tree"
+  behavior: default
+  require_changes: false
+
+ignore:
+  - "test/**"
+  - "**/fixtures/**"
+  - "public/wasm/**"
+  - "dist/**"
+  - ".astro/**"

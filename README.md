@@ -27,6 +27,10 @@ The browser-loadable adapter package committed at `public/wasm/neuromorphic-adap
 
 Pull requests provision these dependencies and run the same command in CI; no deployment workflow is included.
 
+Coverage and Qlty checks run in a separate workflow. See
+[docs/coverage-and-quality.md](docs/coverage-and-quality.md) for local coverage,
+Codecov/Qlty setup, and fork-PR behavior.
+
 ## Content and assets
 
 - Site-wide identity, social URL placeholders, email placeholder, and résumé path: `src/data/site.ts`

@@ -21,6 +21,7 @@ repo has no deployment workflow.
 | `crates/neuromorphic-adapter/` | Rust → `wasm32-unknown-unknown` adapter (own `Cargo.lock`, `rust-toolchain.toml`) |
 | `scripts/verify-*.mjs` | WASM adapter, browser and browser-dependency verification |
 | `test/*.test.mjs` (+ `test/fixtures/`) | `node --test` suite |
+| `docs/coverage-and-quality.md` | Codecov/Qlty coverage, CI secrets, local `npm run coverage` |
 | `docs/architecture/` | Browser runtime and native-evidence architecture |
 | `CONTENT.md` | Publishing checklist |
 
@@ -43,6 +44,7 @@ WASM_BINDGEN_BIN="$(command -v wasm-bindgen)" BROWSER_BIN="<path to chrome>" npm
 
 # Pieces
 npm test                    # node --test test/**/*.test.mjs
+npm run coverage            # c8 (scripts) + cargo llvm-cov (neuromorphic-adapter) → coverage/
 npm run lint                # eslint .
 npm run typecheck           # astro check
 npm run build               # astro build
