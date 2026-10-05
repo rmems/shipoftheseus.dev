@@ -9,9 +9,9 @@ coverage mirror. The existing **Quality** workflow (`quality.yml`) still runs
 
 | Service | Role | CI job |
 | --- | --- | --- |
-| **Codecov** | Primary coverage dashboard: default-branch baseline, PR diffs, optional comments | `coverage` in `.github/workflows/coverage.yml` |
-| **Qlty Cloud (coverage)** | Same LCOV uploads as Codecov for teams using Qlty’s coverage UI; not a second source of truth | `coverage` (OIDC upload step) |
-| **Qlty CLI** | `actionlint` on workflows; duplication/complexity smells (comment mode) | `qlty` in `coverage.yml` |
+| **Codecov** | Primary coverage dashboard: default-branch baseline, PR diffs, optional comments | `validate` job in `.github/workflows/quality.yml` (post-`npm run validate`) |
+| **Qlty Cloud (coverage)** | Same LCOV uploads as Codecov for teams using Qlty’s coverage UI; not a second source of truth | `validate` job (OIDC upload step) |
+| **Qlty CLI** | `actionlint` on workflows; duplication/complexity smells (comment mode) | end of `validate` job in `quality.yml` |
 | **ESLint / Clippy / fmt** | Authoritative linters for JS/TS and Rust | `quality.yml` |
 
 Qlty does **not** replace ESLint, `astro check`, or Rust fmt/clippy.

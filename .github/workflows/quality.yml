@@ -5,23 +5,34 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Check out repository
         # v4.2.2
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Use Rust 1.98.1 with the browser target
         # 1.98.1 action revision
         uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e
         with:
           targets: wasm32-unknown-unknown
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
       - name: Use Node.js
         # v4.4.0
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -45,6 +56,85 @@ jobs:
         with:
           chrome-version: stable
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Validate site
         run: WASM_BINDGEN_BIN="$(command -v wasm-bindgen)" BROWSER_BIN="${{ steps.chrome.outputs.chrome-path }}" npm run validate
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Generate Rust LCOV
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov \
+            --manifest-path crates/neuromorphic-adapter/Cargo.toml \
+            --all-targets \
+            --locked \
+            --lcov \
+            --output-path coverage/rust.lcov
+
+      - name: Generate Node LCOV
+        run: npm run test:coverage
+
+      - name: Retain merged coverage reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-lcov
+          path: |
+            coverage/rust.lcov
+            coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Check Codecov token availability
+        id: codecov_token
+        shell: bash
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [ -n "$CODECOV_TOKEN" ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'use_oidc=false' >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Fork PR: Codecov upload skipped (no token); LCOV artifacts are retained.' >> "$GITHUB_STEP_SUMMARY"
+            echo '::warning::Codecov upload skipped for fork PR without CODECOV_TOKEN'
+          else
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'use_oidc=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload coverage to Codecov
+        if: steps.codecov_token.outputs.available == 'true'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/rust.lcov,coverage/lcov.info
+          disable_search: true
+          override_commit: ${{ github.event.pull_request.head.sha || github.sha }}
+          fail_ci_if_error: true
+          use_oidc: ${{ steps.codecov_token.outputs.use_oidc == 'true' }}
+
+      - name: Upload coverage to Qlty
+        if: >-
+          github.actor != 'dependabot[bot]' &&
+          (github.event_name != 'pull_request' ||
+            github.event.pull_request.head.repo.full_name == github.repository)
+        uses: qltysh/qlty-action/coverage@c9b09987143d1e4ac955f4803c7bea742102feb5 # v2.4.0
+        with:
+          oidc: true
+          files: coverage/rust.lcov,coverage/lcov.info
+
+      - name: Install Qlty CLI
+        uses: qltysh/qlty-action/install@c9b09987143d1e4ac955f4803c7bea742102feb5 # v2.4.0
+
+      - name: Lint GitHub Actions workflows
+        run: qlty check --all --no-formatters --summary
+
+      - name: Report duplication and complexity
+        run: qlty smells --all --no-snippets --quiet
