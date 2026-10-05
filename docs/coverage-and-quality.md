@@ -9,9 +9,10 @@ coverage mirror. The existing **Quality** workflow (`quality.yml`) still runs
 
 | Service | Role | CI job |
 | --- | --- | --- |
-| **Codecov** | Primary coverage dashboard: default-branch baseline, PR diffs, optional comments | `validate` job in `.github/workflows/quality.yml` (post-`npm run validate`) |
-| **Qlty Cloud (coverage)** | Same LCOV uploads as Codecov for teams using Qlty’s coverage UI; not a second source of truth | `validate` job (OIDC upload step) |
-| **Qlty CLI** | `actionlint` on workflows; duplication/complexity smells (comment mode) | end of `validate` job in `quality.yml` |
+| **Codecov** | Primary coverage dashboard: default-branch baseline, PR diffs, optional comments | `coverage-report` job in `.github/workflows/quality.yml` (after `validate` passes) |
+| **Qlty Cloud (coverage)** | Same LCOV uploads as Codecov for teams using Qlty’s coverage UI; not a second source of truth | `coverage-report` job (token or OIDC upload) |
+| **Qlty CLI** | `actionlint` on workflows; duplication/complexity smells (comment mode) | end of `coverage-report` job |
+| **Qlty `qlty check`** (GitHub App) | Static analysis on the PR diff; **not** coverage | Qlty GitHub integration (separate from this workflow) |
 | **ESLint / Clippy / fmt** | Authoritative linters for JS/TS and Rust | `quality.yml` |
 
 Qlty does **not** replace ESLint, `astro check`, or Rust fmt/clippy.
@@ -66,8 +67,8 @@ Reports land in `coverage/rust.lcov` and `coverage/lcov.info` (gitignored).
 
 | Secret | Required? | Purpose |
 | --- | --- | --- |
-| `CODECOV_TOKEN` | Recommended | Reliable Codecov uploads for this repo and fork PRs |
-| (none for Qlty coverage) | — | Qlty coverage upload uses **OIDC** (`id-token: write`) |
+| `CODECOV_TOKEN` | Recommended | Upload from Actions; name must be exactly `CODECOV_TOKEN` |
+| `QLTY_COVERAGE_TOKEN` | Optional | Qlty coverage upload when OIDC is not configured; otherwise OIDC is used |
 
 - **Same-repository PRs / `main` pushes** — If `CODECOV_TOKEN` is unset, Codecov
   upload uses OIDC when the action supports it. Upload failures fail the job.
@@ -79,6 +80,24 @@ Reports land in `coverage/rust.lcov` and `coverage/lcov.info` (gitignored).
 Repository admins must connect the repo in [Codecov](https://codecov.io) and
 [Qlty Cloud](https://qlty.sh) and enable GitHub integration so checks appear on
 pull requests.
+
+### Why Codecov / Qlty coverage checks may be missing on a PR
+
+GitHub **secrets do not create checks by themselves**. Codecov and Qlty coverage
+statuses appear only after a workflow **successfully uploads** LCOV for that
+commit.
+
+1. **`validate` must pass** — the `coverage-report` job is skipped if `validate`
+   fails or never starts (for example hosted-runner queue timeouts).
+2. **Look for the Actions job** `coverage report and uploads` — if it is absent,
+   skipped, or red, uploads did not complete; Codecov/Qlty will not post checks.
+3. **`qlty check` is not coverage** — the passing Qlty check on many PRs comes
+   from the Qlty GitHub App analyzing the diff, not from the coverage upload step.
+4. **Codecov GitHub App** — install the [Codecov app](https://github.com/apps/codecov)
+   on `rmems/shipoftheseus.dev` in addition to `CODECOV_TOKEN`. The token uploads
+   reports; the app posts PR checks and comments reliably.
+5. **First `main` upload** — patch/project checks need a baseline on the default
+   branch; merge or push a green `coverage-report` run on `main` once.
 
 ## Codecov status gates
 
