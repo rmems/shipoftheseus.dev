@@ -53,7 +53,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Generate Node LCOV
         run: npm run test:coverage
@@ -109,18 +109,6 @@ jobs:
         with:
           oidc: true
           files: coverage/rust.lcov,coverage/lcov.info
-
-  qlty:
-    name: Qlty workflow lint and maintainability
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
-        with:
-          persist-credentials: false
 
       - name: Install Qlty CLI
         uses: qltysh/qlty-action/install@c9b09987143d1e4ac955f4803c7bea742102feb5 # v2.4.0
