@@ -1,6 +1,9 @@
 use neuromorphic_adapter::{
     BrowserRuntime,
-    encoder::{CONTRACT_VERSION_V4, EncoderMode, normalize_to_encoder_input},
+    encoder::{
+        CONTRACT_VERSION_V3, CONTRACT_VERSION_V4, EncoderMode, normalize_to_encoder_input,
+        normalize_to_encoder_input_for_contract,
+    },
 };
 
 /// Two seeded runtimes in the same mode replay an identical spike encoding.
@@ -98,11 +101,88 @@ fn contract_3_rejects_non_delta_modes() {
 
 #[test]
 fn normalization_ignores_samples_beyond_first_sixteen() {
+    // Contract-4 behavior: statistics cover only the first 16 samples, so
+    // trailing samples never shift the retained channel encodings.
     let first_sixteen: Vec<f32> = (0..16).map(|index| index as f32 * 0.25).collect();
     let mut with_trailing = first_sixteen.clone();
     with_trailing.extend([100.0, -100.0, 50.0, 25.0]);
     assert_eq!(
         normalize_to_encoder_input(&first_sixteen),
         normalize_to_encoder_input(&with_trailing)
+    );
+    assert_eq!(
+        normalize_to_encoder_input_for_contract(&first_sixteen, u32::from(CONTRACT_VERSION_V4)),
+        normalize_to_encoder_input_for_contract(&with_trailing, u32::from(CONTRACT_VERSION_V4))
+    );
+}
+
+#[test]
+fn contract_3_keeps_all_samples_normalize_stats() {
+    // Legacy regression: 16 zeros followed by `1.0`. All-samples statistics
+    // include the trailing `1.0`, so the first 16 channels get nonzero
+    // features; first-16 statistics are all zero, so features stay zero.
+    let mut long: Vec<f32> = vec![0.0; 16];
+    long.push(1.0);
+    let legacy = normalize_to_encoder_input_for_contract(&long, u32::from(CONTRACT_VERSION_V3));
+    let v4 = normalize_to_encoder_input_for_contract(&long, u32::from(CONTRACT_VERSION_V4));
+    assert!(
+        legacy.iter().any(|feature| *feature > 0.0),
+        "legacy stats must pick up the trailing sample"
+    );
+    assert!(
+        v4.iter().all(|feature| *feature == 0.0),
+        "contract-4 stats must ignore the trailing sample"
+    );
+    assert_ne!(legacy, v4);
+}
+
+#[test]
+fn contract_3_long_input_matches_legacy_spike_trace() {
+    // End-to-end regression through `BrowserRuntime`: the same 17-sample
+    // input encodes nonzero delta spikes on contract 3 (legacy all-samples
+    // stats) and stays silent on contract-4 delta (first-16 stats).
+    let mut long: Vec<f32> = vec![0.0; 16];
+    long.push(1.0);
+    let mut legacy = BrowserRuntime::new(9).expect("the fixed browser topology is valid");
+    legacy.input(1, &long).expect("input is accepted");
+    let legacy_state = legacy.step().expect("runtime can advance one tick");
+    assert!(
+        legacy_state.encoded_spike_count > 0,
+        "contract 3 must encode the trailing sample into spikes"
+    );
+
+    let mut v4 = BrowserRuntime::with_mode(9, EncoderMode::Delta, u32::from(CONTRACT_VERSION_V4))
+        .expect("the fixed browser topology is valid");
+    v4.input(1, &long).expect("input is accepted");
+    let v4_state = v4.step().expect("runtime can advance one tick");
+    assert_eq!(
+        v4_state.encoded_spike_count, 0,
+        "contract-4 delta must ignore the trailing sample"
+    );
+    // Mesh edge delays are >= 1 tick, so the encoded spikes only reach
+    // neuron state on later steps: the spike trace diverges first, then the
+    // membrane potentials once delayed currents arrive.
+    let legacy_second = legacy.step().expect("runtime can advance a second tick");
+    let v4_second = v4.step().expect("runtime can advance a second tick");
+    assert!(
+        !legacy_second.spike_neurons.is_empty(),
+        "contract-3 spikes must reach the network on the delayed tick"
+    );
+    assert_ne!(
+        legacy_second.spike_neurons, v4_second.spike_neurons,
+        "contract-3 spike trace must reflect the trailing sample"
+    );
+    let mut potentials_diverged = false;
+    for _ in 0..16 {
+        let legacy_next = legacy.step().expect("runtime can advance");
+        let v4_next = v4.step().expect("runtime can advance");
+        if legacy_next.membrane_potentials != v4_next.membrane_potentials {
+            potentials_diverged = true;
+            break;
+        }
+    }
+    assert!(
+        potentials_diverged,
+        "driven currents must reach the membrane potentials on contract 3"
     );
 }

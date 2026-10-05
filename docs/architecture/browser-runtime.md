@@ -113,7 +113,10 @@ upstream encoder per step: `DeltaEncoder`, `TemporalEncoder`, or `RateEncoder`
 (at the pinned `axon-encoder = 0.4.0`, `a562767`). Only the streaming
 `Encoder::encode_step` path is used; the batch `Encoder::encode` path on rate
 encoders draws from thread-local RNG and is never called, so every v1 mode is
-deterministic for identical ordered input.
+deterministic for identical ordered input. The per-tick order is fixed:
+`input` encodes and queues source spikes, then `step` propagates them through
+`synaptic-wiring` (`mesh.propagate`) before advancing `neuromod` dynamics
+(`network.step_with_rng`); the resulting state snapshot feeds the renderer.
 
 - **Init config.** `[3]` keeps the legacy delta-only contract (unchanged
   seed-9 golden trace). `[4]` selects contract 4 with the default `temporal`

@@ -11,7 +11,8 @@ use wasm_bindgen::prelude::*;
 pub mod encoder;
 
 use encoder::{
-    CONTRACT_VERSION_V4, ENCODER_CHANNELS, EncoderMode, V1Encoder, normalize_to_encoder_input,
+    CONTRACT_VERSION_V4, ENCODER_CHANNELS, EncoderMode, V1Encoder,
+    normalize_to_encoder_input_for_contract,
 };
 
 pub const CONTRACT_VERSION: u32 = 3;
@@ -269,7 +270,9 @@ impl BrowserRuntime {
         if samples.iter().any(|sample| !sample.is_finite()) {
             return self.fail("input-non-finite-samples", "input samples must be finite");
         }
-        let features = normalize_to_encoder_input(samples);
+        // Contract 3 keeps the legacy all-samples statistics so existing
+        // replays reproduce; contract 4+ uses first-16 statistics.
+        let features = normalize_to_encoder_input_for_contract(samples, self.contract_version);
 
         let channels = self.encoder.encode_step(&features);
         let mut source_spikes = vec![false; CHANNEL_COUNT];

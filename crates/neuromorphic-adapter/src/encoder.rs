@@ -20,6 +20,9 @@ pub const ENCODER_CHANNELS: usize = 16;
 /// so constant input still normalizes to a finite feature vector.
 pub const NORMALIZATION_FLOOR: f64 = 0.001;
 
+/// Legacy delta-only contract: normalization statistics cover all samples.
+pub const CONTRACT_VERSION_V3: u8 = 3;
+
 /// Contract version that adds selectable encoder modes and spike-train
 /// diagnostics. Version 3 remains the legacy delta-only contract.
 pub const CONTRACT_VERSION_V4: u8 = 4;
@@ -132,19 +135,28 @@ impl V1Encoder {
     }
 }
 
-/// Normalize raw browser samples into the stable encoder-input contract: one
-/// `kinetic-signals` z-score magnitude per channel, clamped to `[0, 1]`.
+/// Statistics window used when normalizing browser samples.
 ///
-/// The mapping is mode-independent, so switching the encoder mode never
-/// changes what the renderer-facing snapshot means — only which spikes the
-/// same features produce.
-#[must_use]
-pub fn normalize_to_encoder_input(samples: &[f32]) -> [f32; ENCODER_CHANNELS] {
-    let raw: Vec<f64> = samples
-        .iter()
-        .take(ENCODER_CHANNELS)
-        .map(|sample| f64::from(*sample))
-        .collect();
+/// Contract 3 preserves the legacy behavior: mean and variance are computed
+/// over **all** supplied samples, then only the first [`ENCODER_CHANNELS`]
+/// become features. Contract 4 restricts statistics to the first
+/// [`ENCODER_CHANNELS`] samples so discarded trailing samples cannot shift
+/// the retained channel encodings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StatsWindow {
+    AllSamples,
+    FirstSixteen,
+}
+
+fn normalize_with_window(samples: &[f32], window: StatsWindow) -> [f32; ENCODER_CHANNELS] {
+    let raw: Vec<f64> = match window {
+        StatsWindow::AllSamples => samples.iter().map(|sample| f64::from(*sample)).collect(),
+        StatsWindow::FirstSixteen => samples
+            .iter()
+            .take(ENCODER_CHANNELS)
+            .map(|sample| f64::from(*sample))
+            .collect(),
+    };
     let stats = compute_signal_stats(&raw);
     let scale = stats.variance.sqrt().max(NORMALIZATION_FLOOR);
     let mut features = [0.0_f32; ENCODER_CHANNELS];
@@ -152,4 +164,36 @@ pub fn normalize_to_encoder_input(samples: &[f32]) -> [f32; ENCODER_CHANNELS] {
         features[index] = (ZScore::compute(*sample, stats.mean, scale).abs() as f32).min(1.0);
     }
     features
+}
+
+/// Normalize raw browser samples into the stable encoder-input contract: one
+/// `kinetic-signals` z-score magnitude per channel, clamped to `[0, 1]`.
+///
+/// This is the contract-4 normalization: statistics cover only the first
+/// [`ENCODER_CHANNELS`] samples that become features, so trailing samples
+/// never shift the retained channel encodings. Contract-3 callers must go
+/// through [`normalize_to_encoder_input_for_contract`] so legacy replays keep
+/// the all-samples statistics they were recorded under.
+///
+/// The mapping is mode-independent, so switching the encoder mode never
+/// changes what the renderer-facing snapshot means — only which spikes the
+/// same features produce.
+#[must_use]
+pub fn normalize_to_encoder_input(samples: &[f32]) -> [f32; ENCODER_CHANNELS] {
+    normalize_with_window(samples, StatsWindow::FirstSixteen)
+}
+
+/// Contract-aware normalization: [`CONTRACT_VERSION_V3`] keeps the legacy
+/// all-samples statistics; every other contract uses the first-16
+/// statistics.
+#[must_use]
+pub fn normalize_to_encoder_input_for_contract(
+    samples: &[f32],
+    contract_version: u32,
+) -> [f32; ENCODER_CHANNELS] {
+    if contract_version == u32::from(CONTRACT_VERSION_V3) {
+        normalize_with_window(samples, StatsWindow::AllSamples)
+    } else {
+        normalize_with_window(samples, StatsWindow::FirstSixteen)
+    }
 }
