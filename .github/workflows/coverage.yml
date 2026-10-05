@@ -38,6 +38,7 @@ jobs:
 
       - name: Generate Rust LCOV
         run: |
+          mkdir -p coverage
           cargo llvm-cov \
             --manifest-path crates/neuromorphic-adapter/Cargo.toml \
             --all-targets \
