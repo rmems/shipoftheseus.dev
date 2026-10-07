@@ -11,8 +11,7 @@ coverage mirror. The existing **Quality** workflow (`quality.yml`) still runs
 | --- | --- | --- |
 | **Codecov** | Primary coverage dashboard: default-branch baseline, PR diffs, optional comments | `coverage-report` job in `.github/workflows/quality.yml` (after `validate` passes) |
 | **Qlty Cloud (coverage)** | Same LCOV uploads as Codecov for teams using Qlty’s coverage UI; not a second source of truth | `coverage-report` job (token or OIDC upload) |
-| **Qlty CLI** | `actionlint` on workflows; duplication/complexity smells (comment mode) | end of `coverage-report` job |
-| **Qlty `qlty check`** (GitHub App) | Static analysis on the PR diff; **not** coverage | Qlty GitHub integration (separate from this workflow) |
+| **Qlty `qlty check`** (GitHub App) | Workflow lint and maintainability on the PR diff | Qlty GitHub integration (separate from LCOV upload) |
 | **ESLint / Clippy / fmt** | Authoritative linters for JS/TS and Rust | `quality.yml` |
 
 Qlty does **not** replace ESLint, `astro check`, or Rust fmt/clippy.
@@ -101,6 +100,18 @@ commit.
    and confirm the PR head SHA appears after a green upload job.
 5. **First `main` upload** — patch/project checks need a baseline on the default
    branch; merge or push a green `coverage-report` run on `main` once.
+
+### If “Re-run jobs” is greyed out or CI failed with no logs
+
+GitHub sometimes fails with **“The job was not acquired by Runner of type hosted”**
+after ~15 minutes in the queue. That is a **runner capacity** problem, not a failed
+test. Re-run is not always available depending on permissions or run age.
+
+**Workarounds:**
+
+1. Push any new commit to the PR branch (triggers a fresh **Quality** run).
+2. **Actions → Quality → Run workflow** (requires `workflow_dispatch` on `main` after merge, or use a new PR commit on the branch).
+3. Check [GitHub Status](https://www.githubstatus.com/) and org **Actions** usage/limits if queue failures repeat.
 
 ## Codecov status gates
 
