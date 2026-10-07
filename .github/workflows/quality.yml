@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Use Actions → Quality → Run workflow when "Re-run" is unavailable or the queue failed.
+  workflow_dispatch:
 
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
