@@ -30,6 +30,8 @@ ignores = [
   "**/public/wasm/**",
   "**/target/**",
   "test/**",
+  "**/tests/**",
+  "crates/**/tests/**",
   "**/fixtures/**",
   "**/*.test.mjs",
 ]

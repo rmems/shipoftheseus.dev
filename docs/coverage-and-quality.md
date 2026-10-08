@@ -1,9 +1,9 @@
 # Coverage and quality services (RM-2009)
 
-This repository uses **Codecov** for test coverage reporting and **Qlty** for
-GitHub Actions workflow linting, maintainability analysis, and a secondary
-coverage mirror. The existing **Quality** workflow (`quality.yml`) still runs
-`npm run validate` (tests, lint, typecheck, build, Rust/WASM checks).
+This repository uses **Codecov** for test coverage reporting and **Qlty Cloud**
+for PR analysis (`qlty check`) and optional coverage mirroring. The **Quality**
+workflow (`quality.yml`) runs `npm run validate`, then (on trusted same-repo
+refs) generates LCOV and uploads to Codecov/Qlty.
 
 ## What runs where
 
@@ -71,10 +71,14 @@ Reports land in `coverage/rust.lcov` and `coverage/lcov.info` (gitignored).
 
 - **Same-repository PRs / `main` pushes** — If `CODECOV_TOKEN` is unset, Codecov
   upload uses OIDC when the action supports it. Upload failures fail the job.
-- **Fork PRs without `CODECOV_TOKEN`** — Upload is skipped with a warning; LCOV
-  artifacts are still retained for 14 days. Do not add tokens to fork workflows.
-- **Qlty coverage upload** — Skipped for fork PRs and Dependabot (no OIDC path
-  for untrusted forks). Qlty CLI checks still run on every PR.
+- **Fork PRs** — The `coverage report and uploads` job is skipped entirely (no
+  `id-token: write` on untrusted PR code). `validate` still runs on the merge
+  commit. Re-run fork checks via **Re-run jobs** on the PR workflow, not
+  `workflow_dispatch` (dispatch only targets branches in this repository).
+- **Dependabot without `CODECOV_TOKEN`** — Codecov upload is skipped; Qlty
+  coverage upload is skipped. LCOV artifacts are still retained when the job runs.
+- **Qlty `qlty check`** — Runs via the Qlty GitHub App on every PR (not from this
+  workflow).
 
 Repository admins must connect the repo in [Codecov](https://codecov.io) and
 [Qlty Cloud](https://qlty.sh) and enable GitHub integration so checks appear on
@@ -87,7 +91,8 @@ statuses appear only after a workflow **successfully uploads** LCOV for that
 commit.
 
 1. **`validate` must pass** — the `coverage-report` job is skipped if `validate`
-   fails or never starts (for example hosted-runner queue timeouts).
+   fails or never starts (for example hosted-runner queue timeouts). That is
+   intentional: uploads describe code that passed the full gate.
 2. **Look for the Actions job** `coverage report and uploads` — if it is absent,
    skipped, or red, uploads did not complete; Codecov/Qlty will not post checks.
 3. **`qlty check` is not coverage** — the passing Qlty check on many PRs comes
@@ -126,5 +131,6 @@ blockers unless branch protection is changed explicitly.
 | Missing Codecov check | `CODECOV_TOKEN` or OIDC; fork PR may skip upload |
 | `cargo llvm-cov` not found | `cargo install cargo-llvm-cov --locked` with Rust 1.98.1 |
 | Empty `coverage/lcov.info` | Run `npm run test:coverage` after `npm ci` |
-| Qlty workflow lint fails | Run `qlty check --all --no-formatters` locally after `qlty install` |
-| Quality workflow red | Fix `npm run validate` first; coverage is a separate workflow |
+| `qlty check` red on PR | Qlty GitHub App findings on the diff (not the Actions upload job) |
+| Quality workflow red | Fix `npm run validate` first; coverage uploads run only after it passes |
+| Fork PR missing coverage job | Expected: uploads are disabled for fork heads; only `validate` runs |

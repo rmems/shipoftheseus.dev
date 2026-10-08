@@ -1,5 +1,5 @@
 {
-  "all": false,
+  "all": true,
   "include": [
     "scripts/**/*.mjs"
   ],

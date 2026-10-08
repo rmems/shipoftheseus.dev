@@ -60,6 +60,10 @@ jobs:
   coverage-report:
     name: coverage report and uploads
     needs: validate
+    if: >-
+      needs.validate.result == 'success' &&
+      (github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -69,7 +73,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -123,12 +126,16 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
         run: |
-          if [ -n "$CODECOV_TOKEN" ]; then
+          if [ "$ACTOR" = 'dependabot[bot]' ] && [ -z "$CODECOV_TOKEN" ]; then
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Codecov upload skipped for Dependabot without `CODECOV_TOKEN`.' >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "$CODECOV_TOKEN" ]; then
             echo 'available=true' >> "$GITHUB_OUTPUT"
             echo 'use_oidc=false' >> "$GITHUB_OUTPUT"
             echo 'Codecov upload: repository secret `CODECOV_TOKEN`.' >> "$GITHUB_STEP_SUMMARY"
-          elif [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+          elif [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
             echo 'available=false' >> "$GITHUB_OUTPUT"
             echo 'Codecov upload skipped for fork PR without `CODECOV_TOKEN`; LCOV artifact retained.' >> "$GITHUB_STEP_SUMMARY"
             echo '::warning::Codecov upload skipped for fork PR without CODECOV_TOKEN'
@@ -147,7 +154,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/rust.lcov,coverage/lcov.info
           disable_search: true
-          override_commit: ${{ github.event.pull_request.head.sha || github.sha }}
+          override_commit: ${{ github.sha }}
           fail_ci_if_error: true
           use_oidc: ${{ steps.codecov_token.outputs.use_oidc == 'true' }}
           verbose: true
@@ -161,7 +168,7 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
         run: |
-          if [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
             echo 'enabled=false' >> "$GITHUB_OUTPUT"
             echo 'Qlty coverage upload skipped for fork PR.' >> "$GITHUB_STEP_SUMMARY"
             exit 0

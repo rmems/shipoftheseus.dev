@@ -27,6 +27,8 @@ comment:
 
 ignore:
   - "test/**"
+  - "**/tests/**"
+  - "crates/**/tests/**"
   - "**/fixtures/**"
   - "public/wasm/**"
   - "dist/**"
