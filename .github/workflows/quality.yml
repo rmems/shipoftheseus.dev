@@ -4,6 +4,12 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Use Actions → Quality → Run workflow when "Re-run" is unavailable or the queue failed.
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -11,11 +17,13 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         # v4.2.2
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
       - name: Use Rust 1.98.1 with the browser target
         # 1.98.1 action revision
         uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e
@@ -45,6 +53,143 @@ jobs:
         with:
           chrome-version: stable
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Validate site
         run: WASM_BINDGEN_BIN="$(command -v wasm-bindgen)" BROWSER_BIN="${{ steps.chrome.outputs.chrome-path }}" npm run validate
+
+  coverage-report:
+    name: coverage report and uploads
+    needs: validate
+    if: >-
+      needs.validate.result == 'success' &&
+      (github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Use Rust 1.98.1
+        uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Generate Rust LCOV
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov \
+            --manifest-path crates/neuromorphic-adapter/Cargo.toml \
+            --all-targets \
+            --locked \
+            --lcov \
+            --output-path coverage/rust.lcov
+
+      - name: Use Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate Node LCOV
+        run: npm run test:coverage
+
+      - name: Retain merged coverage reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-lcov
+          path: |
+            coverage/rust.lcov
+            coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Check Codecov upload mode
+        id: codecov_token
+        shell: bash
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ "$ACTOR" = 'dependabot[bot]' ] && [ -z "$CODECOV_TOKEN" ]; then
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Codecov upload skipped for Dependabot without `CODECOV_TOKEN`.' >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "$CODECOV_TOKEN" ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'use_oidc=false' >> "$GITHUB_OUTPUT"
+            echo 'Codecov upload: repository secret `CODECOV_TOKEN`.' >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Codecov upload skipped for fork PR without `CODECOV_TOKEN`; LCOV artifact retained.' >> "$GITHUB_STEP_SUMMARY"
+            echo '::warning::Codecov upload skipped for fork PR without CODECOV_TOKEN'
+          else
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'use_oidc=true' >> "$GITHUB_OUTPUT"
+            echo 'Codecov upload: OIDC (no `CODECOV_TOKEN` set).' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage to Codecov
+        if: steps.codecov_token.outputs.available == 'true'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/rust.lcov,coverage/lcov.info
+          disable_search: true
+          override_commit: ${{ github.sha }}
+          fail_ci_if_error: true
+          use_oidc: ${{ steps.codecov_token.outputs.use_oidc == 'true' }}
+          verbose: true
+
+      - name: Check Qlty coverage upload mode
+        id: qlty_coverage
+        shell: bash
+        env:
+          QLTY_COVERAGE_TOKEN: ${{ secrets.QLTY_COVERAGE_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'Qlty coverage upload skipped for fork PR.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "${{ github.actor }}" = 'dependabot[bot]' ]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          if [ -n "$QLTY_COVERAGE_TOKEN" ]; then
+            echo 'use_oidc=false' >> "$GITHUB_OUTPUT"
+            echo 'Qlty coverage upload: repository secret `QLTY_COVERAGE_TOKEN`.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'use_oidc=true' >> "$GITHUB_OUTPUT"
+            echo 'Qlty coverage upload: OIDC (no `QLTY_COVERAGE_TOKEN` set).' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage to Qlty
+        if: steps.qlty_coverage.outputs.enabled == 'true'
+        uses: qltysh/qlty-action/coverage@c9b09987143d1e4ac955f4803c7bea742102feb5 # v2.4.0
+        with:
+          oidc: ${{ steps.qlty_coverage.outputs.use_oidc == 'true' }}
+          token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
+          files: coverage/rust.lcov,coverage/lcov.info
