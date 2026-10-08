@@ -57,14 +57,13 @@ function requireWasmBindgenVersion() {
 
 let output;
 
-const fixtureJson = JSON.stringify(
+const readFixture = async (name) => JSON.stringify(
   JSON.parse(
-    await readFile(
-      join(repository, 'crates/neuromorphic-adapter/tests/fixtures/seed9-trace.json'),
-      'utf8',
-    ),
+    await readFile(join(repository, 'crates/neuromorphic-adapter/tests/fixtures', name), 'utf8'),
   ),
 );
+const fixtureJson = await readFixture('seed9-trace.json');
+const kineticFixtureJson = await readFixture('kinetic-seed9-trace.json');
 const traceSource = replayTraceFixture.toString();
 
 try {
@@ -83,7 +82,9 @@ try {
     "adapter.dispose();",
     `const fixture = ${fixtureJson};`,
     `const replayTraceFixture = ${traceSource};`,
-    "replayTraceFixture(fixture, (seed) => wasm.WasmAdapter.init(seed, new Uint8Array([3]))).catch((error) => { console.error(error); process.exit(1); });",
+    `const kineticFixture = ${kineticFixtureJson};`,
+    "const initAdapter = (seed, config) => wasm.WasmAdapter.init(seed, new Uint8Array(config));",
+    "(async () => { await replayTraceFixture(fixture, initAdapter); await replayTraceFixture(kineticFixture, initAdapter); })().catch((error) => { console.error(error); process.exit(1); });",
   ].join(' '), join(output, 'neuromorphic_adapter.js')]);
   run(wasmBindgen, ['--target', 'web', '--out-dir', webOutput, wasm]);
   const webModule = join(webOutput, 'neuromorphic_adapter.mjs');
@@ -101,7 +102,9 @@ try {
     "adapter.dispose();",
     `const fixture = ${fixtureJson};`,
     `const replayTraceFixture = ${traceSource};`,
-    "replayTraceFixture(fixture, (seed) => wasm.WasmAdapter.init(seed, new Uint8Array([3]))).catch((error) => { console.error(error); process.exit(1); });",
+    `const kineticFixture = ${kineticFixtureJson};`,
+    "const initAdapter = (seed, config) => wasm.WasmAdapter.init(seed, new Uint8Array(config));",
+    "(async () => { await replayTraceFixture(fixture, initAdapter); await replayTraceFixture(kineticFixture, initAdapter); })().catch((error) => { console.error(error); process.exit(1); });",
   ].join(' '), webModule, join(webOutput, 'neuromorphic_adapter_bg.wasm')]);
   process.stdout.write('Generated Rust/WASM adapter smoke test passed.\n');
 } finally {

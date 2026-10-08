@@ -9,16 +9,22 @@ use synaptic_wiring::{SynapticMesh, topology::generate_small_world};
 use wasm_bindgen::prelude::*;
 
 pub mod encoder;
+pub mod kinetic;
 
 use encoder::{
     CONTRACT_VERSION_V4, ENCODER_CHANNELS, EncoderMode, V1Encoder,
     normalize_to_encoder_input_for_contract,
 };
+use kinetic::{KineticExtractor, TELEMETRY_PACKET_LEN};
 
 pub const CONTRACT_VERSION: u32 = 3;
 /// Contract version that adds selectable encoder modes and spike-train
 /// diagnostics. Version 3 stays accepted as the legacy delta-only alias.
 pub const CONTRACT_VERSION_V4_U32: u32 = CONTRACT_VERSION_V4 as u32;
+/// Contract version whose `input` samples are `[x, y, pressure]` telemetry
+/// packets routed through `kinetic-signals` feature extraction (see
+/// [`kinetic`]) before `axon-encoder`. Adds `encoder_features` to the state.
+pub const CONTRACT_VERSION_V5: u32 = 5;
 const CHANNEL_COUNT: usize = 16;
 const STATUS_OK: &str = "ok";
 
@@ -154,6 +160,9 @@ pub struct BrowserState {
     pub encoded_spike_channels: u32,
     /// Cumulative encoded spikes since construction.
     pub encoded_spike_total: u64,
+    /// The clamped `[0, 1]` feature vector handed to `axon-encoder` by the
+    /// most recent `input` (all zeros before the first input).
+    pub encoder_features: Vec<f32>,
 }
 
 /// Construct the `neuromod` network for the selected model. All dynamics and
@@ -183,6 +192,10 @@ pub struct BrowserRuntime {
     completed_step: u64,
     last_sequence: Option<u64>,
     encoder: V1Encoder,
+    /// Present only on contract 5, where input is telemetry rather than raw
+    /// samples.
+    kinetic: Option<KineticExtractor>,
+    encoder_features: [f32; ENCODER_CHANNELS],
     encoded_spike_count: u32,
     encoded_spike_channels: u32,
     encoded_spike_total: u64,
@@ -209,7 +222,13 @@ impl BrowserRuntime {
 
     /// Contract-4 constructor with an explicitly selected encoder mode.
     pub fn with_mode(seed: u64, mode: EncoderMode, contract: u32) -> Result<Self, String> {
-        if contract != CONTRACT_VERSION && contract != CONTRACT_VERSION_V4_U32 {
+        if ![
+            CONTRACT_VERSION,
+            CONTRACT_VERSION_V4_U32,
+            CONTRACT_VERSION_V5,
+        ]
+        .contains(&contract)
+        {
             return Err(format!("unsupported contract version {contract}"));
         }
         if contract == CONTRACT_VERSION && mode != EncoderMode::Delta {
@@ -232,6 +251,8 @@ impl BrowserRuntime {
             completed_step: 0,
             last_sequence: None,
             encoder: V1Encoder::for_mode(mode),
+            kinetic: (contract == CONTRACT_VERSION_V5).then(KineticExtractor::new),
+            encoder_features: [0.0; ENCODER_CHANNELS],
             encoded_spike_count: 0,
             encoded_spike_channels: 0,
             encoded_spike_total: 0,
@@ -252,8 +273,11 @@ impl BrowserRuntime {
 
     /// Accept a monotonically increasing browser input sequence.
     ///
-    /// Raw samples are summarized by `kinetic-signals`, transformed into a
-    /// bounded feature vector, and encoded by `axon-encoder`. The resulting
+    /// On contracts 3 and 4, raw samples are summarized by `kinetic-signals`
+    /// statistics into a bounded feature vector. On contract 5, samples are
+    /// one `[x, y, pressure]` telemetry packet that the stateful
+    /// [`KineticExtractor`] turns into clamped motion features. Either way the
+    /// features are encoded by `axon-encoder`. The resulting
     /// spikes are queued, so each logical `step` advances `synaptic-wiring`
     /// exactly once before it advances `neuromod` with a seeded RNG.
     pub fn input(&mut self, sequence: u64, samples: &[f32]) -> Result<(), String> {
@@ -270,9 +294,21 @@ impl BrowserRuntime {
         if samples.iter().any(|sample| !sample.is_finite()) {
             return self.fail("input-non-finite-samples", "input samples must be finite");
         }
-        // Contract 3 keeps the legacy all-samples statistics so existing
-        // replays reproduce; contract 4+ uses first-16 statistics.
-        let features = normalize_to_encoder_input_for_contract(samples, self.contract_version);
+        let features = match self.kinetic.as_mut() {
+            Some(kinetic) => {
+                let Ok(packet) = <&[f32; TELEMETRY_PACKET_LEN]>::try_from(samples) else {
+                    return self.fail(
+                        "input-telemetry-shape",
+                        format!("contract 5 input must be one [x, y, pressure] packet of {TELEMETRY_PACKET_LEN} samples"),
+                    );
+                };
+                kinetic.extract(packet)
+            }
+            // Contract 3 keeps the legacy all-samples statistics so existing
+            // replays reproduce; contract 4 uses first-16 statistics.
+            None => normalize_to_encoder_input_for_contract(samples, self.contract_version),
+        };
+        self.encoder_features = features;
 
         let channels = self.encoder.encode_step(&features);
         let mut source_spikes = vec![false; CHANNEL_COUNT];
@@ -362,6 +398,7 @@ impl BrowserRuntime {
             encoded_spike_count: self.encoded_spike_count,
             encoded_spike_channels: self.encoded_spike_channels,
             encoded_spike_total: self.encoded_spike_total,
+            encoder_features: self.encoder_features.to_vec(),
         }
     }
 
@@ -498,16 +535,22 @@ impl WasmState {
     pub fn encoded_spike_total(&self) -> u64 {
         self.state.encoded_spike_total
     }
+    #[wasm_bindgen(getter)]
+    pub fn encoder_features(&self) -> js_sys::Float32Array {
+        js_sys::Float32Array::from(self.state.encoder_features.as_slice())
+    }
 }
 
 #[wasm_bindgen]
 impl WasmAdapter {
     /// `config` is `[3]` for the legacy delta-only contract, `[4]` for the
     /// default v1 encoder mode, or `[4, mode]` to select it explicitly
-    /// (`0 = delta`, `1 = temporal`, `2 = rate`).
+    /// (`0 = delta`, `1 = temporal`, `2 = rate`). `[5]` and `[5, mode]` select
+    /// the same encoder modes behind `kinetic-signals` telemetry extraction.
     #[wasm_bindgen(js_name = init)]
     pub fn init(seed: u64, config: &[u8]) -> Result<WasmAdapter, JsValue> {
-        let invalid = || JsValue::from_str("adapter config must be [3], [4], or [4, mode]");
+        let invalid =
+            || JsValue::from_str("adapter config must be [3], [4], [4, mode], [5], or [5, mode]");
         let runtime = match config {
             [3] => BrowserRuntime::new(seed),
             [4] => BrowserRuntime::with_mode(seed, EncoderMode::DEFAULT, CONTRACT_VERSION_V4_U32),
@@ -515,6 +558,12 @@ impl WasmAdapter {
                 let selected =
                     EncoderMode::parse(*mode).map_err(|error| JsValue::from_str(&error))?;
                 BrowserRuntime::with_mode(seed, selected, CONTRACT_VERSION_V4_U32)
+            }
+            [5] => BrowserRuntime::with_mode(seed, EncoderMode::DEFAULT, CONTRACT_VERSION_V5),
+            [5, mode] => {
+                let selected =
+                    EncoderMode::parse(*mode).map_err(|error| JsValue::from_str(&error))?;
+                BrowserRuntime::with_mode(seed, selected, CONTRACT_VERSION_V5)
             }
             _ => return Err(invalid()),
         }

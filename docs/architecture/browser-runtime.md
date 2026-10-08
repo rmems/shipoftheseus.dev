@@ -2,7 +2,7 @@
 
 - **Status:** accepted for V1
 - **Decision date:** 2026-09-16
-- **Scope:** GitHub #4, #6, #14, #15, and #21
+- **Scope:** GitHub #4, #6, #8, #14, #15, and #21
 
 ## Decision
 
@@ -133,10 +133,58 @@ deterministic for identical ordered input. The per-tick order is fixed:
   mode/config pairs before loading WASM, keeps contract-3 callers delta-only,
   and surfaces the active mode plus diagnostics on every contract-4 snapshot
   for inspection. WASM is required; there is no JavaScript encoding fallback.
-  The dedicated worker and main-thread session paths keep the legacy delta
-  configuration until a later issue wires selection through them — mode
-  selection is a bridge-level opt-in that does not change what the renderer
-  consumes.
+  The live demo's worker and main-thread session paths both use contract 5
+  (below) with the default mode; contracts 3 and 4 remain for their goldens
+  and for callers that send raw sample packets.
+
+### Interactive telemetry through `kinetic-signals` (GitHub #8 / Linear RM-1644)
+
+Contract 5 is the v1 interactive sensory pipeline:
+
+```text
+pointer/touch/demo telemetry → kinetic-signals → axon-encoder → neuromod → synaptic-wiring → renderer
+   (site: DOM → [x, y, pressure])  (adapter: KineticExtractor)  (unchanged downstream)
+```
+
+- **Init config.** `[5]` selects the default `temporal` mode; `[5, mode]`
+  accepts the same mode bytes as contract 4.
+- **Input.** Each `input(sequence, samples)` carries exactly one
+  `[x, y, pressure]` telemetry packet. `x`/`y` are relative to the island's
+  render surface (`0..1` inside it) and `pressure` is `PointerEvent.pressure`.
+  Any other length fails closed with `input-telemetry-shape` and does not
+  consume the sequence.
+- **Ownership split.** The site (`src/runtime/kinetic-telemetry.ts`) only
+  converts DOM pointer events into packets and latches one per logical tick.
+  It never computes features or spikes. The adapter
+  (`crates/neuromorphic-adapter/src/kinetic.rs`) clamps the packet to
+  `[0, 1]`, differences consecutive positions into velocity, and delegates
+  smoothing, volatility, and surprise to `kinetic-signals` (`EMA`,
+  `VolEstimator`, `compute_surprise`). It then rescales to fixed full-scale
+  constants and clamps every feature to `[0, 1]` before handing exactly
+  those 16 values to the selected `axon-encoder`. No second spike encoder
+  exists on the site.
+- **Feature layout** (indices are contract; reordering needs a version bump):
+  `0 x`, `1 y`, `2 pressure`, `3/4 +vx/−vx`, `5/6 +vy/−vy`, `7 speed`,
+  `8 speed EMA(3)`, `9 speed EMA(12)`, `10 |Δspeed|`, `11 speed volatility
+  (VolEstimator, 16 ticks)`, `12 speed surprise`, `13 pressure EMA(8)`,
+  `14/15 x/y EMA(6)`. Full scale is 0.1 island/tick for velocity, 0.05 for
+  `|Δspeed|`, and z = 3 for surprise.
+- **Deterministic fallback.** Without pointer activity for 60 ticks (3 s), or
+  after the pointer leaves the surface, the session feeds the deterministic
+  scripted path (`scriptedTelemetry(sequence)` in
+  `src/runtime/demo-stimulus.ts`). The demo therefore runs with interaction
+  disabled, and the island's `data-demo-input-source` reports `pointer` or
+  `scripted`.
+- **Recording and replay.** Every session records its packets in the golden
+  fixture format (`{ seed, config, operations }`, `u64`s as decimal strings).
+  Replaying it from `init` reproduces the session bit-exactly. The committed
+  contract-5 golden `crates/neuromorphic-adapter/tests/fixtures/kinetic-seed9-trace.json`
+  also pins every step's `encoder_features` bits. The native test, the Node
+  WASM smoke, and the headless-Chrome smoke all replay it.
+- **Inspection.** Snapshots carry `encoder_features`. Under `astro dev`,
+  `globalThis.__neuromorphicTelemetry.latest()` returns the active source,
+  encoder, encoded spike count, and features, and `.trace()` returns the
+  replayable recording (capped at 6000 ticks, then `null`).
 
 ### Topology projection handoff
 
@@ -220,8 +268,11 @@ in V1 without a contract-version increase.
   provenance.
 - `spike_neurons`, `membrane_potentials` — the neuron state raster and
   inspection views render.
+- `encoder_features` — contract 5 only (empty on 3 and 4): the clamped
+  `kinetic-signals` features handed to `axon-encoder` by the latest input,
+  for telemetry inspection and feature-level replay checks.
 - `encoder_mode`, `encoder_name`, `encoded_spike_count`,
-  `encoded_spike_channels`, `encoded_spike_total` — contract-4 encoder
+  `encoded_spike_channels`, `encoded_spike_total` — contract-4/5 encoder
   inspection: the active mode and the derived spike-train diagnostics from the
   most recent `input` (count and distinct channels) plus the cumulative total
   since construction.

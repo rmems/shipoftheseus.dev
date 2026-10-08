@@ -1,6 +1,7 @@
 import {
   initNeuromorphicAdapter,
   type NeuromorphicAdapter,
+  type NeuromorphicAdapterOptions,
   type NeuromorphicState,
 } from './neuromorphic-adapter';
 
@@ -16,6 +17,7 @@ export interface WorkerInitRequest {
   type: 'init';
   seed: bigint;
   moduleUrl: string;
+  options?: NeuromorphicAdapterOptions;
 }
 
 export interface WorkerInputRequest {
@@ -70,6 +72,7 @@ function postState(id: number, state: NeuromorphicState): void {
     state.topologyPolarities,
     state.topologyWeightBits,
     state.topologyOutgoingEdgeOffsets,
+    state.encoderFeatures,
   ].map((view) => view.buffer);
   ctx.postMessage({ id, type: 'state', state }, transfer);
 }
@@ -94,6 +97,7 @@ ctx.onmessage = (event) => {
           adapter = await initNeuromorphicAdapter(
             () => import(/* @vite-ignore */ moduleUrl),
             request.seed,
+            request.options,
           );
           ctx.postMessage({ id: request.id, type: 'ready' });
         } catch (error) {

@@ -1,22 +1,22 @@
 /**
- * Deterministic sensory stimulus for the live demo. Samples are a pure function
- * of the monotonically increasing input sequence — never of wall-clock time,
- * device state, or entropy — so identical seeds and steps replay byte-equal
- * simulation state per the adapter contract.
+ * Deterministic scripted telemetry for the live demo. When nobody is
+ * interacting (or interaction is unavailable), the demo traces this Lissajous
+ * path as if a pointer were moving across the island. Packets are a pure
+ * function of the monotonically increasing input sequence — never of
+ * wall-clock time, device state, or entropy — so identical seeds and steps
+ * replay byte-equal simulation state per the adapter contract.
+ *
+ * Packets use the contract-5 `[x, y, pressure]` layout; feature extraction and
+ * spike encoding happen in Rust (`kinetic-signals` → `axon-encoder`).
  */
-export const DEMO_CHANNEL_COUNT = 16;
 export const DEMO_SEED = 20260916n;
 export const DEMO_TICK_MS = 50;
 
-export function stimulusSamples(sequence: bigint): Float32Array {
+export function scriptedTelemetry(sequence: bigint): Float32Array {
   const step = Number(sequence & 0xffffn);
-  const samples = new Float32Array(DEMO_CHANNEL_COUNT);
-
-  for (let channel = 0; channel < DEMO_CHANNEL_COUNT; channel += 1) {
-    const carrier = Math.sin(step * 0.11 + channel * 0.7);
-    const harmonic = 0.5 * Math.sin(step * 0.031 * ((channel % 3) + 1) + channel);
-    samples[channel] = carrier + harmonic;
-  }
-
-  return samples;
+  const x = 0.5 + 0.38 * Math.sin(step * 0.09);
+  const y = 0.5 + 0.3 * Math.sin(step * 0.13 + 0.8);
+  // A periodic "press" every ~6 s gives the pressure channels structure.
+  const pressure = step % 120 < 24 ? 0.5 : 0;
+  return new Float32Array([x, y, pressure]);
 }

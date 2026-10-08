@@ -1,9 +1,19 @@
 import {
+  DEFAULT_ENCODER_MODE,
+  ENCODER_MODES,
+  NEUROMORPHIC_CONTRACT_VERSION_V5,
   initNeuromorphicAdapter,
   type NeuromorphicAdapter,
   type NeuromorphicState,
 } from './neuromorphic-adapter';
-import { DEMO_SEED, DEMO_TICK_MS, stimulusSamples } from './demo-stimulus';
+import { DEMO_SEED, DEMO_TICK_MS } from './demo-stimulus';
+import {
+  createScriptedTelemetry,
+  createTelemetryRecorder,
+  type TelemetrySource,
+  type TelemetrySourceKind,
+  type TelemetryTrace,
+} from './kinetic-telemetry';
 import type {
   ReasonCode,
   WasmInitOptions,
@@ -15,6 +25,29 @@ import type { SimulationChannel } from './simulation-channel';
 import type { WorkerRequest, WorkerResponse } from './neuromorphic-worker';
 
 export const WASM_MODULE_URL = '/wasm/neuromorphic-adapter/neuromorphic_adapter.js';
+
+/**
+ * Live demo adapter configuration: contract 5 routes telemetry through
+ * `kinetic-signals` before the default `axon-encoder` mode. The worker and the
+ * main-thread fallback use the identical options.
+ */
+export const LIVE_ADAPTER_OPTIONS = {
+  contractVersion: NEUROMORPHIC_CONTRACT_VERSION_V5,
+  encoderMode: DEFAULT_ENCODER_MODE,
+} as const;
+const LIVE_ADAPTER_CONFIG = [
+  LIVE_ADAPTER_OPTIONS.contractVersion,
+  ENCODER_MODES[LIVE_ADAPTER_OPTIONS.encoderMode],
+] as const;
+
+/** Published after every completed tick for development/telemetry views. */
+export interface TelemetryFrame {
+  sequence: bigint;
+  source: TelemetrySourceKind;
+  state: NeuromorphicState;
+  /** Replayable recording of this session so far (see `TelemetryTrace`). */
+  trace: () => TelemetryTrace | null;
+}
 
 class SeamError extends Error {
   code: ReasonCode;
@@ -32,20 +65,30 @@ interface Engine {
   dispose: () => void;
 }
 
+interface DriverOptions {
+  telemetry: TelemetrySource;
+  onFrame?: (frame: TelemetryFrame) => void;
+}
+
 /**
- * Fixed-cadence driver: each tick feeds one deterministic stimulus packet and
- * advances exactly one logical step, then publishes the snapshot. rAF only
- * controls presentation; the tick owns simulation time.
+ * Fixed-cadence driver: each tick feeds one telemetry packet (pointer, or the
+ * deterministic scripted path when idle), advances exactly one logical step,
+ * then publishes the snapshot. Every packet is recorded so the session can be
+ * replayed from `init`. rAF only controls presentation; the tick owns
+ * simulation time.
  */
 function createDriver(
   engine: Engine,
   channel: SimulationChannel,
   onFailure: () => void,
+  { telemetry, onFrame }: DriverOptions,
 ): WasmSession {
   let timer: ReturnType<typeof setInterval> | null = null;
   let sequence = 0n;
   let inFlight = false;
   let disposed = false;
+  const recorder = createTelemetryRecorder(DEMO_SEED, LIVE_ADAPTER_CONFIG);
+  const trace = () => recorder.trace();
 
   const tick = async () => {
     if (disposed || inFlight) {
@@ -54,8 +97,13 @@ function createDriver(
     inFlight = true;
     try {
       sequence += 1n;
-      await engine.input(sequence, stimulusSamples(sequence));
-      channel.publish(await engine.step());
+      const packet = telemetry.sample(sequence);
+      // Record before input: the worker path transfers (detaches) the buffer.
+      recorder.record(sequence, packet);
+      await engine.input(sequence, packet);
+      const state = await engine.step();
+      channel.publish(state);
+      onFrame?.({ sequence, source: telemetry.kind(), state, trace });
     } catch {
       if (!disposed) {
         onFailure();
@@ -89,6 +137,7 @@ function createDriver(
         clearInterval(timer);
         timer = null;
       }
+      telemetry.dispose();
       engine.dispose();
     },
   };
@@ -229,6 +278,7 @@ function workerEngine(
       type: 'init',
       seed: DEMO_SEED,
       moduleUrl: moduleUrl(),
+      options: LIVE_ADAPTER_OPTIONS,
     } satisfies WorkerRequest);
   });
 }
@@ -237,6 +287,9 @@ export interface WasmSeamOptions {
   channel: SimulationChannel;
   workerFactory?: () => Worker;
   mainThreadAdapter?: () => Promise<NeuromorphicAdapter>;
+  /** Telemetry source per session; defaults to the scripted path. */
+  telemetry?: () => TelemetrySource;
+  onFrame?: (frame: TelemetryFrame) => void;
 }
 
 /**
@@ -249,6 +302,11 @@ export function createWasmSeam(options: WasmSeamOptions): WasmSeam {
   return {
     async init(initOptions: WasmInitOptions): Promise<WasmSession> {
       const reportFailure = () => initOptions.onWorkerFailure('after-init');
+      const driver = (engine: Engine) =>
+        createDriver(engine, options.channel, reportFailure, {
+          telemetry: (options.telemetry ?? createScriptedTelemetry)(),
+          onFrame: options.onFrame,
+        });
 
       if (initOptions.useWorker) {
         if (initOptions.signal.aborted) {
@@ -268,12 +326,17 @@ export function createWasmSeam(options: WasmSeamOptions): WasmSeam {
           throw new SeamError('worker-unavailable', 'simulation worker is unavailable');
         }
         const engine = await workerEngine(worker, initOptions.signal, reportFailure);
-        return createDriver(engine, options.channel, reportFailure);
+        return driver(engine);
       }
 
       const loadAdapter =
         options.mainThreadAdapter ??
-        (() => initNeuromorphicAdapter(() => import(/* @vite-ignore */ moduleUrl()), DEMO_SEED));
+        (() =>
+          initNeuromorphicAdapter(
+            () => import(/* @vite-ignore */ moduleUrl()),
+            DEMO_SEED,
+            LIVE_ADAPTER_OPTIONS,
+          ));
       try {
         const adapter = await loadAdapter();
         if (initOptions.signal.aborted) {
@@ -288,7 +351,7 @@ export function createWasmSeam(options: WasmSeamOptions): WasmSeam {
           step: () => Promise.resolve(adapter.step()),
           dispose: () => adapter.dispose(),
         };
-        return createDriver(engine, options.channel, reportFailure);
+        return driver(engine);
       } catch (error) {
         if (error instanceof SeamError) {
           throw error;
