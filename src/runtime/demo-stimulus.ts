@@ -13,7 +13,8 @@ export const DEMO_SEED = 20260916n;
 export const DEMO_TICK_MS = 50;
 
 export function scriptedTelemetry(sequence: bigint): Float32Array {
-  const step = Number(sequence & 0xffffn);
+  // Exact for 2^53 ticks; no wraparound jump that would read as a fast swipe.
+  const step = Number(sequence);
   const x = 0.5 + 0.38 * Math.sin(step * 0.09);
   const y = 0.5 + 0.3 * Math.sin(step * 0.13 + 0.8);
   // A periodic "press" every ~6 s gives the pressure channels structure.

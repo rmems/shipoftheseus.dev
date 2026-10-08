@@ -160,8 +160,9 @@ pub struct BrowserState {
     pub encoded_spike_channels: u32,
     /// Cumulative encoded spikes since construction.
     pub encoded_spike_total: u64,
-    /// The clamped `[0, 1]` feature vector handed to `axon-encoder` by the
-    /// most recent `input` (all zeros before the first input).
+    /// Contract 5: the clamped `[0, 1]` feature vector handed to
+    /// `axon-encoder` by the most recent `input` (all zeros before the first
+    /// input). Empty on contracts 3 and 4.
     pub encoder_features: Vec<f32>,
 }
 
@@ -398,7 +399,12 @@ impl BrowserRuntime {
             encoded_spike_count: self.encoded_spike_count,
             encoded_spike_channels: self.encoded_spike_channels,
             encoded_spike_total: self.encoded_spike_total,
-            encoder_features: self.encoder_features.to_vec(),
+            // Contracts 3 and 4 keep their frozen state shape: no features.
+            encoder_features: if self.contract_version == CONTRACT_VERSION_V5 {
+                self.encoder_features.to_vec()
+            } else {
+                Vec::new()
+            },
         }
     }
 

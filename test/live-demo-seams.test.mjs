@@ -5,6 +5,7 @@ import { loadTsModule } from './load-ts-module.mjs';
 
 const stimulus = await loadTsModule('../src/runtime/demo-stimulus.ts');
 const telemetry = await loadTsModule('../src/runtime/kinetic-telemetry.ts');
+const { replayTraceFixture } = await import('../scripts/replay-trace-fixture.mjs');
 const channelModule = await loadTsModule('../src/runtime/simulation-channel.ts');
 const rendererModule = await loadTsModule('../src/runtime/topology-renderer.ts');
 const wasmModule = await loadTsModule('../src/runtime/wasm-session.ts');
@@ -118,6 +119,18 @@ test('pointer telemetry normalizes island-relative packets and falls back to the
   assert.equal(target.listeners.size, 0, 'dispose removes every pointer listener');
 });
 
+test('a tap that leaves between ticks still reaches exactly one tick', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
+  target.emit('pointerup', { clientX: 200, clientY: 100, pressure: 0 });
+  target.emit('pointerleave');
+  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0]);
+  assert.equal(source.kind(), 'pointer');
+  assert.deepEqual(source.sample(2n), stimulus.scriptedTelemetry(2n));
+  source.dispose();
+});
+
 test('the session feeds telemetry packets to the adapter and records a replayable trace', async () => {
   const channel = channelModule.createSimulationChannel();
   const received = [];
@@ -160,6 +173,60 @@ test('the session feeds telemetry packets to the adapter and records a replayabl
       { op: 'step' },
     ]),
   );
+});
+
+test('failed ticks are not recorded, and exported recordings replay without expected values', async () => {
+  const channel = channelModule.createSimulationChannel();
+  const adapter = fakeAdapter();
+  const step = adapter.step;
+  adapter.step = () => {
+    if (adapter.calls.step >= 2) {
+      adapter.calls.step += 1;
+      throw new Error('step failed');
+    }
+    return step();
+  };
+  const frames = [];
+  const failures = [];
+  const seam = wasmModule.createWasmSeam({
+    channel,
+    mainThreadAdapter: () => Promise.resolve(adapter),
+    onFrame: (frame) => frames.push(frame),
+  });
+  const session = await seam.init({
+    useWorker: false,
+    signal: new AbortController().signal,
+    onWorkerFailure: (phase) => failures.push(phase),
+  });
+  session.resume();
+  await sleep(220);
+  session.dispose();
+
+  assert.ok(failures.length > 0, 'the third tick fails');
+  const trace = frames.at(-1).trace();
+  assert.deepEqual(
+    trace.operations.filter((operation) => operation.op === 'input').map((operation) => operation.sequence),
+    ['1', '2'],
+    'only the two completed ticks are recorded',
+  );
+
+  trace.operations[0].samples[0] = 99;
+  assert.notEqual(frames.at(-1).trace().operations[0].samples[0], 99, 'exports are copies');
+
+  const replayed = [];
+  let seenConfig;
+  await replayTraceFixture(frames.at(-1).trace(), (seed, config) => {
+    seenConfig = config;
+    return {
+      input: (sequence, samples) => replayed.push([sequence, Array.from(samples)]),
+      step: () => ({ error_status: 'ok' }),
+    };
+  });
+  assert.deepEqual(seenConfig, [5, 1]);
+  assert.deepEqual(replayed, [
+    [1n, Array.from(stimulus.scriptedTelemetry(1n))],
+    [2n, Array.from(stimulus.scriptedTelemetry(2n))],
+  ]);
 });
 
 test('the telemetry recorder stops at capacity instead of dropping replay history', () => {

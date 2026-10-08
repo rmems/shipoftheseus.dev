@@ -54,6 +54,7 @@ export function createPointerTelemetry(
   let latest: Float32Array | null = null;
   let dirty = false;
   let lastActiveSequence: bigint | null = null;
+  let leftBeforeSample = false;
   let lastKind: TelemetrySourceKind = 'scripted';
 
   const onMove = (event: PointerEvent) => {
@@ -70,11 +71,19 @@ export function createPointerTelemetry(
     const pressure = Number.isFinite(event.pressure) ? event.pressure : 0;
     latest = new Float32Array([x, y, pressure]);
     dirty = true;
+    leftBeforeSample = false;
   };
-  const onLeave = () => {
+  const release = () => {
     latest = null;
     dirty = false;
     lastActiveSequence = null;
+    leftBeforeSample = false;
+  };
+  // A tap can start and leave between two ticks (touch fires pointerleave
+  // right after pointerup); deliver its unsampled packet once before release.
+  const onLeave = () => {
+    if (dirty) leftBeforeSample = true;
+    else release();
   };
 
   const moveEvents = ['pointermove', 'pointerdown', 'pointerup'] as const;
@@ -93,7 +102,9 @@ export function createPointerTelemetry(
         lastActiveSequence !== null &&
         sequence - lastActiveSequence < POINTER_IDLE_TICKS;
       lastKind = active ? 'pointer' : 'scripted';
-      return active && latest ? new Float32Array(latest) : fallback.sample(sequence);
+      const packet = active && latest ? new Float32Array(latest) : fallback.sample(sequence);
+      if (leftBeforeSample) release();
+      return packet;
     },
     kind: () => lastKind,
     dispose() {
@@ -126,7 +137,8 @@ export function createTelemetryRecorder(seed: bigint, config: readonly number[],
   let truncated = false;
 
   return {
-    record(sequence: bigint, packet: Float32Array) {
+    /** Record one completed tick (call after its input and step succeeded). */
+    record(sequence: bigint, packet: ArrayLike<number>) {
       if (packet.length !== TELEMETRY_PACKET_LENGTH) {
         throw new RangeError('telemetry packets must be [x, y, pressure]');
       }
@@ -145,7 +157,7 @@ export function createTelemetryRecorder(seed: bigint, config: readonly number[],
         seed: seed.toString(),
         config: [...config],
         operations: ticks.flatMap(({ sequence, samples }) => [
-          { op: 'input' as const, sequence: sequence.toString(), samples },
+          { op: 'input' as const, sequence: sequence.toString(), samples: [...samples] },
           { op: 'step' as const },
         ]),
       };

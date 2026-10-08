@@ -98,10 +98,13 @@ function createDriver(
     try {
       sequence += 1n;
       const packet = telemetry.sample(sequence);
-      // Record before input: the worker path transfers (detaches) the buffer.
-      recorder.record(sequence, packet);
+      // Copy before input: the worker path transfers (detaches) the buffer.
+      const recorded = Array.from(packet);
       await engine.input(sequence, packet);
       const state = await engine.step();
+      // Only completed ticks enter the recording, so it always ends at a
+      // published snapshot and replays without phantom steps.
+      recorder.record(sequence, recorded);
       channel.publish(state);
       onFrame?.({ sequence, source: telemetry.kind(), state, trace });
     } catch {

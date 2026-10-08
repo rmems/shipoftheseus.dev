@@ -71,6 +71,17 @@ fn legacy_contract_stays_delta_only_and_v4_defaults_to_temporal() {
         BrowserRuntime::with_mode(9, EncoderMode::DEFAULT, u32::from(CONTRACT_VERSION_V4))
             .expect("contract 4 defaults to the temporal mode");
     assert_eq!(defaulted.state().encoder_name, "temporal");
+    // Legacy contracts keep their frozen state shape: no kinetic features.
+    let mut legacy = legacy;
+    legacy
+        .input(1, &[1.0, 0.0, 0.5])
+        .expect("input is accepted");
+    assert!(legacy.state().encoder_features.is_empty());
+    let mut defaulted = defaulted;
+    defaulted
+        .input(1, &[1.0, 0.0, 0.5])
+        .expect("input is accepted");
+    assert!(defaulted.state().encoder_features.is_empty());
 
     assert!(BrowserRuntime::with_mode(9, EncoderMode::Delta, 9).is_err());
     assert!(EncoderMode::parse(3).is_err());

@@ -6,6 +6,9 @@
 // `u64` values travel as decimal strings and are converted with `BigInt`.
 // Never parse them into a JavaScript `Number`.
 //
+// Steps without `expected` (recordings exported by the live demo's
+// telemetry recorder) are replayed but not compared.
+//
 // `initAdapter(seed, config)` receives the fixture's init config bytes
 // (`[3]` when the fixture predates the `config` field). Contract-5 fixtures
 // also pin the `kinetic-signals` features handed to `axon-encoder`.
@@ -22,6 +25,12 @@ export async function replayTraceFixture(fixture, initAdapter) {
     }
     const state = adapter.step();
     const expected = operation.expected;
+    if (!expected) {
+      if (state.error_status !== 'ok') {
+        throw new Error(`recorded step failed with status ${state.error_status}`);
+      }
+      continue;
+    }
     const actual = {
       completed_step: state.completed_step.toString(),
       last_sequence: state.last_sequence.toString(),
