@@ -154,6 +154,7 @@
 
 .plasticity-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 0.9rem;
   min-width: 0;
@@ -178,6 +179,7 @@
 
 .plasticity-panel header {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.3rem;
 }
 
@@ -403,5 +405,6 @@ canvas[data-plasticity-modulator-strip] { height: 4.5rem; }
 @media (max-width: 680px) {
   .plasticity-provenance div,
   .plasticity-readout div { grid-template-columns: minmax(0, 1fr); gap: 0.25rem; }
-  .plasticity-modulators li { grid-template-columns: 6.4rem minmax(0, 1fr) 2.4rem; }
+  .plasticity-modulators li { grid-template-columns: minmax(0, 6.4rem) minmax(0, 1fr) minmax(0, 2.4rem); }
+  .plasticity-layer { white-space: normal; }
 }

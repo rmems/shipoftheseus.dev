@@ -39,9 +39,21 @@ test('every requested primary route is backed by an Astro page', () => {
 
 test('the responsive stylesheet does not force horizontal scrolling on narrow screens', () => {
   const styles = read('src/styles/global.css');
+  const packageJson = JSON.parse(read('package.json'));
+  const layoutCheck = read('scripts/verify-layout.mjs');
 
   assert.doesNotMatch(styles, /min-width:320px/);
   assert.match(styles, /@media\s*\(max-width:\s*360px\)/);
+  // Long words wrap, and the largest headings are capped by the viewport,
+  // not by rem, so 200% text cannot widen the page.
+  assert.match(styles, /body \{[^}]*overflow-wrap: break-word;/);
+  assert.match(styles, /\.primary-nav \{ flex-wrap: wrap;/);
+  assert.match(styles, /font-size: min\(17vw, 5rem\)/);
+  // Every built page is loaded at 320 to 1024 px with 100% and 200% text in CI.
+  assert.equal(packageJson.scripts['test:layout'], 'node --experimental-websocket scripts/verify-layout.mjs');
+  assert.match(packageJson.scripts.validate, /npm run build && .* && npm run test:layout$/);
+  assert.match(layoutCheck, /LAYOUT_WIDTHS = Object\.freeze\(\[320, 360, 375, 768, 1024\]\)/);
+  assert.match(layoutCheck, /TEXT_SCALES = Object\.freeze\(\['100%', '200%'\]\)/);
 });
 
 test('the static site does not depend on remotely hosted fonts', () => {
@@ -288,7 +300,7 @@ test('quality CI validates the locked Rust/WASM adapter before the frontend cont
   assert.match(workflow, /BROWSER_BIN="\$\{\{ steps\.chrome\.outputs\.chrome-path \}\}" npm run validate/);
   const packageJson = read('package.json');
   assert.match(packageJson, /"validate:rust":/);
-  assert.match(packageJson, /"validate": "npm test && npm run lint && npm run typecheck && npm run build && npm run validate:rust && npm run test:wasm-adapter && npm run test:wasm-web-pkg && npm run test:wasm-browser"/);
+  assert.match(packageJson, /"validate": "npm test && npm run lint && npm run typecheck && npm run build && npm run validate:rust && npm run test:wasm-adapter && npm run test:wasm-web-pkg && npm run test:wasm-browser && npm run test:layout"/);
   assert.match(readme, /Rust 1\.98\.1/);
   assert.match(readme, /wasm32-unknown-unknown/);
   assert.match(readme, /wasm-bindgen-cli 0\.2\.126/);

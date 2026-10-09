@@ -32,6 +32,9 @@ body {
   font-size: 16px;
   line-height: 1.65;
   text-rendering: optimizeLegibility;
+  /* A word longer than its line breaks instead of widening the page (narrow
+     screens with large text). */
+  overflow-wrap: break-word;
 }
 
 body::before {
@@ -118,7 +121,7 @@ code {
 .signal-mark span:nth-child(2) { height: 17px; }
 .signal-mark span:nth-child(3) { height: 12px; }
 
-.primary-nav { display: flex; gap: clamp(0.9rem, 2.5vw, 1.8rem); }
+.primary-nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.4rem clamp(0.9rem, 2.5vw, 1.8rem); }
 
 .primary-nav a,
 .header-profile {
@@ -282,7 +285,7 @@ button.button {
   white-space: nowrap;
 }
 
-.project-grid { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--ink); }
+.project-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--ink); }
 
 .project-card {
   min-height: 400px;
@@ -683,7 +686,7 @@ button.button {
 
 .work-index a {
   display: grid;
-  grid-template-columns: 3rem 1fr;
+  grid-template-columns: 3rem minmax(0, 1fr);
   gap: 1rem;
   padding: 0.9rem 0;
   border-bottom: 1px solid var(--line);
@@ -777,13 +780,13 @@ button.button {
 .resume-panel > p:not(.eyebrow) { max-width: 600px; margin: 2rem 0; font-size: 1.08rem; }
 
 @media (max-width: 900px) {
-  .site-header { grid-template-columns: 1fr auto; }
+  .site-header { grid-template-columns: minmax(0, 1fr) auto; }
   .primary-nav { grid-column: 1 / -1; grid-row: 2; justify-content: space-between; padding: 0.9rem 0; border-top: 1px solid var(--line); }
   .header-profile { grid-column: 2; grid-row: 1; }
-  .section-heading, .work-index, .demo-island, .native-evidence { grid-template-columns: 1fr; gap: 1.2rem; }
-  .project-grid { grid-template-columns: 1fr 1fr; }
+  .section-heading, .work-index, .demo-island, .native-evidence { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; }
+  .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-card:nth-child(3) { border-left: 1px solid var(--line); }
-  .case-study-body { grid-template-columns: 1fr; }
+  .case-study-body { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 680px) {
@@ -791,26 +794,29 @@ button.button {
   .site-header { min-height: 78px; gap: 0.8rem; }
   .brand { font-size: 0.86rem; }
   .header-profile { padding: 0.42rem 0.55rem; }
-  .primary-nav { gap: 0.55rem; }
+  .primary-nav { flex-wrap: wrap; gap: 0.45rem 0.55rem; }
   .primary-nav a, .header-profile { font-size: 0.62rem; }
   .hero { min-height: 0; padding-top: 5rem; }
   .hero-coordinate { display: none; }
-  .hero h1, .page-intro h1, .resume-panel h1, .note-article h1 { font-size: clamp(3.3rem, 17vw, 5rem); }
+  /* Capped by the viewport, not by rem, so 200% text cannot push them wider than the screen. */
+  .hero h1, .page-intro h1, .resume-panel h1, .note-article h1 { font-size: min(17vw, 5rem); }
   .hero-index { flex-direction: column; padding-top: 4rem; }
-  .section-heading, .focus-band, .prose-grid, .case-study-detail, .native-evidence { grid-template-columns: 1fr; }
-  .project-grid { grid-template-columns: 1fr; }
+  .section-heading, .focus-band, .prose-grid, .case-study-detail, .native-evidence { grid-template-columns: minmax(0, 1fr); }
+  .section h2, .focus-band h2, .work-principle h2 { font-size: clamp(min(2.5rem, 11vw), 4.4vw, 4.4rem); }
+  .text-link, .project-detail-link, .project-external-link, .status { white-space: normal; }
+  .project-grid { grid-template-columns: minmax(0, 1fr); }
   .project-card { min-height: 0; border-left: 1px solid var(--line); }
   .project-detail-link { margin-top: 1.5rem; }
   .focus-band { gap: 1.5rem; }
   .page-intro { padding-top: 5rem; }
   .prose-grid { gap: 1.4rem; padding-bottom: 4.5rem; }
-  .case-study-header { grid-template-columns: 1fr; gap: 1.5rem; }
-  .case-study-header h2 { font-size: clamp(3rem, 15vw, 4.8rem); }
+  .case-study-header { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  .case-study-header h2 { font-size: min(15vw, 4.8rem); }
   .case-study-detail { gap: 2rem; }
-  .note-entry { grid-template-columns: 1fr; gap: 1rem; }
-  .native-evidence-provenance div { grid-template-columns: 1fr; gap: 0.3rem; }
-  .native-evidence-parameters div { grid-template-columns: 1fr; gap: 0.2rem; }
-  .contact-panel > * { grid-template-columns: 1fr auto; gap: 0.3rem; }
+  .note-entry { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .native-evidence-provenance div { grid-template-columns: minmax(0, 1fr); gap: 0.3rem; }
+  .native-evidence-parameters div { grid-template-columns: minmax(0, 1fr); gap: 0.2rem; }
+  .contact-panel > * { grid-template-columns: minmax(0, 1fr) auto; gap: 0.3rem; }
   .contact-panel strong { grid-column: 1; grid-row: 2; }
   .contact-panel span:last-child { grid-column: 2; grid-row: 1 / 3; }
   .site-footer { flex-direction: column; gap: 0.5rem; }
@@ -819,7 +825,7 @@ button.button {
 @media (max-width: 360px) {
   .brand span:last-child { max-width: 8rem; line-height: 1.15; }
   .primary-nav { flex-wrap: wrap; }
-  .hero h1, .page-intro h1, .resume-panel h1, .note-article h1 { font-size: clamp(2.8rem, 18vw, 3.7rem); }
+  .hero h1, .page-intro h1, .resume-panel h1, .note-article h1 { font-size: min(18vw, 3.7rem); }
 }
 
 @media (prefers-reduced-motion: reduce) {

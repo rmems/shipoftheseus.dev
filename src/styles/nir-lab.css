@@ -38,7 +38,7 @@
 .nir-provenance div,
 .nir-links div {
   display: grid;
-  grid-template-columns: 7.5rem minmax(0, 1fr);
+  grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr);
   gap: 0.8rem;
   padding-top: 0.7rem;
   border-top: 1px solid var(--line);
@@ -132,6 +132,7 @@
 
 .nir-side {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.2rem;
   min-width: 0;
 }
@@ -279,12 +280,12 @@
 @media (max-width: 900px) {
   .nir-lab-heading,
   .nir-stage,
-  .nir-operator-list { grid-template-columns: 1fr; }
+  .nir-operator-list { grid-template-columns: minmax(0, 1fr); }
 
   .nir-diagram { max-width: 24rem; }
 }
 
 @media (max-width: 680px) {
   .nir-provenance div,
-  .nir-links div { grid-template-columns: 1fr; gap: 0.3rem; }
+  .nir-links div { grid-template-columns: minmax(0, 1fr); gap: 0.3rem; }
 }

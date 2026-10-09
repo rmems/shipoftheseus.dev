@@ -237,7 +237,7 @@
 
 @media (max-width: 900px) {
   .protocol-section {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1.2rem;
   }
 
@@ -248,7 +248,7 @@
 
 @media (max-width: 680px) {
   .protocol-fields div {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.3rem;
   }
 
