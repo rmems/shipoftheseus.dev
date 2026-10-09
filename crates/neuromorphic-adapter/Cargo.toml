@@ -13,6 +13,10 @@ default = []
 # Labs-only NIR inspection (`/labs/nir/`). Built into the separate labs
 # package so the homepage package never carries nir-rs or its Serde decoder.
 nir = ["dep:nir-rs", "dep:serde", "dep:serde_json"]
+# Labs-only recorded corpus-ipc envelope inspection (`/protocol/`): the
+# serde_json decode path for every IpcMessage variant plus SHA-256. The
+# default build keeps only the corpus-ipc wire-version constant.
+protocol = ["dep:serde_json", "dep:sha2"]
 
 [dependencies]
 axon-encoder = { git = "https://github.com/Limen-Neural/axon-encoder.git", rev = "a56276746569e5ecaa78e50882064858835b2438", default-features = false, features = ["serde", "wasm-js"] }
@@ -23,6 +27,7 @@ neuromod = { version = "=0.7.0", default-features = false, features = ["wasm-js"
 nir-rs = { version = "=0.4.5", default-features = false, features = ["serde"], optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
 serde_json = { version = "=1.0.151", optional = true }
+sha2 = { version = "=0.10.9", default-features = false, optional = true }
 synaptic-wiring = "=0.3.0"
 wasm-bindgen = "=0.2.126"
 
@@ -36,3 +41,11 @@ required-features = ["nir"]
 [[test]]
 name = "nir_inspection"
 required-features = ["nir"]
+
+[[test]]
+name = "protocol_fixtures"
+required-features = ["protocol"]
+
+[[test]]
+name = "protocol_ingress"
+required-features = ["protocol"]

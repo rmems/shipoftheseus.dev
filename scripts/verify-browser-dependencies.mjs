@@ -9,8 +9,30 @@ import { WASM_PROFILES, profileFeatureArgs } from './wasm-profiles.mjs';
 const repository = resolve(import.meta.dirname, '..');
 const manifest = join(repository, 'crates/neuromorphic-adapter/Cargo.toml');
 
-/** Native-only execution paths that never belong in the browser graph. */
-export const FORBIDDEN_PACKAGES = new Set(['axum', 'cuda', 'hdf5', 'myelin-accelerator', 'tokio', 'zmq']);
+/**
+ * Native-only execution paths that never belong in the browser graph:
+ * ZeroMQ, the corpus-ipc Axum/Tokio server stack and its networking, CUDA,
+ * FPGA acceleration, and HDF5. (`-sys` crates, `links` keys, and C/C++ build
+ * tooling are rejected by the generic rules below.)
+ */
+export const FORBIDDEN_PACKAGES = new Set([
+  'axum',
+  'axum-core',
+  'cuda',
+  'cust',
+  'hdf5',
+  'hyper',
+  'mio',
+  'myelin-accelerator',
+  'socket2',
+  'tokio',
+  'tokio-macros',
+  'tower',
+  'zeromq',
+  'zmq',
+]);
+/** The crate whose own features and direct dependencies each profile pins. */
+export const ADAPTER_CRATE = 'neuromorphic-adapter';
 /** Build tooling that compiles, generates bindings for, or locates native C/C++ libraries. */
 export const NATIVE_BUILD_PACKAGES = new Set(['bindgen', 'cc', 'cmake', 'pkg-config', 'vcpkg']);
 /** `-sys` crates that bind JavaScript host APIs rather than native libraries. */
@@ -35,12 +57,38 @@ function nativeReason(pkg) {
 }
 
 /**
+ * The adapter's own enabled features (without `default`) and its direct
+ * normal dependencies, by crate name. Missing for synthetic graphs without an
+ * adapter node.
+ */
+function adapterSurface(metadata, packagesById) {
+  const node = metadata.resolve.nodes.find((candidate) => packagesById.get(candidate.id)?.name === ADAPTER_CRATE);
+  if (!node) return null;
+  const features = (node.features ?? []).filter((feature) => feature !== 'default').sort();
+  const directDependencies = (node.deps ?? [])
+    .filter((dep) => (dep.dep_kinds ?? [{ kind: null }]).some((kind) => kind.kind === null))
+    .map((dep) => packagesById.get(dep.pkg)?.name ?? dep.name);
+  return { features, directDependencies };
+}
+
+/**
  * Pure policy over `cargo metadata --format-version 1` output resolved for
  * `wasm32-unknown-unknown`. The native rules apply to every profile;
- * `requiredCrates` / `excludedCrates` come from the profile (see
- * scripts/wasm-profiles.mjs). Returns sorted messages; empty means clean.
+ * `requiredCrates` / `excludedCrates`, the adapter `features`, and its
+ * `requiredDirectDependencies` / `excludedDirectDependencies` come from the
+ * profile (see scripts/wasm-profiles.mjs). Returns sorted messages; empty
+ * means clean.
  */
-export function browserDependencyViolations(metadata, { requiredCrates = [], excludedCrates = [] } = {}) {
+export function browserDependencyViolations(
+  metadata,
+  {
+    requiredCrates = [],
+    excludedCrates = [],
+    features,
+    requiredDirectDependencies = [],
+    excludedDirectDependencies = [],
+  } = {},
+) {
   const packagesById = new Map(metadata.packages.map((pkg) => [pkg.id, pkg]));
   const resolved = metadata.resolve.nodes.map((node) => ({ ...packagesById.get(node.id), features: node.features }));
   const has = (name) => resolved.some((pkg) => pkg.name === name);
@@ -56,6 +104,23 @@ export function browserDependencyViolations(metadata, { requiredCrates = [], exc
   }
   for (const name of excludedCrates) {
     if (has(name)) violations.push(`${name}: must stay out of this profile's graph`);
+  }
+
+  const adapter = adapterSurface(metadata, packagesById);
+  if (adapter && features) {
+    const expected = [...features].sort();
+    if (adapter.features.join(',') !== expected.join(',')) {
+      violations.push(`${ADAPTER_CRATE}: enables features [${adapter.features.join(', ')}], profile expects [${expected.join(', ')}]`);
+    }
+  }
+  // Cargo spells dependency names with underscores; compare crate names that way.
+  const crateKey = (name) => name.replaceAll('-', '_');
+  const direct = new Set((adapter?.directDependencies ?? []).map(crateKey));
+  for (const name of requiredDirectDependencies) {
+    if (!direct.has(crateKey(name))) violations.push(`${name}: this profile needs it as a direct ${ADAPTER_CRATE} dependency`);
+  }
+  for (const name of excludedDirectDependencies) {
+    if (direct.has(crateKey(name))) violations.push(`${name}: must not be a direct ${ADAPTER_CRATE} dependency in this profile`);
   }
 
   const corpusIpc = resolved.find((pkg) => pkg.name === 'corpus-ipc');

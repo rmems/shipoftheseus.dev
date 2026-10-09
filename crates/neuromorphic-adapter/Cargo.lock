@@ -222,6 +222,7 @@ dependencies = [
  "nir-rs",
  "serde",
  "serde_json",
+ "sha2",
  "synaptic-wiring",
  "wasm-bindgen",
 ]

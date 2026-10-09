@@ -64,6 +64,24 @@ Regenerate it with:
 cargo test --locked regenerate_kinetic_seed9_trace -- --ignored --exact
 ```
 
+## Recorded protocol fixtures
+
+`src/protocol.rs` backs the `/protocol/` viewer. `inspectProtocolFixture`
+enforces a 64 KiB pre-parse limit and checks an out-of-band SHA-256 over the
+exact bytes. It then decodes with
+`corpus_ipc::WireEnvelope::<IpcMessage>::decode_json` and runs
+`Validate::validate()`. Every failure maps to a stable reason code
+(`tests/protocol_ingress.rs`). `corpus-ipc` stays on `default-features = false`.
+
+The wire-v1 envelopes in `public/protocol/fixtures/v1/` and their
+`manifest.json` digests come from `corpus-ipc` encoding the first firing tick
+of a deterministic replay of `tests/fixtures/kinetic-seed9-trace.json`. They
+are derived, not captured. Never hand-edit them; regenerate with:
+
+```text
+cargo test --locked --test protocol_fixtures regenerate_protocol_fixtures -- --ignored --exact
+```
+
 Custom topology payloads are deliberately not accepted here. The later
 `synaptic-wiring` integration owns that separate versioned topology contract.
 

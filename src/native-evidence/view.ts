@@ -2,6 +2,7 @@ import {
   IMPORTED_NIR_ORIGIN_LABEL,
   LIVE_ORIGIN_LABEL,
   NATIVE_EVIDENCE_CATALOG_DIR,
+  PROTOCOL_ORIGIN_LABEL,
   RECORDED_ORIGIN_LABEL,
   STATIC_ORIGIN_LABEL,
   UNAVAILABLE_ORIGIN_LABEL,
@@ -19,7 +20,8 @@ export type ExecutionOrigin =
   | 'static-diagram'
   | 'unavailable-wasm'
   | 'recorded-cuda-fpga'
-  | 'imported-nir';
+  | 'imported-nir'
+  | 'recorded-protocol';
 
 export function executionOriginLabel(origin: ExecutionOrigin): string {
   switch (origin) {
@@ -33,6 +35,8 @@ export function executionOriginLabel(origin: ExecutionOrigin): string {
       return RECORDED_ORIGIN_LABEL;
     case 'imported-nir':
       return IMPORTED_NIR_ORIGIN_LABEL;
+    case 'recorded-protocol':
+      return PROTOCOL_ORIGIN_LABEL;
     default:
       return assertNever(origin, 'execution origin');
   }
@@ -40,7 +44,7 @@ export function executionOriginLabel(origin: ExecutionOrigin): string {
 
 export function executionOriginData(
   origin: ExecutionOrigin,
-): 'live' | 'static' | 'unavailable' | 'recorded' | 'imported' {
+): 'live' | 'static' | 'unavailable' | 'recorded' | 'imported' | 'protocol' {
   switch (origin) {
     case 'live-wasm':
       return 'live';
@@ -52,6 +56,8 @@ export function executionOriginData(
       return 'recorded';
     case 'imported-nir':
       return 'imported';
+    case 'recorded-protocol':
+      return 'protocol';
     default:
       return assertNever(origin, 'execution origin');
   }

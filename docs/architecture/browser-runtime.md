@@ -189,6 +189,76 @@ pointer/touch/demo telemetry → kinetic-signals → axon-encoder → neuromod �
   encoder, encoded spike count, and features, and `.trace()` returns the
   replayable recording (capped at 6000 ticks, then `null`).
 
+### Recorded `corpus-ipc` protocol viewer (GitHub #21 / Linear RM-1657)
+
+`/protocol/` replays checked-in `corpus-ipc` wire-v1 envelopes through the
+same adapter package. It is a recorded, offline view: ZeroMQ, the Axum IPC
+service, proxying, and streaming never run in the browser.
+
+- **Locked surface.** `corpus-ipc = { version = "=0.1.0", default-features =
+  false }` in `crates/neuromorphic-adapter/Cargo.toml`. Source
+  `Limen-Neural/corpus-ipc@d99e6544d7925dc0ccfe69fdff372352b0a9d041` (also
+  recorded in the published crate's `.cargo_vcs_info.json`); crates.io archive
+  SHA-256 `eec6624caf88783f1c35109fe1c27615fc85c986249d480c8efabb72d5f92081`,
+  which is the `corpus-ipc` checksum in `crates/neuromorphic-adapter/Cargo.lock`.
+  No features are selected, so `zmq` and `server` are off;
+  `scripts/browser-dependency-policy.mjs` fails the build if `zmq`, `zmq-sys`,
+  `axum`, `tokio`, `hyper`, `tower`, `mio`, `cc`, or any package that links a
+  native library other than `wasm_bindgen` enters the wasm32 graph, or if
+  `corpus-ipc` gains `server`/`zmq`. The only new direct dependencies are
+  `serde_json =1.0.151` and `sha2 =0.10.9`, both already in the locked graph.
+- **Ingress order** (`crates/neuromorphic-adapter/src/protocol.rs`). Every
+  step fails closed with a stable reason code and nothing later runs:
+  declared variant and out-of-band digest are well formed; the 64 KiB
+  pre-parse byte limit (`MAX_PROTOCOL_FIXTURE_BYTES`); SHA-256 over the exact
+  bytes; `WireEnvelope::<IpcMessage>::decode_json(bytes)`, which accepts the
+  wire version before converting the payload; `Validate::validate()` on the
+  decoded message; and the declared-versus-decoded kind check. The
+  legacy-tolerant `decode_ipc_message_json` is not used, so unversioned JSON
+  fails as `wire-version-missing`.
+- **Validation placement.** `corpus-ipc` also runs its `Validate` policy
+  inside payload deserialization (`TryFrom` shadow types). Wire-level
+  validation failures therefore surface during decode; the adapter classifies
+  them by the crate's stable `ValidationKind` names as `validation-failed`,
+  the same code the explicit post-decode `Validate::validate()` gate returns.
+- **Forward compatibility.** Additive unknown fields on the envelope and on
+  payloads are ignored as `corpus-ipc` documents. Unknown `IpcMessage`
+  variants fail as `unknown-variant`. The adapter re-encodes every accepted
+  envelope with `corpus-ipc` and reports whether it is byte-identical to the
+  input; additive fields make it differ because they are dropped.
+- **Boundary.** `inspectProtocolFixture(bytes, sha256, variant)` returns a
+  `WasmProtocolInspection` whose `u64` fields (`batch_id`, `timestamp`,
+  `metadata_processing_latency_ns`) are `bigint`, and whose rows are typed
+  arrays. Failures throw a `ProtocolFixtureError` with a `code`.
+  `protocolFixtureByteLimit()` exposes the limit so the page bounds its reads
+  with the adapter's own constant. TypeScript (`src/protocol/`) moves bytes,
+  checks the output shape, and renders it. It never parses envelopes with
+  JavaScript JSON or re-describes the schema.
+- **Fixtures** (`public/protocol/fixtures/v1/`). One `Stimuli`, one `Spikes`,
+  and one `EligibilityTraces` envelope, each from the first firing tick of a
+  deterministic replay of the contract-5 golden
+  `crates/neuromorphic-adapter/tests/fixtures/kinetic-seed9-trace.json`:
+  the 16 `kinetic-signals` features handed to `axon-encoder`, the LIF spikes
+  `neuromod` emitted, and `neuromod`'s eligibility traces for neuron 0's input
+  synapses. They are derived from that replay, not captured from hardware or a
+  live service. `batch_id` is the assigned value 2^53 + 1, so a lossy
+  `Number` path would show 9007199254740992. `timestamp` is 0 because replay
+  has no wall clock, and spike `strength` 1.0 marks a binary spike.
+  `corpus-ipc` itself encodes the bytes. `manifest.json` carries each file's
+  size and SHA-256 out of band. `tests/protocol_fixtures.rs` fails on any drift;
+  regenerate with
+  `cargo test --locked --test protocol_fixtures regenerate_protocol_fixtures -- --ignored --exact`.
+- **Static first.** The page is rendered at build time from the manifest and
+  the exact bytes. The build fails if a digest or size does not match. Without
+  JavaScript or WASM, the bytes, digests, and provenance stay readable. The
+  enhancement only adds the decoded view. The page carries the
+  `RECORDED · corpus-ipc wire v1` origin label, which is distinct from
+  `LIVE · Rust/WASM` and `RECORDED · CUDA/FPGA`.
+- **Bundle cost.** Linking the `serde_json` decode path for every
+  `IpcMessage` variant grows the shared adapter package from about 189 KB to
+  about 569 KB uncompressed (about 67 KB to about 169 KB with gzip -9). The
+  homepage demo loads the same file.
+
 ### Topology projection handoff
 
 `synaptic-wiring = "=0.3.0"` remains the sole owner of graph construction,

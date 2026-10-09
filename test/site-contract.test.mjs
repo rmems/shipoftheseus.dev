@@ -182,6 +182,60 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   assert.doesNotMatch(island, /client:only/);
 });
 
+test('the protocol route replays recorded corpus-ipc fixtures static-first and labels them distinctly', () => {
+  assert.equal(existsSync(new URL('../src/pages/protocol.astro', import.meta.url)), true);
+  const page = read('src/pages/protocol.astro');
+  const card = read('src/components/ProtocolFixtureCard.astro');
+  const enhance = read('src/protocol/enhance-protocol.ts');
+  const inspector = read('src/protocol/inspector.ts');
+  const catalog = read('src/protocol/catalog.ts');
+  const styles = read('src/styles/protocol.css');
+
+  // Static-first: rendered at build time from the checked-in fixtures.
+  assert.match(page, /loadProtocolFixtureCatalog\(\)/);
+  assert.match(page, /import '\.\.\/styles\/protocol\.css'/);
+  assert.match(page, /data-protocol-viewer/);
+  assert.match(page, /data-protocol-checks hidden/);
+  assert.match(page, /role="status"/);
+  assert.doesNotMatch(page, /client:(only|load|visible|idle)/);
+  assert.match(card, /<pre><code>\{fixture\.text\}<\/code><\/pre>/);
+  assert.match(card, /data-fixture-sha256=\{fixture\.sha256\}/);
+  assert.match(card, /<details class="protocol-bytes" open>/);
+  assert.match(enhance, /The recorded bytes and digests above remain the reference/);
+  assert.match(inspector, /readBoundedBytes/);
+  assert.doesNotMatch(`${catalog}${inspector}${enhance}`, /JSON\.parse\(\s*(text|bytes|decoder)/);
+
+  // Distinct origin label, never the live Rust/WASM one.
+  assert.match(page, /<ExecutionOrigin origin="recorded-protocol" \/>/);
+  assert.doesNotMatch(page, /<ExecutionOrigin origin="live-wasm"/);
+  assert.match(read('src/native-evidence/types.ts'), /PROTOCOL_ORIGIN_LABEL = 'RECORDED · corpus-ipc wire v1'/);
+  assert.match(read('src/native-evidence/view.ts'), /case 'recorded-protocol':\s+return 'protocol';/);
+  assert.match(styles, /\.execution-origin\[data-origin='protocol'\]/);
+  assert.doesNotMatch(read('src/styles/global.css'), /data-origin='protocol'/);
+
+  // Linked from the evidence intro; offline transport only.
+  assert.match(read('src/pages/evidence.astro'), /href="\/protocol\/"/);
+  assert.match(read('src/protocol/provenance.ts'), /No ZeroMQ, HTTP service, proxy, or live producer/);
+  for (const file of ['manifest.json', 'kinetic-seed9-step7-stimuli.json', 'kinetic-seed9-step7-spikes.json', 'kinetic-seed9-step7-eligibility-traces.json']) {
+    assert.equal(existsSync(new URL(`../public/protocol/fixtures/v1/${file}`, import.meta.url)), true, `${file} is missing`);
+  }
+});
+
+test('the browser adapter keeps corpus-ipc on its no-default surface without ZeroMQ or the server', () => {
+  const cargoToml = read('crates/neuromorphic-adapter/Cargo.toml');
+  const policy = read('scripts/browser-dependency-policy.mjs');
+  const packageJson = read('package.json');
+
+  assert.match(cargoToml, /^corpus-ipc = \{ version = "=0\.1\.0", default-features = false \}$/m);
+  assert.doesNotMatch(cargoToml, /corpus-ipc[^\n]*features = \[/);
+  for (const name of ['zmq', 'zmq-sys', 'axum', 'tokio', 'hyper', 'tower', 'cc']) {
+    assert.match(policy, new RegExp(`'${name}',`), `${name} must stay forbidden in the browser graph`);
+  }
+  assert.match(policy, /FORBIDDEN_CORPUS_IPC_FEATURES = Object\.freeze\(\['server', 'zmq'\]\)/);
+  assert.match(policy, /ALLOWED_NATIVE_LINKS = Object\.freeze\(\['wasm_bindgen'\]\)/);
+  assert.match(packageJson, /node scripts\/verify-browser-dependencies\.mjs/);
+});
+
 test('page metadata includes canonical and complete social sharing basics', () => {
   const layout = read('src/layouts/BaseLayout.astro');
 

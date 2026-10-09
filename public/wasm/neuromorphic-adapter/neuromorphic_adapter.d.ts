@@ -18,6 +18,42 @@ export class WasmAdapter {
     step(): WasmState;
 }
 
+/**
+ * Browser view of an accepted recorded envelope. Every `u64` crosses as a
+ * `bigint`; numeric rows cross as JS-owned typed arrays.
+ */
+export class WasmProtocolInspection {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    readonly batch_id: bigint;
+    readonly byte_length: number;
+    readonly canonical_json: string;
+    readonly canonical_matches_input: boolean;
+    /**
+     * Key-sorted `[key, value]` string pairs.
+     */
+    readonly metadata_custom: Array<any>;
+    readonly metadata_present: boolean;
+    readonly metadata_processing_latency_ns: bigint | undefined;
+    readonly metadata_source: string | undefined;
+    readonly session_id: string | undefined;
+    readonly sha256: string;
+    readonly spike_channels: Uint16Array;
+    readonly spike_strengths: Float32Array;
+    readonly spike_times: Uint32Array;
+    readonly stimulus_valid_mask: Uint8Array | undefined;
+    readonly stimulus_values: Float32Array;
+    readonly timestamp: bigint | undefined;
+    readonly trace_channel_ids: Uint16Array;
+    readonly trace_last_spike_times: Uint32Array;
+    readonly trace_values: Float32Array;
+    readonly variant: string;
+    readonly wire_current: number;
+    readonly wire_min_supported: number;
+    readonly wire_version: number;
+}
+
 export class WasmState {
     private constructor();
     free(): void;
@@ -50,6 +86,18 @@ export class WasmState {
     readonly topology_weight_bits: Uint32Array;
     readonly topology_weights: Float32Array;
 }
+
+/**
+ * Verify, decode, and validate one recorded envelope. Throws a
+ * `ProtocolFixtureError` whose `code` is a [`ProtocolErrorCode`] string.
+ */
+export function inspectProtocolFixture(bytes: Uint8Array, expected_sha256: string, expected_variant: string): WasmProtocolInspection;
+
+/**
+ * The pre-parse byte limit, so the browser can bound fixture reads with the
+ * adapter's own constant.
+ */
+export function protocolFixtureByteLimit(): number;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -89,8 +137,37 @@ export interface InitOutput {
     readonly wasmstate_topology_targets: (a: number) => any;
     readonly wasmstate_topology_weight_bits: (a: number) => any;
     readonly wasmstate_topology_weights: (a: number) => any;
+    readonly __wbg_wasmprotocolinspection_free: (a: number, b: number) => void;
+    readonly inspectProtocolFixture: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly protocolFixtureByteLimit: () => number;
+    readonly wasmprotocolinspection_batch_id: (a: number) => bigint;
+    readonly wasmprotocolinspection_byte_length: (a: number) => number;
+    readonly wasmprotocolinspection_canonical_json: (a: number) => [number, number];
+    readonly wasmprotocolinspection_canonical_matches_input: (a: number) => number;
+    readonly wasmprotocolinspection_metadata_custom: (a: number) => any;
+    readonly wasmprotocolinspection_metadata_present: (a: number) => number;
+    readonly wasmprotocolinspection_metadata_processing_latency_ns: (a: number) => [number, bigint];
+    readonly wasmprotocolinspection_metadata_source: (a: number) => [number, number];
+    readonly wasmprotocolinspection_session_id: (a: number) => [number, number];
+    readonly wasmprotocolinspection_sha256: (a: number) => [number, number];
+    readonly wasmprotocolinspection_spike_channels: (a: number) => any;
+    readonly wasmprotocolinspection_spike_strengths: (a: number) => any;
+    readonly wasmprotocolinspection_spike_times: (a: number) => any;
+    readonly wasmprotocolinspection_stimulus_valid_mask: (a: number) => any;
+    readonly wasmprotocolinspection_stimulus_values: (a: number) => any;
+    readonly wasmprotocolinspection_timestamp: (a: number) => [number, bigint];
+    readonly wasmprotocolinspection_trace_channel_ids: (a: number) => any;
+    readonly wasmprotocolinspection_trace_last_spike_times: (a: number) => any;
+    readonly wasmprotocolinspection_trace_values: (a: number) => any;
+    readonly wasmprotocolinspection_variant: (a: number) => [number, number];
+    readonly wasmprotocolinspection_wire_current: (a: number) => number;
+    readonly wasmprotocolinspection_wire_version: (a: number) => number;
+    readonly wasmprotocolinspection_wire_min_supported: (a: number) => number;
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
+    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_start: () => void;
