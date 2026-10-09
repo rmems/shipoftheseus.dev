@@ -7,6 +7,7 @@ import {
   type DemoViewElements,
 } from './demo-runtime';
 import { provideLiveDemoSeams } from './live-seams';
+import { bindDemoTelemetry } from './telemetry-view';
 
 interface BoundIsland {
   dispose: () => void;
@@ -50,6 +51,8 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
     });
   const elements = viewElements(root);
   const play = requiredElement<HTMLButtonElement>(root, '[data-demo-play]');
+  // Optional, closed by default; it samples only while open.
+  const telemetry = bindDemoTelemetry(root);
   const motionQuery = motionQueryList(window);
   let disposed = false;
 
@@ -113,6 +116,7 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
     motionQuery?.removeEventListener('change', onMotionChange);
     root.removeEventListener('webglcontextlost', onContextLost, contextLostCapture);
     observer?.disconnect();
+    telemetry?.dispose();
     boundRuntime.dispose();
   };
 

@@ -1,4 +1,5 @@
 import { provideDemoSeams, type DemoSeams } from './demo-runtime';
+import { registerLiveTelemetrySources } from './demo-telemetry';
 import { createPointerTelemetry, createScriptedTelemetry } from './kinetic-telemetry';
 import { createSimulationChannel } from './simulation-channel';
 import {
@@ -104,6 +105,16 @@ export function createLiveDemoSeams(island?: HTMLElement): DemoSeams {
   const spikeEvents = createSpikeEventBuffer({ provenance: LIVE_SPIKE_EVENT_PROVENANCE });
   const renderer = createTopologyRendererSeam({ channel, island, spikeEvents });
   let latestFrame: TelemetryFrame | null = null;
+
+  if (island) {
+    // The telemetry panel (#9) reads this island's live-wasm buffer and
+    // snapshots; it never feeds or steps the simulation.
+    registerLiveTelemetrySources(island, {
+      spikeEvents,
+      channel,
+      inputSource: () => latestFrame?.source ?? null,
+    });
+  }
 
   if (import.meta.env?.DEV) {
     (globalThis as { __neuromorphicTelemetry?: TelemetryInspector }).__neuromorphicTelemetry =

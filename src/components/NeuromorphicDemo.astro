@@ -1,4 +1,5 @@
 ---
+import DemoTelemetry from './DemoTelemetry.astro';
 import ExecutionOrigin from './ExecutionOrigin.astro';
 import { STATIC_DEMO_STATUS } from '../runtime/demo-runtime';
 ---
@@ -54,6 +55,7 @@ import { STATIC_DEMO_STATUS } from '../runtime/demo-runtime';
       <p class="demo-status demo-status-noscript">JavaScript is required for the live visualization. Navigation and the rest of this page remain available.</p>
     </noscript>
   </div>
+  <DemoTelemetry />
 </section>
 <script>
   import { enhanceNeuromorphicDemos } from '../runtime/enhance-demo';
