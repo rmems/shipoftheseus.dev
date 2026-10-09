@@ -52,6 +52,9 @@ export function createPointerTelemetry(
   fallback: TelemetrySource = createScriptedTelemetry(),
 ): TelemetrySource {
   let latest: Float32Array | null = null;
+  // The packet to deliver after `latest` when a press was released (or moved
+  // with zero pressure) before any tick sampled it.
+  let next: Float32Array | null = null;
   let dirty = false;
   let lastActiveSequence: bigint | null = null;
   let leftBeforeSample = false;
@@ -69,12 +72,24 @@ export function createPointerTelemetry(
     }
     // Mouse hover reports pressure 0; pressed buttons and touch report > 0.
     const pressure = Number.isFinite(event.pressure) ? event.pressure : 0;
-    latest = new Float32Array([x, y, pressure]);
+    const packet = new Float32Array([x, y, pressure]);
+    if (next) {
+      // A press is already queued ahead of this packet; keep only the newest.
+      next = packet;
+    } else if (dirty && latest && latest[2] > 0 && pressure === 0) {
+      // A quick tap pressed and released between two ticks. Deliver the press
+      // on the next tick and the release on the one after, so the pressed
+      // phase still reaches the extractor.
+      next = packet;
+    } else {
+      latest = packet;
+    }
     dirty = true;
     leftBeforeSample = false;
   };
   const release = () => {
     latest = null;
+    next = null;
     dirty = false;
     lastActiveSequence = null;
     leftBeforeSample = false;
@@ -107,7 +122,13 @@ export function createPointerTelemetry(
         sequence - lastActiveSequence < POINTER_IDLE_TICKS;
       lastKind = active ? 'pointer' : 'scripted';
       const packet = active && latest ? new Float32Array(latest) : fallback.sample(sequence);
-      if (leftBeforeSample) release();
+      if (next) {
+        latest = next;
+        next = null;
+        dirty = true;
+      } else if (leftBeforeSample) {
+        release();
+      }
       return packet;
     },
     kind: () => lastKind,

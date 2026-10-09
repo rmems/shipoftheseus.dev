@@ -119,14 +119,46 @@ test('pointer telemetry normalizes island-relative packets and falls back to the
   assert.equal(target.listeners.size, 0, 'dispose removes every pointer listener');
 });
 
-test('a tap that leaves between ticks still reaches exactly one tick', () => {
+test('a tap that leaves between ticks delivers its press, then its release, then the script', () => {
   const target = fakePointerTarget();
   const source = telemetry.createPointerTelemetry(target);
   target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
   target.emit('pointerup', { clientX: 200, clientY: 100, pressure: 0 });
   target.emit('pointerleave');
-  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0]);
+  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0.5], 'the pressed phase reaches a tick');
   assert.equal(source.kind(), 'pointer');
+  assert.deepEqual([...source.sample(2n)], [0.25, 0.25, 0], 'then the release');
+  assert.equal(source.kind(), 'pointer');
+  assert.deepEqual(source.sample(3n), stimulus.scriptedTelemetry(3n));
+  assert.equal(source.kind(), 'scripted');
+  source.dispose();
+});
+
+test('a quick tap that stays over the island keeps its press and then follows the pointer', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
+  target.emit('pointerup', { clientX: 200, clientY: 100, pressure: 0 });
+  // Hover movement after the release replaces the queued release packet.
+  target.emit('pointermove', { clientX: 300, clientY: 150, pressure: 0 });
+  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0.5]);
+  assert.deepEqual([...source.sample(2n)], [0.5, 0.5, 0]);
+  assert.deepEqual([...source.sample(3n)], [0.5, 0.5, 0], 'the hover position is held while idle');
+  // A slow press/release (sampled between the two) is not altered.
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
+  assert.deepEqual([...source.sample(4n)], [0.25, 0.25, 0.5]);
+  target.emit('pointerup', { clientX: 200, clientY: 100, pressure: 0 });
+  assert.deepEqual([...source.sample(5n)], [0.25, 0.25, 0]);
+  source.dispose();
+});
+
+test('a cancel drops a queued quick-tap release as well', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
+  target.emit('pointerup', { clientX: 200, clientY: 100, pressure: 0 });
+  target.emit('pointercancel');
+  assert.deepEqual(source.sample(1n), stimulus.scriptedTelemetry(1n));
   assert.deepEqual(source.sample(2n), stimulus.scriptedTelemetry(2n));
   source.dispose();
 });
