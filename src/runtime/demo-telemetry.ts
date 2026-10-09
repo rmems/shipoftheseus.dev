@@ -749,6 +749,8 @@ export interface TelemetryControllerInspection {
   /** Subscribed to the spike-event buffer and sampling. */
   sampling: boolean;
   cadenceHz: number;
+  /** Ceiling set by a performance budget, or `null` for none. */
+  cadenceCapHz: number | null;
   effectiveCadenceHz: number;
   samples: number;
   flushes: number;
@@ -767,6 +769,13 @@ export interface TelemetryController {
    */
   setCadenceHz: (hz: number) => void;
   cadenceHz: () => number;
+  /**
+   * Ceiling from the adaptive quality budget (GitHub #10), or `null` for
+   * none. It can only lower the effective rate below the requested cadence
+   * and the reduced-motion cap, never raise it.
+   */
+  setCadenceCapHz: (hz: number | null) => void;
+  cadenceCapHz: () => number | null;
   effectiveCadenceHz: () => number;
   /** Turn telemetry off (or back on) without touching the simulation. */
   setEnabled: (enabled: boolean) => void;
@@ -791,6 +800,7 @@ export function createTelemetryController(options: TelemetryControllerOptions): 
   const provenance = sources?.spikeEvents.provenance ?? LIVE_SPIKE_EVENT_PROVENANCE;
   const raster = createSpikeRaster({ provenance, steps: options.rasterSteps });
   let requestedHz = normalizeTelemetryHz(options.cadenceHz ?? DEFAULT_TELEMETRY_HZ);
+  let capHz: number | null = null;
   let reducedMotion = false;
   let enabled = true;
   let disposed = false;
@@ -802,8 +812,14 @@ export function createTelemetryController(options: TelemetryControllerOptions): 
   let unsubscribeMode: (() => void) | null = null;
   let unsubscribeMotion: (() => void) | null = null;
 
+  // Every limit only lowers the rate: the requested cadence, reduced motion,
+  // and the adaptive quality cap.
   const effectiveHz = () =>
-    reducedMotion ? Math.min(requestedHz, REDUCED_MOTION_TELEMETRY_HZ) : requestedHz;
+    Math.min(
+      requestedHz,
+      reducedMotion ? REDUCED_MOTION_TELEMETRY_HZ : Number.POSITIVE_INFINITY,
+      capHz ?? Number.POSITIVE_INFINITY,
+    );
 
   const model = (): TelemetryViewModel => {
     const mode = panel.demoMode();
@@ -984,6 +1000,11 @@ export function createTelemetryController(options: TelemetryControllerOptions): 
       scheduler.setCadenceHz(effectiveHz());
     },
     cadenceHz: () => requestedHz,
+    setCadenceCapHz(hz) {
+      capHz = hz === null ? null : normalizeTelemetryHz(hz);
+      scheduler.setCadenceHz(effectiveHz());
+    },
+    cadenceCapHz: () => capHz,
     effectiveCadenceHz: effectiveHz,
     setEnabled(next) {
       enabled = Boolean(next);
@@ -996,6 +1017,7 @@ export function createTelemetryController(options: TelemetryControllerOptions): 
         enabled,
         sampling,
         cadenceHz: requestedHz,
+        cadenceCapHz: capHz,
         effectiveCadenceHz: effectiveHz(),
         samples,
         flushes: scheduler.flushes(),

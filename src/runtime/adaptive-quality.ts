@@ -82,7 +82,7 @@ export const QUALITY_LADDER: readonly QualitySettings[] = Object.freeze([
     maxPixelRatio: 1,
     maxPulses: 96,
     minFrameIntervalMs: 1000 / 30,
-    telemetryCadenceSteps: 4,
+    telemetryCadenceSteps: 10,
   }),
   Object.freeze({
     level: 3,
@@ -91,7 +91,7 @@ export const QUALITY_LADDER: readonly QualitySettings[] = Object.freeze([
     maxPulses: 0,
     // One frame per simulation step: with pulses off nothing moves faster.
     minFrameIntervalMs: DEMO_TICK_MS,
-    telemetryCadenceSteps: 10,
+    telemetryCadenceSteps: 20,
   }),
 ] satisfies QualitySettings[]);
 
@@ -119,6 +119,15 @@ const MAX_WINDOW_FRAMES = 512;
 /** Wall-clock refresh period telemetry consumers get at a cadence. */
 export function telemetryCadenceMs(settings: Pick<QualitySettings, 'telemetryCadenceSteps'>): number {
   return settings.telemetryCadenceSteps * DEMO_TICK_MS;
+}
+
+/**
+ * The same cadence as a maximum refresh rate in hertz. The live telemetry
+ * panel (#9) uses it as a ceiling on its own rate, so quality can only lower
+ * how often the panel redraws.
+ */
+export function telemetryCadenceHz(settings: Pick<QualitySettings, 'telemetryCadenceSteps'>): number {
+  return 1000 / telemetryCadenceMs(settings);
 }
 
 /**
@@ -181,10 +190,12 @@ export interface AdaptiveQualityReader {
 export interface AdaptiveQualityController extends AdaptiveQualityReader {
   /**
    * Report one animation-frame callback: `intervalMs` since the previous
-   * callback and `workMs` spent drawing (`0` when the frame was skipped by the
-   * frame-interval cap). Returns `true` when the level changed.
+   * callback, `workMs` spent drawing, and whether the frame was drawn at all
+   * (`false` when the frame-interval cap skipped it). `drawn` defaults to
+   * `workMs > 0`; pass it explicitly, because a coarse clock can time a real
+   * draw at 0 ms. Returns `true` when the level changed.
    */
-  recordFrame: (intervalMs: number, workMs: number) => boolean;
+  recordFrame: (intervalMs: number, workMs: number, drawn?: boolean) => boolean;
   /** Discard the open window (after pause, resume, resize, or a level change). */
   resetWindow: () => void;
   /** Pin a level for inspection/benchmarks; `null` resumes adapting. */
@@ -318,7 +329,7 @@ export function createAdaptiveQuality(options: AdaptiveQualityOptions = {}): Ada
         listeners.delete(listener);
       };
     },
-    recordFrame(intervalMs, workMs) {
+    recordFrame(intervalMs, workMs, drawn = workMs > 0) {
       if (!Number.isFinite(intervalMs) || intervalMs <= 0 || intervalMs > MAX_FRAME_INTERVAL_MS) {
         // A stall, a resume after a pause, or the first frame: not a sample.
         resetWindow();
@@ -329,8 +340,9 @@ export function createAdaptiveQuality(options: AdaptiveQualityOptions = {}): Ada
         frames += 1;
       }
       windowSpan += intervalMs;
-      if (Number.isFinite(workMs) && workMs > 0) {
-        workTotal += workMs;
+      if (drawn) {
+        // A draw the clock rounded to 0 ms still counts toward the mean.
+        workTotal += Number.isFinite(workMs) && workMs > 0 ? workMs : 0;
         drawnFrames += 1;
       }
       if (windowSpan >= windowMs && frames >= MIN_WINDOW_FRAMES) {

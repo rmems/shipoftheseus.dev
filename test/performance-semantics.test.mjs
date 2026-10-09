@@ -183,22 +183,24 @@ test('adaptive quality and the perf probe never change simulation output (same s
         );
       }
 
-      // And the recording replays from init to the same snapshots.
-      if (encoderMode === 'temporal') {
-        const replayed = [];
-        await replayTraceFixture(adapted.trace, async () => {
-          const adapter = await liveAdapter(encoderMode);
-          return {
-            input: (sequence, samples) => adapter.input(sequence, samples),
-            step: () => {
-              const state = adapter.step();
-              replayed.push(serialize(state));
-              return { error_status: state.errorStatus };
-            },
-          };
-        });
-        assert.deepEqual(replayed, baseline.snapshots, `${label}: replay reproduces the session`);
-      }
+      // And the recording replays from init to the same snapshots, in every
+      // mode. The recorder (#44) labels traces with the shipped config
+      // ([5, 1], temporal); this test injects other modes through the
+      // main-thread adapter seam, so replay uses the mode it actually ran.
+      assert.deepEqual(adapted.trace.config, [5, 1]);
+      const replayed = [];
+      await replayTraceFixture(adapted.trace, async () => {
+        const adapter = await liveAdapter(encoderMode);
+        return {
+          input: (sequence, samples) => adapter.input(sequence, samples),
+          step: () => {
+            const state = adapter.step();
+            replayed.push(serialize(state));
+            return { error_status: state.errorStatus };
+          },
+        };
+      });
+      assert.deepEqual(replayed, baseline.snapshots, `${label}: replay reproduces the session`);
     }
   }
 });
@@ -238,8 +240,8 @@ test('live seams mirror the quality level and telemetry cadence onto the island'
     assert.equal(seams.renderer.quality.current().name, 'full');
     controller.force(2);
     assert.equal(island.dataset.demoQuality, 'reduced');
-    assert.equal(island.dataset.demoTelemetryCadenceMs, '200');
-    assert.equal(seams.renderer.quality.current().telemetryCadenceSteps, 4);
+    assert.equal(island.dataset.demoTelemetryCadenceMs, '500');
+    assert.equal(seams.renderer.quality.current().telemetryCadenceSteps, 10);
     assert.equal(typeof seams.renderer.quality.subscribe, 'function');
     assert.equal('recordFrame' in seams.renderer.quality, true, 'the renderer seam owns the controller');
   });

@@ -121,6 +121,28 @@ test('main-thread draw time over budget is pressure even at a smooth frame rate'
   assert.equal(capped.stats().lastWindow.drawnFrames > 0, true);
 });
 
+test('draws the clock times at 0 ms still count toward the mean draw time', () => {
+  // With a 0.1 ms clock, cheap frames often read as 0. Counting only the
+  // non-zero ones would inflate the mean and could block recovery.
+  const explicit = quality.createAdaptiveQuality({ initialLevel: 1 });
+  const inferred = quality.createAdaptiveQuality({ initialLevel: 1 });
+  for (let frame = 0; frame < 120; frame += 1) {
+    const work = frame % 2 === 0 ? 0 : 5;
+    explicit.recordFrame(12.5, work, true);
+    inferred.recordFrame(12.5, work);
+  }
+  assert.equal(explicit.stats().lastWindow.drawnFrames, explicit.stats().lastWindow.frames, 'every drawn frame counts');
+  assert.equal(explicit.stats().lastWindow.meanWorkMs, 2.5);
+  assert.equal(explicit.stats().lastWindow.verdict, 'relief', 'a true 2.5 ms mean is under half the budget');
+  assert.equal(inferred.stats().lastWindow.meanWorkMs, 5, 'without the flag zero-time draws drop out');
+  assert.equal(inferred.stats().lastWindow.verdict, 'steady');
+
+  const skipped = quality.createAdaptiveQuality();
+  for (let frame = 0; frame < 120; frame += 1) skipped.recordFrame(12.5, 0, frame % 3 === 0);
+  assert.equal(skipped.stats().lastWindow.frames, 80);
+  assert.equal(skipped.stats().lastWindow.drawnFrames, 27, 'frames skipped by the frame cap are not draws');
+});
+
 test('stalls, resumes, and non-frames reset the window instead of counting', () => {
   const controller = quality.createAdaptiveQuality();
   for (let index = 0; index < 50; index += 1) {
@@ -169,7 +191,7 @@ test('force pins a level for measurement and resumes adapting on null', () => {
 
 test('telemetry cadence is keyed to simulation steps, never to frames', () => {
   const cadence = quality.QUALITY_LADDER.map((settings) => quality.telemetryCadenceMs(settings));
-  assert.deepEqual(cadence, [50, 100, 200, 500]);
+  assert.deepEqual(cadence, [50, 100, 500, 1000]);
   assert.equal(quality.telemetryCadenceMs({ telemetryCadenceSteps: 1 }), stimulus.DEMO_TICK_MS);
   const sampled = [];
   for (let step = 1n; step <= 20n; step += 1n) {

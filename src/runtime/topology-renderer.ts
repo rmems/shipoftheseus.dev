@@ -37,6 +37,17 @@ export const NODE_RENDER_ORDER = 2;
 /** Animation-frame jitter tolerated by the quality level's frame-interval cap. */
 const FRAME_CAP_TOLERANCE_MS = 2;
 
+/**
+ * How many of `buffered` events, in oldest-first buffer order, to pass over so
+ * a pulse cap of `limit` draws the most recently emitted ones. Recent spikes
+ * stay on screen when quality caps drawing. Buffered events whose tail has
+ * landed retire within one step, so the drawn count stays close to `limit`
+ * without a second counting pass over the buffer.
+ */
+export function oldestPulsesToSkip(buffered: number, limit: number): number {
+  return Math.max(0, buffered - Math.max(0, limit));
+}
+
 class RendererSeamError extends Error {
   code: ReasonCode;
 
@@ -420,7 +431,13 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       let drawn = 0;
       // The quality level's pulse cap for this frame (drawing only).
       let pulseLimit = pulseCapacity;
+      // Oldest buffered events to pass over so a capped level draws the newest.
+      let skipOldest = 0;
       const visitPulse = (event: SpikePropagationEvent) => {
+        if (skipOldest > 0) {
+          skipOldest -= 1;
+          return;
+        }
         if (drawn >= pulseLimit || event.topologyDigest !== builtDigest) {
           return;
         }
@@ -455,6 +472,7 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
           const fraction = Math.min(1, Math.max(0, (time - latestAt) / SPIKE_EVENT_STEP_MS));
           // Steps stay exact as numbers for 2^53 ticks; avoids bigint math per event.
           frameStep = Number(latestStep) + fraction;
+          skipOldest = oldestPulsesToSkip(spikeEvents.size(), pulseLimit);
           spikeEvents.forEach(visitPulse);
         }
         pulseGeometry.setDrawRange(0, drawn * 6);
@@ -531,8 +549,10 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         const interval = lastCallbackAt > 0 ? time - lastCallbackAt : 0;
         lastCallbackAt = time;
         let work = 0;
+        let drewFrame = false;
         // The frame-interval cap skips drawing, never simulation work.
         if (time - lastDrawnAt >= settings.minFrameIntervalMs - FRAME_CAP_TOLERANCE_MS) {
+          drewFrame = true;
           const drawStart = performance.now();
           renderFrame(time);
           work = performance.now() - drawStart;
@@ -549,7 +569,7 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         if (probe && interval > 0) {
           probe.record('frame-interval', interval);
         }
-        quality?.recordFrame(interval, work);
+        quality?.recordFrame(interval, work, drewFrame);
         frame = requestAnimationFrame(loop);
       };
 

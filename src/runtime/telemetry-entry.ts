@@ -67,8 +67,46 @@ export function createInputSourceHistory(capacity: number = INPUT_SOURCE_HISTORY
   };
 }
 
+/**
+ * A performance budget's ceiling for the panel's refresh rate (GitHub #10).
+ * It can only lower the panel's own cadence (default 4 Hz, 1 Hz under reduced
+ * motion), never raise it.
+ */
+export interface TelemetryCadenceCap {
+  /** Highest refresh rate the budget allows right now, in hertz. */
+  readonly maxHz: () => number;
+  /** Called on every change of `maxHz`; returns the unsubscribe. */
+  readonly subscribe: (listener: () => void) => () => void;
+}
+
 const liveSources = new WeakMap<object, LiveTelemetrySources>();
 const controllers = new WeakMap<object, TelemetryController>();
+const cadenceCaps = new WeakMap<object, TelemetryCadenceCap>();
+/** Unsubscribes the island's controller from its cap. */
+const capFollowers = new WeakMap<object, () => void>();
+
+/** Apply the island's cap to its controller now and on every change. */
+function followCadenceCap(island: object): void {
+  capFollowers.get(island)?.();
+  capFollowers.delete(island);
+  const cap = cadenceCaps.get(island);
+  const controller = controllers.get(island);
+  if (!cap || !controller) {
+    return;
+  }
+  const apply = () => controller.setCadenceCapHz(cap.maxHz());
+  apply();
+  capFollowers.set(island, cap.subscribe(apply));
+}
+
+/**
+ * Called by `live-seams.ts` with the island's adaptive quality cadence. The
+ * panel picks it up when it is first opened and on every quality change.
+ */
+export function registerTelemetryCadenceCap(island: object, cap: TelemetryCadenceCap): void {
+  cadenceCaps.set(island, cap);
+  followCadenceCap(island);
+}
 
 /**
  * Called by `live-seams.ts` for each island. Only the `live-wasm` buffer may
@@ -88,8 +126,11 @@ export function liveTelemetrySources(island: object): LiveTelemetrySources | nul
 /** Record the island's bound controller; returns the matching unregister. */
 export function registerDemoTelemetry(island: object, controller: TelemetryController): () => void {
   controllers.set(island, controller);
+  followCadenceCap(island);
   return () => {
     if (controllers.get(island) === controller) {
+      capFollowers.get(island)?.();
+      capFollowers.delete(island);
       controllers.delete(island);
     }
   };

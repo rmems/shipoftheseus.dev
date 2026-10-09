@@ -1,5 +1,6 @@
 import {
   createAdaptiveQuality,
+  telemetryCadenceHz,
   telemetryCadenceMs,
   type AdaptiveQualityController,
   type AdaptiveQualityStats,
@@ -15,7 +16,11 @@ import {
   type SpikeEventBuffer,
   type SpikePropagationEvent,
 } from './spike-events';
-import { createInputSourceHistory, registerLiveTelemetrySources } from './telemetry-entry';
+import {
+  createInputSourceHistory,
+  registerLiveTelemetrySources,
+  registerTelemetryCadenceCap,
+} from './telemetry-entry';
 import { createTopologyRendererSeam, type TopologyRendererSeam } from './topology-renderer';
 import { createWasmSeam, type TelemetryFrame } from './wasm-session';
 
@@ -178,6 +183,13 @@ export function createLiveDemoSeams(
       spikeEvents,
       channel,
       inputSource: (step) => inputSources.at(step),
+    });
+    // Quality may only lower the panel's refresh rate (its own cadence and
+    // the reduced-motion cap still apply); the panel picks up the current
+    // cap when it is first opened and follows every level change.
+    registerTelemetryCadenceCap(island, {
+      maxHz: () => telemetryCadenceHz(quality.current()),
+      subscribe: (listener) => quality.subscribe(listener),
     });
   }
 
