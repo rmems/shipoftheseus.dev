@@ -20,10 +20,11 @@ and `target/` are generated locally and intentionally not committed.
 
 ## Boundary guarantees
 
-- `WasmAdapter.init(seed, config)` accepts only the versioned V3 config byte
-  `[3]`; it rejects unknown configuration rather than ignoring it. V3 was
-  introduced because seeding LIF weights changed deterministic simulation
-  state relative to V2.
+- `WasmAdapter.init(seed, config)` accepts only versioned configs: `[3]`
+  (delta-only V3), `[4]` / `[4, mode]` (selectable `axon-encoder` modes) and
+  `[5]` / `[5, mode]` (kinetic-signals telemetry, below). It rejects unknown
+  configuration rather than ignoring it. V3 was introduced because seeding LIF
+  weights changed deterministic simulation state relative to V2.
 - `input(sequence, Float32Array)` requires finite samples and a strictly
   increasing `bigint` sequence.
 - Contract 5 (`[5]` / `[5, mode]`) treats each input as one `[x, y,

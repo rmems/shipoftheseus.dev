@@ -41,6 +41,15 @@ function isPrimaryPointer(event: Pick<PointerEvent, 'isPrimary'> | undefined): b
   return event?.isPrimary !== false;
 }
 
+function pointerIdOf(event: Pick<PointerEvent, 'pointerId'> | undefined): number | null {
+  return typeof event?.pointerId === 'number' ? event.pointerId : null;
+}
+
+/** `true` when an event may act on a packet; unknown ids match conservatively. */
+function sharesPointer(eventId: number | null, packetId: number | null): boolean {
+  return eventId === null || packetId === null || eventId === packetId;
+}
+
 export function createScriptedTelemetry(): TelemetrySource {
   return {
     sample: scriptedTelemetry,
@@ -65,10 +74,13 @@ export function createPointerTelemetry(
   // The packet to deliver after `latest` when a press was released (or moved
   // with zero pressure) before any tick sampled it.
   let next: Float32Array | null = null;
+  // Which pointer produced each latched packet (`null` when the event carried
+  // no id). A leave or cancel only affects packets from its own pointer, so a
+  // mouse leaving a touchscreen laptop's island cannot end a touch, and a
+  // canceled touch can never reach the simulation through a queued packet.
+  let latestId: number | null = null;
+  let nextId: number | null = null;
   let dirty = false;
-  // The pointer whose packets are latched. Only it can end pointer input, so a
-  // mouse leaving the island on a touchscreen laptop cannot cancel a touch.
-  let activePointerId: number | null = null;
   let lastActiveSequence: bigint | null = null;
   let leftBeforeSample = false;
   let lastKind: TelemetrySourceKind = 'scripted';
@@ -89,17 +101,20 @@ export function createPointerTelemetry(
     // Mouse hover reports pressure 0; pressed buttons and touch report > 0.
     const pressure = Number.isFinite(event.pressure) ? event.pressure : 0;
     const packet = new Float32Array([x, y, pressure]);
-    activePointerId = typeof event.pointerId === 'number' ? event.pointerId : null;
+    const id = pointerIdOf(event);
     if (next) {
       // A press is already queued ahead of this packet; keep only the newest.
       next = packet;
+      nextId = id;
     } else if (dirty && latest && latest[2] > 0 && pressure === 0) {
       // A quick tap pressed and released between two ticks. Deliver the press
       // on the next tick and the release on the one after, so the pressed
       // phase still reaches the extractor.
       next = packet;
+      nextId = id;
     } else {
       latest = packet;
+      latestId = id;
     }
     dirty = true;
     leftBeforeSample = false;
@@ -107,20 +122,20 @@ export function createPointerTelemetry(
   const release = () => {
     latest = null;
     next = null;
-    activePointerId = null;
+    latestId = null;
+    nextId = null;
     dirty = false;
     lastActiveSequence = null;
     leftBeforeSample = false;
   };
   // A tap can start and leave between two ticks (touch fires pointerleave
   // right after pointerup); deliver its unsampled packet once before release.
-  const isOtherPointer = (event: PointerEvent | undefined) =>
-    !isPrimaryPointer(event) ||
-    (activePointerId !== null &&
-      typeof event?.pointerId === 'number' &&
-      event.pointerId !== activePointerId);
   const onLeave = (event?: PointerEvent) => {
-    if (isOtherPointer(event)) {
+    if (!isPrimaryPointer(event)) {
+      return;
+    }
+    // Only the pointer that produced the newest packet ends pointer input.
+    if (!sharesPointer(pointerIdOf(event), next ? nextId : latestId)) {
       return;
     }
     if (dirty) leftBeforeSample = true;
@@ -130,8 +145,25 @@ export function createPointerTelemetry(
   // scrolling). Its pending packet was never a completed interaction, so drop
   // it now and let the next tick use the scripted source.
   const onCancel = (event?: PointerEvent) => {
-    if (!isOtherPointer(event)) {
+    if (!isPrimaryPointer(event)) {
+      return;
+    }
+    const id = pointerIdOf(event);
+    const ownsLatest = latest !== null && sharesPointer(id, latestId);
+    const ownsNext = next !== null && sharesPointer(id, nextId);
+    if (ownsLatest && next && !ownsNext) {
+      // The canceled pointer's packet is dropped; another pointer's queued
+      // packet becomes the one the next tick delivers.
+      latest = next;
+      latestId = nextId;
+      next = null;
+      nextId = null;
+      dirty = true;
+    } else if (ownsLatest || (latest === null && ownsNext)) {
       release();
+    } else if (ownsNext) {
+      next = null;
+      nextId = null;
     }
   };
 

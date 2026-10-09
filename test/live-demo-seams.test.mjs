@@ -192,6 +192,29 @@ test('only the pointer being followed can end input (touch plus mouse on one dev
   source.dispose();
 });
 
+test('a canceled touch never reaches the simulation through a queued packet', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  // An unsampled touch press, then the mouse moves (queued), then the touch is canceled.
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5, isPrimary: true, pointerId: 2 });
+  target.emit('pointermove', { clientX: 300, clientY: 150, pressure: 0, isPrimary: true, pointerId: 1 });
+  target.emit('pointercancel', { isPrimary: true, pointerId: 2 });
+  assert.deepEqual([...source.sample(1n)], [0.5, 0.5, 0], 'the mouse packet replaces the canceled press');
+  assert.equal(source.kind(), 'pointer');
+  assert.deepEqual([...source.sample(2n)], [0.5, 0.5, 0]);
+
+  // Canceling the queued pointer instead keeps the press that was not canceled.
+  const t2 = fakePointerTarget();
+  const second = telemetry.createPointerTelemetry(t2);
+  t2.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5, isPrimary: true, pointerId: 2 });
+  t2.emit('pointermove', { clientX: 300, clientY: 150, pressure: 0, isPrimary: true, pointerId: 1 });
+  t2.emit('pointercancel', { isPrimary: true, pointerId: 1 });
+  assert.deepEqual([...second.sample(1n)], [0.25, 0.25, 0.5]);
+  assert.deepEqual([...second.sample(2n)], [0.25, 0.25, 0.5], 'the press is held, not replaced');
+  second.dispose();
+  source.dispose();
+});
+
 test('a cancel drops a queued quick-tap release as well', () => {
   const target = fakePointerTarget();
   const source = telemetry.createPointerTelemetry(target);
