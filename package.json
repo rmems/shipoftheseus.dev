@@ -14,7 +14,7 @@
     "typecheck": "astro check",
     "test": "node --test test/**/*.test.mjs",
     "test:coverage": "c8 node --test test/**/*.test.mjs",
-    "test:coverage:rust": "mkdir -p coverage && cargo +1.98.1 llvm-cov --manifest-path crates/neuromorphic-adapter/Cargo.toml --all-targets --locked --lcov --output-path coverage/rust.lcov",
+    "test:coverage:rust": "mkdir -p coverage && cargo +1.98.1 llvm-cov --manifest-path crates/neuromorphic-adapter/Cargo.toml --all-targets --all-features --locked --lcov --output-path coverage/rust.lcov",
     "coverage": "npm run test:coverage:rust && npm run test:coverage",
     "test:wasm-adapter": "node scripts/verify-neuromorphic-wasm.mjs",
     "test:wasm-browser": "node scripts/verify-neuromorphic-browser.mjs",

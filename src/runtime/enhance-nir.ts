@@ -90,6 +90,13 @@ function fieldTable(caption: string, fields: readonly NirFieldView[]): HTMLTable
   return table;
 }
 
+/** Same scroll container as the static tables, so wide rows never widen the page. */
+function scrollableTable(table: HTMLTableElement): HTMLDivElement {
+  const wrap = element('div', undefined, 'nir-table-wrap');
+  wrap.append(table);
+  return wrap;
+}
+
 function linkList(label: string, names: readonly string[]): HTMLDivElement {
   const group = element('div');
   group.append(element('dt', label), element('dd', names.length > 0 ? names.join(', ') : 'none'));
@@ -107,9 +114,9 @@ export function renderNirInspector(body: HTMLElement, node: NirNodeView, nirRsVe
   const links = element('dl', undefined, 'nir-links');
   links.append(linkList('Receives from', node.inputs), linkList('Sends to', node.outputs));
 
-  const parts: Node[] = [header, links, fieldTable('Parameters', node.parameters)];
+  const parts: Node[] = [header, links, scrollableTable(fieldTable('Parameters', node.parameters))];
   if (node.metadata.length > 0) {
-    parts.push(fieldTable('Metadata', node.metadata));
+    parts.push(scrollableTable(fieldTable('Metadata', node.metadata)));
   }
   body.replaceChildren(...parts);
 }
@@ -141,10 +148,10 @@ export function bindNirLab(root: HTMLElement, options: BindNirLabOptions = {}): 
 
   const clearSelection = () => {
     for (const anchor of anchors) {
-      anchor.removeAttribute('data-selected');
+      delete anchor.dataset.selected;
       anchor.removeAttribute('aria-current');
     }
-    for (const edge of edges) edge.removeAttribute('data-active');
+    for (const edge of edges) delete edge.dataset.active;
   };
 
   /** Return to the complete static page and release the WASM session. */
@@ -169,17 +176,17 @@ export function bindNirLab(root: HTMLElement, options: BindNirLabOptions = {}): 
       fallBack(error);
       return;
     }
+    clearSelection();
     for (const anchor of anchors) {
-      const selected = anchor.dataset.nirNode === name;
-      anchor.toggleAttribute('data-selected', selected);
-      if (selected) anchor.setAttribute('aria-current', 'true');
-      else anchor.removeAttribute('aria-current');
+      if (anchor.dataset.nirNode === name) {
+        anchor.dataset.selected = '';
+        anchor.setAttribute('aria-current', 'true');
+      }
     }
     for (const edge of edges) {
-      edge.toggleAttribute(
-        'data-active',
-        edge.dataset.nirEdgeSource === name || edge.dataset.nirEdgeTarget === name,
-      );
+      if (edge.dataset.nirEdgeSource === name || edge.dataset.nirEdgeTarget === name) {
+        edge.dataset.active = '';
+      }
     }
     renderNirInspector(inspectorBody, node, session.nirRsVersion);
     selection.textContent = `Showing ${node.name} (${node.operator}).`;
