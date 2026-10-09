@@ -1,0 +1,223 @@
+{
+  "asset": {
+    "generator": "crates/neuromorphic-adapter/tests/nir_example.rs",
+    "id": "lif-readout-example",
+    "origin": "hand-authored-example",
+    "regenerate": "cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --test nir_example regenerate_nir_example -- --ignored --exact",
+    "revision": 1,
+    "summary": "Hand-authored example: three inputs, an affine projection into four LIF neurons, and a linear readout into two leaky integrators. Parameters are illustrative constants; nothing is trained or measured.",
+    "title": "LIF layer with a leaky-integrator readout"
+  },
+  "format": "shipoftheseus.nir-graph",
+  "format_version": 1,
+  "graph": {
+    "edges": [
+      [
+        "input",
+        "fc1"
+      ],
+      [
+        "fc1",
+        "lif1"
+      ],
+      [
+        "lif1",
+        "fc2"
+      ],
+      [
+        "fc2",
+        "li1"
+      ],
+      [
+        "li1",
+        "output"
+      ]
+    ],
+    "metadata": {},
+    "nodes": {
+      "fc1": {
+        "bias": {
+          "data": {
+            "F32": [
+              0.0,
+              0.0,
+              0.0,
+              0.125
+            ]
+          },
+          "shape": [
+            4
+          ]
+        },
+        "metadata": {},
+        "type": "Affine",
+        "weight": {
+          "data": {
+            "F32": [
+              0.5,
+              -0.25,
+              0.0,
+              0.0,
+              0.5,
+              -0.25,
+              -0.25,
+              0.0,
+              0.5,
+              0.25,
+              0.25,
+              0.25
+            ]
+          },
+          "shape": [
+            4,
+            3
+          ]
+        }
+      },
+      "fc2": {
+        "metadata": {},
+        "type": "Linear",
+        "weight": {
+          "data": {
+            "F32": [
+              1.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              1.0
+            ]
+          },
+          "shape": [
+            2,
+            4
+          ]
+        }
+      },
+      "input": {
+        "metadata": {},
+        "shape": [
+          3
+        ],
+        "type": "Input"
+      },
+      "li1": {
+        "metadata": {},
+        "r": {
+          "data": {
+            "F64": [
+              1.0,
+              1.0
+            ]
+          },
+          "shape": [
+            2
+          ]
+        },
+        "tau": {
+          "data": {
+            "F64": [
+              0.05,
+              0.05
+            ]
+          },
+          "shape": [
+            2
+          ]
+        },
+        "type": "LI",
+        "v_leak": {
+          "data": {
+            "F64": [
+              0.0,
+              0.0
+            ]
+          },
+          "shape": [
+            2
+          ]
+        }
+      },
+      "lif1": {
+        "metadata": {},
+        "r": {
+          "data": {
+            "F64": [
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "shape": [
+            4
+          ]
+        },
+        "tau": {
+          "data": {
+            "F64": [
+              0.02,
+              0.02,
+              0.02,
+              0.02
+            ]
+          },
+          "shape": [
+            4
+          ]
+        },
+        "type": "LIF",
+        "v_leak": {
+          "data": {
+            "F64": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "shape": [
+            4
+          ]
+        },
+        "v_reset": {
+          "data": {
+            "F64": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "shape": [
+            4
+          ]
+        },
+        "v_threshold": {
+          "data": {
+            "F64": [
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "shape": [
+            4
+          ]
+        }
+      },
+      "output": {
+        "metadata": {},
+        "shape": [
+          2
+        ],
+        "type": "Output"
+      }
+    },
+    "version": null
+  },
+  "nir_rs_version": "0.4.5"
+}

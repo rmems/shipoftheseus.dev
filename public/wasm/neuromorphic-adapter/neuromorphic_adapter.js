@@ -73,6 +73,118 @@ export class WasmAdapter {
 }
 if (Symbol.dispose) WasmAdapter.prototype[Symbol.dispose] = WasmAdapter.prototype.free;
 
+/**
+ * Browser handle for one parsed NIR graph. Construction parses and validates
+ * the envelope with `nir-rs` inside Rust/WASM; JavaScript only reads the
+ * projection back as canonical JSON whose numbers are small layout integers
+ * and whose parameter values are Rust-formatted strings.
+ */
+export class WasmNirInspection {
+    static __wrap(ptr) {
+        const obj = Object.create(WasmNirInspection.prototype);
+        obj.__wbg_ptr = ptr;
+        WasmNirInspectionFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        WasmNirInspectionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_wasmnirinspection_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    get edge_count() {
+        const ret = wasm.wasmnirinspection_edge_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * The full projection; byte-identical to the committed static projection
+     * generated from the same envelope.
+     * @returns {string}
+     */
+    inspection_json() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmnirinspection_inspection_json(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {string}
+     */
+    get nir_rs_version() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmnirinspection_nir_rs_version(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    get node_count() {
+        const ret = wasm.wasmnirinspection_node_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * One node's projection as canonical JSON.
+     * @param {string} name
+     * @returns {string}
+     */
+    node_json(name) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.wasmnirinspection_node_json(this.__wbg_ptr, ptr0, len0);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * Parse a `shipoftheseus.nir-graph` v1 envelope. Errors are
+     * `"<code>: <message>"` strings.
+     * @param {string} envelope_json
+     * @returns {WasmNirInspection}
+     */
+    static parse(envelope_json) {
+        const ptr0 = passStringToWasm0(envelope_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmnirinspection_parse(ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return WasmNirInspection.__wrap(ret[0]);
+    }
+}
+if (Symbol.dispose) WasmNirInspection.prototype[Symbol.dispose] = WasmNirInspection.prototype.free;
+
 export class WasmState {
     static __wrap(ptr) {
         const obj = Object.create(WasmState.prototype);
@@ -351,6 +463,9 @@ function __wbg_get_imports() {
 const WasmAdapterFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmadapter_free(ptr, 1));
+const WasmNirInspectionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_wasmnirinspection_free(ptr, 1));
 const WasmStateFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmstate_free(ptr, 1));
@@ -425,6 +540,43 @@ function passArrayF32ToWasm0(arg, malloc) {
     return ptr;
 }
 
+function passStringToWasm0(arg, malloc, realloc) {
+    if (realloc === undefined) {
+        const buf = cachedTextEncoder.encode(arg);
+        const ptr = malloc(buf.length, 1) >>> 0;
+        getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+        WASM_VECTOR_LEN = buf.length;
+        return ptr;
+    }
+
+    let len = arg.length;
+    let ptr = malloc(len, 1) >>> 0;
+
+    const mem = getUint8ArrayMemory0();
+
+    let offset = 0;
+
+    for (; offset < len; offset++) {
+        const code = arg.charCodeAt(offset);
+        if (code > 0x7F) break;
+        mem[ptr + offset] = code;
+    }
+    if (offset !== len) {
+        if (offset !== 0) {
+            arg = arg.slice(offset);
+        }
+        ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+        const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+        const ret = cachedTextEncoder.encodeInto(arg, view);
+
+        offset += ret.written;
+        ptr = realloc(ptr, len, offset, 1) >>> 0;
+    }
+
+    WASM_VECTOR_LEN = offset;
+    return ptr;
+}
+
 function takeFromExternrefTable0(idx) {
     const value = wasm.__wbindgen_externrefs.get(idx);
     wasm.__externref_table_dealloc(idx);
@@ -443,6 +595,19 @@ function decodeText(ptr, len) {
         numBytesDecoded = len;
     }
     return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+}
+
+const cachedTextEncoder = new TextEncoder();
+
+if (!('encodeInto' in cachedTextEncoder)) {
+    cachedTextEncoder.encodeInto = function (arg, view) {
+        const buf = cachedTextEncoder.encode(arg);
+        view.set(buf);
+        return {
+            read: arg.length,
+            written: buf.length
+        };
+    };
 }
 
 let WASM_VECTOR_LEN = 0;

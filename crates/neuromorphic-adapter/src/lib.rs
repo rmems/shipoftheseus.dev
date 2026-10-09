@@ -10,6 +10,9 @@ use wasm_bindgen::prelude::*;
 
 pub mod encoder;
 pub mod kinetic;
+/// NIR graph inspection (`nir-rs`, no HDF5); exported through this same
+/// WASM package as `WasmNirInspection`.
+pub mod nir;
 
 use encoder::{
     CONTRACT_VERSION_V4, ENCODER_CHANNELS, EncoderMode, V1Encoder,

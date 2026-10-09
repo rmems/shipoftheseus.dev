@@ -1,0 +1,325 @@
+{
+  "asset": {
+    "generator": "crates/neuromorphic-adapter/tests/nir_example.rs",
+    "id": "lif-readout-example",
+    "origin": "hand-authored-example",
+    "regenerate": "cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --test nir_example regenerate_nir_example -- --ignored --exact",
+    "revision": 1,
+    "summary": "Hand-authored example: three inputs, an affine projection into four LIF neurons, and a linear readout into two leaky integrators. Parameters are illustrative constants; nothing is trained or measured.",
+    "title": "LIF layer with a leaky-integrator readout"
+  },
+  "edges": [
+    {
+      "source": "input",
+      "target": "fc1"
+    },
+    {
+      "source": "fc1",
+      "target": "lif1"
+    },
+    {
+      "source": "lif1",
+      "target": "fc2"
+    },
+    {
+      "source": "fc2",
+      "target": "li1"
+    },
+    {
+      "source": "li1",
+      "target": "output"
+    }
+  ],
+  "format": "shipoftheseus.nir-inspection",
+  "format_version": 1,
+  "graph_metadata": [],
+  "layer_count": 6,
+  "max_rows": 1,
+  "nir_rs_version": "0.4.5",
+  "nir_version": null,
+  "nodes": [
+    {
+      "inputs": [],
+      "layer": 0,
+      "metadata": [],
+      "name": "input",
+      "operator": "Input",
+      "outputs": [
+        "fc1"
+      ],
+      "parameters": [
+        {
+          "dtype": "usize",
+          "kind": "extents",
+          "name": "shape",
+          "shape": [
+            1
+          ],
+          "value_count": 1,
+          "values": [
+            "3"
+          ]
+        }
+      ],
+      "row": 0
+    },
+    {
+      "inputs": [
+        "input"
+      ],
+      "layer": 1,
+      "metadata": [],
+      "name": "fc1",
+      "operator": "Affine",
+      "outputs": [
+        "lif1"
+      ],
+      "parameters": [
+        {
+          "dtype": "f32",
+          "kind": "tensor",
+          "name": "weight",
+          "shape": [
+            4,
+            3
+          ],
+          "value_count": 12,
+          "values": [
+            "0.5",
+            "-0.25",
+            "0",
+            "0",
+            "0.5",
+            "-0.25",
+            "-0.25",
+            "0",
+            "0.5",
+            "0.25",
+            "0.25",
+            "0.25"
+          ]
+        },
+        {
+          "dtype": "f32",
+          "kind": "tensor",
+          "name": "bias",
+          "shape": [
+            4
+          ],
+          "value_count": 4,
+          "values": [
+            "0",
+            "0",
+            "0",
+            "0.125"
+          ]
+        }
+      ],
+      "row": 0
+    },
+    {
+      "inputs": [
+        "fc1"
+      ],
+      "layer": 2,
+      "metadata": [],
+      "name": "lif1",
+      "operator": "LIF",
+      "outputs": [
+        "fc2"
+      ],
+      "parameters": [
+        {
+          "dtype": "f64",
+          "kind": "tensor",
+          "name": "tau",
+          "shape": [
+            4
+          ],
+          "value_count": 4,
+          "values": [
+            "0.02",
+            "0.02",
+            "0.02",
+            "0.02"
+          ]
+        },
+        {
+          "dtype": "f64",
+          "kind": "tensor",
+          "name": "r",
+          "shape": [
+            4
+          ],
+          "value_count": 4,
+          "values": [
+            "1",
+            "1",
+            "1",
+            "1"
+          ]
+        },
+        {
+          "dtype": "f64",
+          "kind": "tensor",
+          "name": "v_leak",
+          "shape": [
+            4
+          ],
+          "value_count": 4,
+          "values": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        {
+          "dtype": "f64",
+          "kind": "tensor",
+          "name": "v_threshold",
+          "shape": [
+            4
+          ],
+          "value_count": 4,
+          "values": [
+            "1",
+            "1",
+            "1",
+            "1"
+          ]
+        },
+        {
+          "dtype": "f64",
+          "kind": "tensor",
+          "name": "v_reset",
+          "shape": [
+            4
+          ],
+          "value_count": 4,
+          "values": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ]
+        }
+      ],
+      "row": 0
+    },
+    {
+      "inputs": [
+        "lif1"
+      ],
+      "layer": 3,
+      "metadata": [],
+      "name": "fc2",
+      "operator": "Linear",
+      "outputs": [
+        "li1"
+      ],
+      "parameters": [
+        {
+          "dtype": "f32",
+          "kind": "tensor",
+          "name": "weight",
+          "shape": [
+            2,
+            4
+          ],
+          "value_count": 8,
+          "values": [
+            "1",
+            "0",
+            "1",
+            "0",
+            "0",
+            "1",
+            "0",
+            "1"
+          ]
+        }
+      ],
+      "row": 0
+    },
+    {
+      "inputs": [
+        "fc2"
+      ],
+      "layer": 4,
+      "metadata": [],
+      "name": "li1",
+      "operator": "LI",
+      "outputs": [
+        "output"
+      ],
+      "parameters": [
+        {
+          "dtype": "f64",
+          "kind": "tensor",
+          "name": "tau",
+          "shape": [
+            2
+          ],
+          "value_count": 2,
+          "values": [
+            "0.05",
+            "0.05"
+          ]
+        },
+        {
+          "dtype": "f64",
+          "kind": "tensor",
+          "name": "r",
+          "shape": [
+            2
+          ],
+          "value_count": 2,
+          "values": [
+            "1",
+            "1"
+          ]
+        },
+        {
+          "dtype": "f64",
+          "kind": "tensor",
+          "name": "v_leak",
+          "shape": [
+            2
+          ],
+          "value_count": 2,
+          "values": [
+            "0",
+            "0"
+          ]
+        }
+      ],
+      "row": 0
+    },
+    {
+      "inputs": [
+        "li1"
+      ],
+      "layer": 5,
+      "metadata": [],
+      "name": "output",
+      "operator": "Output",
+      "outputs": [],
+      "parameters": [
+        {
+          "dtype": "usize",
+          "kind": "extents",
+          "name": "shape",
+          "shape": [
+            1
+          ],
+          "value_count": 1,
+          "values": [
+            "2"
+          ]
+        }
+      ],
+      "row": 0
+    }
+  ]
+}

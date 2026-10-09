@@ -18,6 +18,35 @@ export class WasmAdapter {
     step(): WasmState;
 }
 
+/**
+ * Browser handle for one parsed NIR graph. Construction parses and validates
+ * the envelope with `nir-rs` inside Rust/WASM; JavaScript only reads the
+ * projection back as canonical JSON whose numbers are small layout integers
+ * and whose parameter values are Rust-formatted strings.
+ */
+export class WasmNirInspection {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * The full projection; byte-identical to the committed static projection
+     * generated from the same envelope.
+     */
+    inspection_json(): string;
+    /**
+     * One node's projection as canonical JSON.
+     */
+    node_json(name: string): string;
+    /**
+     * Parse a `shipoftheseus.nir-graph` v1 envelope. Errors are
+     * `"<code>: <message>"` strings.
+     */
+    static parse(envelope_json: string): WasmNirInspection;
+    readonly edge_count: number;
+    readonly nir_rs_version: string;
+    readonly node_count: number;
+}
+
 export class WasmState {
     private constructor();
     free(): void;
@@ -55,6 +84,13 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly __wbg_wasmnirinspection_free: (a: number, b: number) => void;
+    readonly wasmnirinspection_edge_count: (a: number) => number;
+    readonly wasmnirinspection_inspection_json: (a: number) => [number, number];
+    readonly wasmnirinspection_nir_rs_version: (a: number) => [number, number];
+    readonly wasmnirinspection_node_count: (a: number) => number;
+    readonly wasmnirinspection_node_json: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly wasmnirinspection_parse: (a: number, b: number) => [number, number, number];
     readonly __wbg_wasmadapter_free: (a: number, b: number) => void;
     readonly __wbg_wasmstate_free: (a: number, b: number) => void;
     readonly wasmadapter_dispose: (a: number) => void;
@@ -93,6 +129,7 @@ export interface InitOutput {
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_start: () => void;
 }
 
