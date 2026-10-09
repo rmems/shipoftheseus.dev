@@ -77,10 +77,10 @@ measured](#not-measured).
 | R4 | Pixel-ratio cap per level | 2 / 1.5 / 1 / 1 | Applied: DPR 3 display rendered at 2 / 1.5 / 1 / 1 |
 | R5 | Pulses drawn per frame per level | all buffered / 256 / 96 / 0 | 15,515 / 256 / 96 / 0 (1024-node stress, headed) |
 | R6 | Frame-rate cap per level | none / none / 30 fps / 20 fps | ~17% and ~11% of animation frames drawn at reduced / minimal |
-| R7 | Telemetry/DOM refresh cadence per level | every step (50 ms) / 100 / 200 / 500 ms | Reflected as `data-demo-telemetry-cadence-ms` |
+| R7 | Telemetry/DOM refresh ceiling per level | every step (20 Hz) / 10 / 2 / 1 Hz. It only lowers the live telemetry panel's own 4 Hz (1 Hz under reduced motion), so the panel refreshes at 4 / 4 / 2 / 1 Hz | Panel followed 4 → 2 → 1 → 2 → 4 Hz as quality stepped down under throttle and back up ([section 9](#9-telemetry-panel-under-quality-pressure)) |
 | R8 | Offscreen or hidden | 0 simulation ticks and 0 frames | 0 / 0 |
-| R9 | Live-demo payload (island entry plus lazily loaded three.js, WASM, glue, worker) | ≤ 250 KB brotli | 233,755 bytes brotli |
-| R10 | First live frame after the island becomes eligible | ≤ 500 ms on desktop | 218.2 ms headless and 378.7 ms headed after navigation start, from localhost |
+| R9 | Live-demo payload (island entry plus lazily loaded three.js, WASM, glue, worker) | ≤ 250 KB brotli | 234,301 bytes brotli with the telemetry panel closed; 240,380 once it is opened |
+| R10 | First live frame after the island becomes eligible | ≤ 500 ms on desktop | 218.2 ms headless and 378.7 ms headed after navigation start, from localhost (before the rebase onto #48) |
 
 ## Measurement context
 
@@ -102,7 +102,7 @@ says otherwise.
 | Node (boundary and WASI runs) | Node 22.12.0, V8 12.4.254.21 |
 | Rust | 1.98.1, `--release` (opt-level 3) for the native and `wasm32-wasip1` harness builds. The Node and Chrome boundary runs use the committed `public/wasm/neuromorphic-adapter` package |
 | Site build | `npm run build` (production), served by the harness's static server on `127.0.0.1` with `cache-control: no-store` and no compression |
-| Revision | Chrome and Node runs: this branch on top of the #45 head `f944b2a`. Sections 1 and 2 ran on the same Rust crate sources, which that base does not change |
+| Revision | Sections 3 to 7: this branch on top of the #45 head `f944b2a`. After rebasing onto #48 (`29d35ab`, which brings #46 and #47 with it) and the review fixes (capped levels draw the newest pulses; draws the clock times at 0 ms count toward the mean), sections 8 and 9 and a short render-stress check (section 5) were re-measured on the final tree. #46 to #48 change neither the default WASM package, the bridge, the renderer, nor the worker path, and the telemetry panel is closed by default, so sections 3 to 7 describe a closed panel. Sections 1 and 2 ran on the same Rust crate sources, which those bases do not change |
 
 Chrome delivered animation frames about every 5.5 to 5.9 ms (about 170 to 180
 Hz) in both modes, even though the display reports 239 Hz. Frame-interval
@@ -346,6 +346,15 @@ the topologies nor the spikes come from the live adapter.
 | headed | 1,024 | 32,768 | 8,192 | reduced | 1 | 96 | 114 / 571 | 0.17 / 0.30 / 0.40 | 5.84 / 6.10 | 0.495 / 0.70 |
 | headed | 1,024 | 32,768 | 8,192 | minimal | 1 | 0 | 78 / 610 | 0.13 / 0.20 / 0.30 | 5.83 / 6.10 | 0.468 / 0.70 |
 
+A review fix later changed which pulses a capped level draws: the most
+recently emitted ones instead of the oldest. A 4 s-per-case headless rerun on
+the final tree measured mean frame work at 1024 nodes of 1.11 ms (full,
+15,534 pulses), 0.21 ms (balanced), 0.17 ms (reduced), and 0.11 ms (minimal),
+in line with the table. At 64 nodes, balanced drew 243 pulses per frame rather
+than 256. Some of the newest buffered events have short delays and have
+already landed; the buffer retires them one step after arrival, and the cap
+counts buffered events rather than visible ones to avoid a second pass.
+
 The frame interval did not move at any size or DPR, so on this machine the
 measured cost is main-thread draw time, and it tracks the pulses drawn: at
 1024 nodes (headless), 1.09 ms with 15,541 pulses versus 0.20 ms with 256.
@@ -398,20 +407,32 @@ and dispose. It uses the real fixed-cadence WASM seam.
 
 ### 8. Startup and payload
 
-The payload is the production build that the live runs above used,
-compressed by Node's zlib in the harness (gzip level 9, brotli quality 11).
-The harness serves files uncompressed; production hosting is not configured.
+The payload is the production build of this branch on top of #48,
+compressed by Node's zlib (gzip level 9, brotli quality 11). The harness
+serves files uncompressed; production hosting is not configured. "Requested"
+is what headless Chrome actually fetched from the harness server for `/`
+(section 9).
 
 | file | bytes | gzip | brotli | loaded |
 | --- | ---: | ---: | ---: | --- |
 | `three.module.*.js` | 746,881 | 191,104 | 155,725 | lazily, when the island goes live |
-| `neuromorphic_adapter_bg.wasm` | 189,316 | 67,935 | 56,459 | lazily, in the worker |
-| `NeuromorphicDemo…js` (island entry) | 55,865 | 17,418 | 15,482 | with the page |
-| `neuromorphic_adapter.js` (glue) | 17,150 | 3,161 | 2,798 | lazily, in the worker |
+| `neuromorphic_adapter_bg.wasm` (default package) | 189,316 | 67,935 | 56,459 | lazily, in the worker |
+| `NeuromorphicDemo…js` (island entry) | 57,562 | 18,066 | 16,028 | with the page |
+| `neuromorphic_adapter.js` (default glue) | 17,150 | 3,161 | 2,798 | lazily, in the worker |
 | `neuromorphic-worker-*.js` | 12,105 | 3,740 | 3,291 | lazily |
-| **total** | 1,021,317 | 283,358 | 233,755 | |
+| **total, panel closed** | 1,023,014 | 284,006 | 234,301 | |
+| `telemetry-view.*.js` (#48 panel) | 16,761 | 6,712 | 6,079 | only when a reader opens the panel |
+| **total, panel opened** | 1,039,775 | 290,718 | 240,380 | |
 
-Marks are in ms since navigation start, on localhost with a fresh profile:
+The island entry grew from 55,865 to 57,562 bytes (+1,697; +546 brotli) with
+#48's always-loaded `telemetry-entry.ts`, the cadence-cap wiring, and the
+review fixes. The labs
+package (`neuromorphic-adapter-labs`, 966,603 bytes of WASM) is never
+requested by the homepage.
+
+Startup marks below were recorded before the rebase onto #48 and were not
+re-measured. They are in ms since navigation start, on localhost with a fresh
+profile:
 
 | run | island script ran | renderer ready | first frame | first snapshot |
 | --- | ---: | ---: | ---: | ---: |
@@ -419,6 +440,33 @@ Marks are in ms since navigation start, on localhost with a fresh profile:
 | headed | 32.5 | 366.3 | 378.7 | 436.7 |
 
 "First snapshot" includes the first 50 ms tick interval.
+
+### 9. Telemetry panel under quality pressure
+
+This was a sanity run on the final tree (after rebasing onto #48 and the
+review fixes): headless Chrome 155.0.8059.40 on the same machine (renderer `ANGLE (NVIDIA, NVIDIA GeForce RTX 5080 …
+D3D11)`), 2026-10-09, production build, `/?neuromorphic-perf`. The panel
+was opened while the demo was live, then the page's main thread was throttled
+with `Emulation.setCPUThrottlingRate`. Each sample read the island's
+`data-demo-quality` and the rate the panel itself reports in its status line
+("refreshed at N Hz"), every 0.5 s while throttled and every 1 s after.
+
+| Phase | Quality | Panel refresh |
+| --- | --- | --- |
+| Panel opened, unthrottled | full | 4 Hz (`telemetry-view` chunk fetched only now) |
+| 20× throttle, 12 s | full throughout (every window "relief": p90 interval 6.1–16.3 ms, draw 1.3–2.4 ms) | 4 Hz |
+| 60× throttle, 12 s | full → balanced → reduced → minimal (windows under "pressure": p90 interval 111–580 ms, draw 15–33 ms) | 4 → 4 → 2 → 1 Hz |
+| Throttle removed | minimal → reduced → balanced → full over about 14 s | 1 → 2 → 4 → 4 Hz |
+
+The homepage requested exactly the island entry, the worker, `three`, and the
+default package (`/wasm/neuromorphic-adapter/…`). It made no request to
+`neuromorphic-adapter-labs`, and there were no page errors. The panel's
+reported rate trails a level change by up to one of its own refresh periods,
+because its status line is redrawn by the same throttled flush.
+`test/telemetry-quality.test.mjs` covers the same contract deterministically:
+the cap is picked up on first open and on every change, it never raises the
+panel above 4 Hz (or 1 Hz under reduced motion), and redraws slow down while
+every step is still sampled.
 
 ## Simulation versus rendering
 
@@ -443,12 +491,15 @@ Marks are in ms since navigation start, on localhost with a fresh profile:
 `src/runtime/adaptive-quality.ts` keeps one controller per island, created in
 `live-seams.ts` and passed only to the renderer seam.
 
-| level | name | DPR cap | pulses drawn | frame cap | telemetry refresh |
-| ---: | --- | ---: | --- | --- | --- |
-| 0 | full | 2 | all buffered (ring capacity) | every animation frame | every step (50 ms) |
-| 1 | balanced | 1.5 | 256 | every animation frame | every 2 steps (100 ms) |
-| 2 | reduced | 1 | 96 | 30 fps | every 4 steps (200 ms) |
-| 3 | minimal | 1 | 0 (off) | 20 fps (one per step) | every 10 steps (500 ms) |
+| level | name | DPR cap | pulses drawn | frame cap | telemetry ceiling | live telemetry panel (#9) |
+| ---: | --- | ---: | --- | --- | --- | --- |
+| 0 | full | 2 | all buffered (ring capacity) | every animation frame | every step (50 ms, 20 Hz) | 4 Hz |
+| 1 | balanced | 1.5 | 256 | every animation frame | every 2 steps (100 ms, 10 Hz) | 4 Hz |
+| 2 | reduced | 1 | 96 | 30 fps | every 10 steps (500 ms, 2 Hz) | 2 Hz |
+| 3 | minimal | 1 | 0 (off) | 20 fps (one per step) | every 20 steps (1 s, 1 Hz) | 1 Hz |
+
+The panel column applies with motion allowed. Under reduced motion the panel
+stays at 1 Hz at every level.
 
 - **Signal.** The renderer reports every animation-frame callback: the interval
   since the previous one, and its own draw time (0 when the frame cap skipped
@@ -475,8 +526,17 @@ Marks are in ms since navigation start, on localhost with a fresh profile:
   `data-demo-telemetry-cadence-ms`. In code, `renderer.quality` on the live
   seams is the controller's read side (`current()`, `subscribe()`, `stats()`),
   and `shouldSampleTelemetry(step, cadenceSteps)` picks the same simulation
-  steps for every consumer. `telemetryCadenceMs(settings)` converts the cadence
-  to milliseconds. Cadence is keyed to steps, never to frames.
+  steps for every consumer. `telemetryCadenceMs(settings)` and
+  `telemetryCadenceHz(settings)` convert the cadence. Cadence is keyed to
+  steps, never to frames.
+- **Live telemetry panel (#9).** `live-seams.ts` registers the quality
+  cadence as a ceiling with `registerTelemetryCadenceCap` in
+  `telemetry-entry.ts`. When a reader first opens the panel, its controller
+  picks up the current ceiling, then follows every level change through
+  `setCadenceCapHz`. The panel's effective rate is the minimum of its own
+  cadence (4 Hz), the reduced-motion cap (1 Hz), and the quality ceiling, so
+  quality can only lower it. Sampling still happens on every step; only
+  redraws slow down.
 - **Inspection.** Under `astro dev`, or on any build with `?neuromorphic-perf`,
   `globalThis.__neuromorphicPerf` exposes `summary()`, `reset()`, `quality()`,
   `forceQuality(level | null)`, `renderer()`, and `spikeEvents()`. Without the
@@ -569,10 +629,12 @@ harness (`test/perf-harness.test.mjs`). Coverage excludes `scripts/perf/**` and
 - **Display-locked pacing.** Chrome's frame cadence was about 170 to 180 Hz in
   both modes on a 239 Hz display. Frame budgets at 60 Hz and 120 Hz were not
   measured on real panels.
-- **Telemetry panel DOM cost (#9).** The panel is not built yet. Today the only
-  per-tick telemetry work is the `onFrame` hook (`telemetry` stage, mean 0.0012
-  to 0.0062 ms, from samples quantized at 0.1 ms). #9 should measure its panel
-  with the probe at each cadence.
+- **Telemetry panel draw cost (#9).** The panel from #48 now sits under
+  this branch, but its per-flush DOM and canvas cost was not timed here. The
+  measurements in sections 3 to 7 have the panel closed, so their only
+  per-tick telemetry work is the `onFrame` hook (`telemetry` stage, mean
+  0.0012 to 0.0062 ms, from samples quantized at 0.1 ms). Section 9 shows the
+  panel following quality, not what one flush costs.
 - **Network.** Assets were served from localhost without compression or CDN
   latency. Hosting is not configured (`README.md`).
 - **Power and thermals.** Battery, thermal throttling, and long sessions over

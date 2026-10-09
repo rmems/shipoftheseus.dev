@@ -466,7 +466,11 @@ buffer audit, and how to reproduce each measurement are in
 - **Telemetry cadence for consumers.** The island carries `data-demo-quality`
   and `data-demo-telemetry-cadence-ms`. The live renderer seam exposes the
   controller's read side as `renderer.quality`, and `shouldSampleTelemetry`
-  keys refreshes to simulation steps.
+  keys refreshes to simulation steps. For the live telemetry panel,
+  `live-seams.ts` registers the quality cadence as a ceiling
+  (`registerTelemetryCadenceCap`). The panel's controller picks it up when it
+  is first opened and on every level change (`setCadenceCapHz`), and it can
+  only lower the panel's own 4 Hz (1 Hz under reduced motion).
 - **Snapshot transfer.** The bridge reads each wasm-bindgen getter once, frees
   the `WasmState` handle immediately instead of waiting for a GC finalizer,
   and checks the routed topology by value against the last verified copy.
