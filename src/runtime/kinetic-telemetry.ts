@@ -31,6 +31,16 @@ interface PointerTarget {
   removeEventListener: (type: string, listener: (event: PointerEvent) => void) => void;
 }
 
+/**
+ * Only the primary pointer drives telemetry. With several touches down, a
+ * second finger must not replace the first one's packets or end its input
+ * when it lifts. Mouse and pen pointers are always primary. Events without the
+ * flag (synthetic or very old browsers) count as primary.
+ */
+function isPrimaryPointer(event: Pick<PointerEvent, 'isPrimary'> | undefined): boolean {
+  return event?.isPrimary !== false;
+}
+
 export function createScriptedTelemetry(): TelemetrySource {
   return {
     sample: scriptedTelemetry,
@@ -61,6 +71,9 @@ export function createPointerTelemetry(
   let lastKind: TelemetrySourceKind = 'scripted';
 
   const onMove = (event: PointerEvent) => {
+    if (!isPrimaryPointer(event)) {
+      return;
+    }
     const box = target.getBoundingClientRect();
     if (!(box.width > 0 && box.height > 0)) {
       return;
@@ -96,14 +109,21 @@ export function createPointerTelemetry(
   };
   // A tap can start and leave between two ticks (touch fires pointerleave
   // right after pointerup); deliver its unsampled packet once before release.
-  const onLeave = () => {
+  const onLeave = (event?: PointerEvent) => {
+    if (!isPrimaryPointer(event)) {
+      return;
+    }
     if (dirty) leftBeforeSample = true;
     else release();
   };
   // A cancel means the browser took over the gesture (usually touch
   // scrolling). Its pending packet was never a completed interaction, so drop
   // it now and let the next tick use the scripted source.
-  const onCancel = () => release();
+  const onCancel = (event?: PointerEvent) => {
+    if (isPrimaryPointer(event)) {
+      release();
+    }
+  };
 
   const moveEvents = ['pointermove', 'pointerdown', 'pointerup'] as const;
   for (const type of moveEvents) target.addEventListener(type, onMove);

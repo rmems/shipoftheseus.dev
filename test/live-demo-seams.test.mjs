@@ -152,6 +152,26 @@ test('a quick tap that stays over the island keeps its press and then follows th
   source.dispose();
 });
 
+test('only the primary pointer drives telemetry when several touches are down', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5, isPrimary: true });
+  // A second finger lands, moves, and lifts; none of it may disturb the first.
+  target.emit('pointerdown', { clientX: 400, clientY: 200, pressure: 0.5, isPrimary: false });
+  target.emit('pointermove', { clientX: 420, clientY: 210, pressure: 0.5, isPrimary: false });
+  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0.5]);
+  target.emit('pointerup', { clientX: 420, clientY: 210, pressure: 0, isPrimary: false });
+  target.emit('pointerleave', { isPrimary: false });
+  target.emit('pointercancel', { isPrimary: false });
+  assert.deepEqual([...source.sample(2n)], [0.25, 0.25, 0.5], 'the primary touch is still held');
+  assert.equal(source.kind(), 'pointer');
+  target.emit('pointermove', { clientX: 300, clientY: 100, pressure: 0.5, isPrimary: true });
+  assert.deepEqual([...source.sample(3n)], [0.5, 0.25, 0.5]);
+  target.emit('pointercancel', { isPrimary: true });
+  assert.deepEqual(source.sample(4n), stimulus.scriptedTelemetry(4n), 'a primary cancel still ends input');
+  source.dispose();
+});
+
 test('a cancel drops a queued quick-tap release as well', () => {
   const target = fakePointerTarget();
   const source = telemetry.createPointerTelemetry(target);
