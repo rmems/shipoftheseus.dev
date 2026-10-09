@@ -52,7 +52,13 @@ export async function builtPagePaths(dist) {
     }
   };
   await walk(dist);
-  return paths.sort();
+  return paths.sort(byCodeUnit);
+}
+
+/** Plain code-unit order (what `sort()` does by default), stated explicitly. */
+function byCodeUnit(left, right) {
+  if (left < right) return -1;
+  return left > right ? 1 : 0;
 }
 
 /** Measurements that scroll horizontally, as readable failure lines. */
