@@ -235,6 +235,9 @@ button.button {
   cursor: pointer;
 }
 
+/* `.button` sets a display, which would otherwise override `hidden`. */
+.button[hidden] { display: none; }
+
 .button-primary { color: var(--paper); background: var(--ink); }
 .button-primary:hover { color: var(--paper); border-color: var(--signal); background: var(--signal); }
 .button-secondary:hover { color: var(--paper); background: var(--signal); border-color: var(--signal); }
@@ -380,46 +383,11 @@ button.button {
 .focus-band .eyebrow { margin-bottom: 0.8rem; }
 .focus-band > p { max-width: 520px; margin: 0; font-size: 1.05rem; }
 
-.demo-island {
-  display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: clamp(1.5rem, 4vw, 3rem);
-  align-items: end;
-  border-bottom: 1px solid var(--line-strong);
-}
-
-.demo-heading .eyebrow { margin-bottom: 0.8rem; }
-
 .demo-copy {
   max-width: 42rem;
   margin: 1.1rem 0 0;
   color: var(--ink);
   font-size: 1.02rem;
-}
-
-.demo-stage {
-  display: grid;
-  gap: 1rem;
-}
-
-.demo-diagram {
-  margin: 0;
-  padding: 1rem;
-  border: 1px solid var(--line-strong);
-  background: var(--paper-deep);
-  color: var(--ink);
-}
-
-.demo-diagram svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.demo-diagram-labels {
-  font-family: var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .demo-surface {
@@ -433,13 +401,6 @@ button.button {
   width: 100%;
   height: 100%;
   min-height: 12rem;
-}
-
-.demo-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.85rem 1.1rem;
 }
 
 .demo-status {
@@ -474,7 +435,6 @@ button.button {
   border-color: var(--line-strong);
 }
 
-.demo-heading .execution-origin,
 .native-evidence-heading .execution-origin {
   margin-bottom: 1.15rem;
 }
@@ -783,7 +743,7 @@ button.button {
   .site-header { grid-template-columns: minmax(0, 1fr) auto; }
   .primary-nav { grid-column: 1 / -1; grid-row: 2; justify-content: space-between; padding: 0.9rem 0; border-top: 1px solid var(--line); }
   .header-profile { grid-column: 2; grid-row: 1; }
-  .section-heading, .work-index, .demo-island, .native-evidence { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; }
+  .section-heading, .work-index, .native-evidence { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; }
   .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-card:nth-child(3) { border-left: 1px solid var(--line); }
   .case-study-body { grid-template-columns: minmax(0, 1fr); }

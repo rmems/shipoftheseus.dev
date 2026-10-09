@@ -60,6 +60,38 @@ const BROWSER_TOPOLOGY_WEIGHT_BITS = new Uint32Array([
   1062490082, 1062098491, 1061315310, 1060923720, 1061673163, 1061281572, 1060498392, 1060106802,
   1057166719, 1062031015, 1060856244, 1059681474, 1056518174, 1063172048, 1060039326, 1059647736,
 ]);
+
+/** The canonical `synaptic-wiring` projection every live snapshot must match. */
+export interface AuditedBrowserTopology {
+  digest: string;
+  nodeIds: Uint32Array;
+  edgeSources: Uint32Array;
+  edgeTargets: Uint32Array;
+  edgeDelays: Uint16Array;
+  polarities: Uint8Array;
+  edgeWeights: Float32Array;
+  weightBits: Uint32Array;
+}
+
+/**
+ * Fresh copies of the audited browser topology. The bridge rejects any
+ * snapshot whose projection differs from it, so this is the only network the
+ * live demo can draw. The homepage hero renders it at build time as the static
+ * drawing that WebGL later replaces; no WASM runs for that.
+ */
+export function auditedBrowserTopology(): AuditedBrowserTopology {
+  const weightBits = BROWSER_TOPOLOGY_WEIGHT_BITS.slice();
+  return {
+    digest: BROWSER_TOPOLOGY_DIGEST,
+    nodeIds: BROWSER_TOPOLOGY_NODE_IDS.slice(),
+    edgeSources: BROWSER_TOPOLOGY_EDGE_SOURCES.slice(),
+    edgeTargets: BROWSER_TOPOLOGY_EDGE_TARGETS.slice(),
+    edgeDelays: BROWSER_TOPOLOGY_EDGE_DELAYS.slice(),
+    polarities: BROWSER_TOPOLOGY_POLARITIES.slice(),
+    edgeWeights: new Float32Array(weightBits.slice().buffer),
+    weightBits,
+  };
+}
 const MAX_U64 = (1n << 64n) - 1n;
 const RUNTIME_ERROR_STATUSES = new Set([
   'ok',

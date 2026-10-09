@@ -44,6 +44,11 @@ This document keeps two kinds of numbers apart:
   stepped from full to balanced at 2.4 s. It tried full again at 9.4 s, fell
   back at 11.5 s, and the flap guard then doubled the next recovery wait. The
   exact path varied between runs (section 6).
+- The homepage hero (#13) moves the island to the top of the page without
+  adding per-frame work, and the live page measured the same as before
+  ([section 10](#10-homepage-hero-13)). Its first screen shifts nothing when
+  WebGL takes over (cumulative layout shift 0), and the headline stays the
+  largest contentful paint.
 - Offscreen and hidden pages do no simulation or render work: 0 ticks and 0
   frames over 3 s, in both headless and headed Chrome, measured live.
 
@@ -79,8 +84,8 @@ measured](#not-measured).
 | R6 | Frame-rate cap per level | none / none / 30 fps / 20 fps | ~17% and ~11% of animation frames drawn at reduced / minimal |
 | R7 | Telemetry/DOM refresh ceiling per level | every step (20 Hz) / 10 / 2 / 1 Hz. It only lowers the live telemetry panel's own 4 Hz (1 Hz under reduced motion), so the panel refreshes at 4 / 4 / 2 / 1 Hz | Panel followed 4 → 2 → 1 → 2 → 4 Hz as quality stepped down under throttle and back up ([section 9](#9-telemetry-panel-under-quality-pressure)) |
 | R8 | Offscreen or hidden | 0 simulation ticks and 0 frames | 0 / 0 |
-| R9 | Live-demo payload (island entry plus lazily loaded three.js, WASM, glue, worker) | ≤ 250 KB brotli | 234,301 bytes brotli with the telemetry panel closed; 240,380 once it is opened |
-| R10 | First live frame after the island becomes eligible | ≤ 500 ms on desktop | 218.2 ms headless and 378.7 ms headed after navigation start, from localhost (before the rebase onto #48) |
+| R9 | Live-demo payload (island entry plus lazily loaded three.js, WASM, glue, worker) | ≤ 250 KB brotli | 235,253 bytes brotli with the telemetry panel closed; 241,781 once it is opened (homepage hero, [section 10](#10-homepage-hero-13)) |
+| R10 | First live frame after the island becomes eligible | ≤ 500 ms on desktop | 120.3 ms headless after navigation start, from localhost, with the island in the hero ([section 10](#10-homepage-hero-13)); 378.7 ms headed before the rebase onto #48, not re-measured |
 
 ## Measurement context
 
@@ -468,6 +473,85 @@ the cap is picked up on first open and on every change, it never raises the
 panel above 4 Hz (or 1 Hz under reduced motion), and redraws slow down while
 every step is still sampled.
 
+### 10. Homepage hero (#13)
+
+GitHub #13 / Linear RM-1649 moves the live island into the homepage hero (see
+the hero section of [`browser-runtime.md`](browser-runtime.md#homepage-hero-github-13--linear-rm-1649)).
+It adds no per-frame work: the renderer's frame path is unchanged (its layout
+constants moved to `topology-layout.ts`), the static drawing is plain SVG that
+nothing touches after load, and the plate's input indicator is CSS that reads
+`data-demo-input-source`, which the WASM seam already wrote only when the
+source changes. Viewport gating now follows the mesh and the telemetry panel
+instead of the whole island.
+
+Re-measured on the same machine on 2026-10-09 at 10:31 UTC with
+`npm run perf:browser -- --browser <chrome> --seconds 8 --skip-bench --skip-stress`
+on the production build of this branch (on top of #50, `c7ff9e5`): headless
+Chrome 155.0.8059.40, renderer `ANGLE (NVIDIA, NVIDIA GeForce RTX 5080 …
+D3D11)`, DPR 1, viewport 1244×795, served from `127.0.0.1` without
+compression. The headed run was not repeated (see [Not measured](#not-measured)).
+Times are mean / p95 / max in ms, quantized at 0.1 ms.
+
+| scenario | level | DPR applied | ticks | tick | tick-step | publish | spike ingest | frames drawn / skipped | frame work | frame interval | pulses per drawn frame |
+|---|---|---:|---:|---|---|---|---|---|---|---|---:|
+| scripted, adaptive | full | 1 | 161 | 0.34 / 0.50 / 1.10 | 0.19 / 0.30 / 0.70 | 0.02 / 0.10 / 0.10 | 0.01 / 0.10 / 0.10 | 1462 / 0 | 0.09 / 0.20 / 0.30 | 5.53 / 6.10 / 6.70 | 14.5 |
+| scripted | full | 1 | 162 | 0.36 / 0.50 / 0.70 | 0.19 / 0.30 / 0.40 | 0.01 / 0.10 / 0.10 | 0.01 / 0.10 / 0.10 | 1453 / 0 | 0.08 / 0.20 / 0.30 | 5.55 / 6.10 / 6.90 | 10.6 |
+| scripted | balanced | 1 | 162 | 0.33 / 0.50 / 1.10 | 0.19 / 0.30 / 0.80 | 0.01 / 0.10 / 0.10 | 0.01 / 0.10 / 0.10 | 1455 / 0 | 0.08 / 0.20 / 0.20 | 5.55 / 6.10 / 6.90 | 17.5 |
+| scripted | reduced | 1 | 161 | 0.23 / 0.40 / 1.00 | 0.13 / 0.20 / 0.60 | 0.01 / 0.10 / 0.10 | 0.00 / 0.00 / 0.10 | 229 / 1146 | 0.07 / 0.20 / 0.20 | 5.86 / 6.10 / 6.80 | 8.3 |
+| scripted | minimal | 1 | 161 | 0.22 / 0.40 / 0.50 | 0.12 / 0.20 / 0.30 | 0.01 / 0.10 / 0.10 | 0.01 / 0.10 / 0.10 | 154 / 1220 | 0.07 / 0.20 / 0.20 | 5.87 / 6.10 / 7.10 | 0.0 |
+| pointer-active | full | 1 | 162 | 0.33 / 0.50 / 2.10 | 0.19 / 0.30 / 1.90 | 0.02 / 0.10 / 0.10 | 0.02 / 0.10 / 0.10 | 1424 / 0 | 0.09 / 0.20 / 0.20 | 5.67 / 6.10 / 7.20 | 173.5 |
+| pointer-active | minimal | 1 | 161 | 0.24 / 0.40 / 0.50 | 0.12 / 0.20 / 0.30 | 0.02 / 0.10 / 0.10 | 0.02 / 0.10 / 0.10 | 156 / 1228 | 0.08 / 0.20 / 0.20 | 5.83 / 6.10 / 6.60 | 0.0 |
+
+- No tick overran, every window ended with `evicted: 0`, and every
+  input-source sample in the pointer windows read `pointer` (the scripted
+  windows read `scripted`). The numbers match section 4 within its spread.
+- Startup, in ms since navigation start: DOMContentLoaded 83.9, renderer ready
+  107.3, first frame 120.3, first snapshot 161.7. The island is now on the
+  first screen of a desktop viewport, so it is eligible at load instead of
+  after a scroll. On a phone, the mesh sits below the calls to action and
+  nothing loads or runs until it scrolls in.
+- Offscreen (the island scrolled out of view) and hidden (window minimized
+  through CDP): 0 ticks and 0 frames over 3 s each, then 58 ticks / 516
+  frames in 3 s and 40 ticks / 347 frames in 2 s after returning.
+- The page reported no errors. Its only WASM requests were the default
+  package's glue and `.wasm`; it never requested `neuromorphic-adapter-labs`
+  (`npm run test:layout` now checks this on every validate run).
+
+**Payload.** Same method as section 8 (Node zlib, gzip level 9, brotli quality
+11). Vite now splits the island entry into an entry and a chunk it shares with
+`/labs/plasticity/` (since #50); both load with the page.
+
+| file | bytes | gzip | brotli | loaded |
+| --- | ---: | ---: | ---: | --- |
+| `three.module.*.js` | 746,881 | 191,104 | 155,725 | lazily, when the island goes live |
+| `neuromorphic_adapter_bg.wasm` (default package) | 189,316 | 67,935 | 56,459 | lazily, in the worker |
+| `NeuromorphicDemo…js` (island entry) | 43,026 | 13,598 | 12,265 | with the page |
+| `spike-events.*.js` (shared chunk) | 15,841 | 5,377 | 4,715 | with the page |
+| `neuromorphic_adapter.js` (default glue) | 17,150 | 3,161 | 2,798 | lazily, in the worker |
+| `neuromorphic-worker-*.js` | 12,105 | 3,740 | 3,291 | lazily |
+| **total, panel closed** | 1,024,319 | 284,915 | 235,253 | |
+| `telemetry-view.*.js` + `demo-telemetry.*.js` (#48 panel) | 16,856 | 7,175 | 6,528 | only when a reader opens the panel |
+| **total, panel opened** | 1,041,175 | 292,090 | 241,781 | |
+
+Against a build of the #50 head (`c7ff9e5`) on the same machine, the hero
+changes the homepage as follows. The island entry grows by 350 bytes (124
+brotli). The HTML grows from 19,149 to 25,393 bytes (3,662 to 4,787 brotli),
+almost all of it the static drawing (64 lines and one path) and the crate
+trail, which are plain markup with no script. The page's own stylesheet
+(`hero.css` with the telemetry styles) grows from 4,474 to 8,866 bytes (1,046
+to 1,959 brotli), and the shared site stylesheet shrinks from 16,590 to 16,392
+bytes once the old demo section's rules are removed.
+
+**Layout stability.** A separate headless Chrome 155 session on the same
+machine and build (a `layout-shift` and `largest-contentful-paint`
+`PerformanceObserver` installed before navigation, read 1.8 s after load)
+measured a cumulative layout shift of 0 at 1440, 1024, and 768 px wide, where
+the demo went live, and at 375 and 320 px, where the mesh starts below the
+fold. The largest contentful paint was the headline (`h1#hero-title`) at every
+width. The same held with reduced motion, without WebGL
+(`--disable-webgl --disable-3d-apis`), and with the WASM package blocked
+(404).
+
 ## Simulation versus rendering
 
 - **At the shipped size (16 / 64), neither is a bottleneck.** The largest
@@ -619,6 +703,9 @@ harness (`test/perf-harness.test.mjs`). Coverage excludes `scripts/perf/**` and
   20× CPU throttle throttles Chrome's page main thread on a desktop. It is not
   a mobile device, and it is not established here whether it slows workers.
 - **Other browsers.** Firefox, Safari, and Edge were not run.
+- **Headed run of the homepage hero (#13).** Section 10 is headless only; a
+  headed run would have opened a visible window on a shared desktop. The
+  hero changes neither the renderer's frame path nor the worker path.
 - **GPU time.** `EXT_disjoint_timer_query_webgl2` is present. In an earlier
   headless run on this machine (before rebasing onto the current #45 head),
   per-frame values from a wrapped animation frame did not track the workload:

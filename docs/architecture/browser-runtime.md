@@ -2,7 +2,7 @@
 
 - **Status:** accepted for V1
 - **Decision date:** 2026-09-16
-- **Scope:** GitHub #4, #6, #7, #8, #14, #15, #16, #17, and #21
+- **Scope:** GitHub #4, #6, #7, #8, #13, #14, #15, #16, #17, and #21
 
 ## Decision
 
@@ -581,6 +581,97 @@ Graphics and WASM initialize independently and report structured reason codes.
 One failure must not cause an exception during page hydration. Feature flags are
 build-time/off by default for experimental WebGPU and NIR import; flags cannot
 weaken capability checks or fallback behavior.
+
+## Homepage hero (GitHub #13 / Linear RM-1649)
+
+The live demo island is the homepage hero. `src/pages/index.astro` keeps the
+copy (eyebrow, headline, introduction, both calls to action, focus index) and
+passes it through the slots of `src/components/NeuromorphicDemo.astro`, which
+renders the island root (`[data-neuromorphic-demo]`), the mesh beside the copy,
+and, below the first screen, a short explanation and the telemetry panel. It
+uses the runtime above unchanged: contract 5, the worker path, the `live-wasm`
+spike-event buffer, and #10's adaptive quality.
+
+- **Composition** (`src/styles/hero.css`). Desktop: copy on the left, the mesh
+  on a square plate beside it, with its caption below the plate. Tablet
+  (≤ 900 px): copy first, then the plate with its caption beside it. Phone
+  (≤ 680 px): the plate below the calls to action at 4:3. Text never sits over
+  the mesh, so the copy keeps the page's normal contrast. The plate keeps a
+  strip along its bottom edge for the Play/Pause button and the input
+  indicator, so neither covers the network.
+- **Static first, same network.** At build time the island draws the audited
+  topology that the bridge requires of every live snapshot
+  (`auditedBrowserTopology()` in `neuromorphic-adapter.ts`) as plain SVG.
+  `src/runtime/topology-layout.ts` holds the rules the three.js renderer also
+  uses: the ring layout, the camera framing (`viewBox` with the default
+  `xMidYMid meet` behaves like the orthographic camera at any aspect ratio),
+  the 16 px node markers, and the edge colours, mixed in linear space as
+  three.js does. `test/hero-live-mesh.test.mjs` checks the topology against the
+  committed homepage package and every edge colour against `THREE.Color`. The
+  first live frame therefore lands on the drawing it replaces, at rotation 0.
+  Nothing is synthesized: no WASM runs at build time, and the drawing has no
+  membrane state or spikes.
+- **No layout shift.** The plate's size is fixed by `aspect-ratio` before any
+  script runs. The WebGL surface is stacked over the drawing and laid out at
+  full size while hidden (`visibility: hidden`), so the renderer starts at its
+  final size and is not cleared by a resize when it appears; the drawing hides
+  when the surface shows. The Play/Pause button and input indicator are
+  absolutely placed, the two caption variants share one grid cell, and the
+  status line reserves three lines. Headless Chrome measured a cumulative
+  layout shift of 0 from navigation to live at 1440, 1024, and 768 px, with the
+  headline as the largest contentful paint at every width.
+- **Input.** Pointer and touch events over the plate go to the same
+  `createPointerTelemetry(surface)` path as before (contract 5 `[x, y,
+  pressure]` packets into `kinetic-signals` → `axon-encoder` → `neuromod`, with
+  `synaptic-wiring` routing). The plate sets no `touch-action`, so a touch drag
+  still scrolls the page (it ends in `pointercancel` and the scripted path
+  resumes, as #8 chose); taps reach the pipeline. The indicator in the plate
+  reads the island's `data-demo-input-source` through CSS (`input: your
+  pointer` or `input: scripted path`) and is shown only while live.
+- **Viewport gating.** `enhance-demo.ts` observes the island's
+  `[data-demo-viewport]` targets, the mesh figure and the telemetry panel, and
+  runs while either is on screen. On a phone the hero copy can fill the first
+  screen with the mesh still below it; nothing starts until the mesh scrolls in,
+  and an open panel keeps the island fed while it is read. Islands without
+  targets fall back to observing their root.
+- **Provenance.** The plate's caption carries the runtime-bound origin label
+  (`STATIC · diagram`, `LIVE · Rust/WASM`, or `UNAVAILABLE · Rust/WASM`) and
+  adds "simulating in this browser" only while live. A crate trail
+  (`kinetic-signals → axon-encoder → neuromod → synaptic-wiring`) links each
+  layer to its pinned source tree (git dependencies) or crates.io release. The
+  pins live in `src/data/live-runtime.ts`; the same test fails when they drift
+  from `Cargo.toml` or `Cargo.lock`. They are plain anchors in static HTML: no
+  script, no hydration, no layout work after load. The explanation below the
+  hero links the adapter crate, says that native CUDA and FPGA results are
+  recorded separately and never run in the browser (`/evidence/`), and links
+  the recorded protocol data (`/protocol/`).
+- **Entry points.** Two quiet links under the trail: "Inspect the live
+  runtime" (to the closed telemetry panel, `#live-telemetry`) and "Explore the
+  labs" (`/labs/`). The homepage never requests the labs package; the site
+  contract checks the sources, and the layout check below checks the requests.
+- **Degradation.** Without JavaScript, the hero is complete: copy, drawing,
+  `STATIC · diagram`, the crate trail, and the `<noscript>` note. With reduced
+  motion, the drawing stays until the reader presses Play; the live view then
+  runs without camera drift or pulses. Without WebGL or WebAssembly, or when
+  either fails, the runtime reports its reason in the status line, the label
+  becomes `STATIC · diagram` or `UNAVAILABLE · Rust/WASM`, the Play button
+  hides, and the drawing stays. A hidden `.button` is now actually hidden:
+  `.button` sets `display`, which used to override the `hidden` attribute.
+
+### Narrow screens and large text
+
+`scripts/verify-layout.mjs` (`npm run test:layout`, the last step of
+`npm run validate`) serves `dist/` and loads every built page in headless
+Chrome at 320, 360, 375, 768, and 1024 px, at the default root text size and
+at 200%, and fails if any page scrolls horizontally. It also loads the
+homepage at a desktop size and fails if it requests
+`/wasm/neuromorphic-adapter-labs/`. Before #13, 25 of the 26 page and width
+combinations at 320 and 375 px scrolled horizontally at 200% text (the header
+navigation alone did on every page at 375 px), and `/projects/` also did at
+320 px at the default size. The fixes are structural:
+`overflow-wrap: break-word` on the body, wrapping navigation, `minmax(0, 1fr)`
+instead of `1fr` for single-column grids, and display headings capped by the
+viewport rather than by `rem` on narrow screens.
 
 ## NIR network inspection (GitHub #16 / Linear RM-1653)
 

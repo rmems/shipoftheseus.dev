@@ -16,6 +16,16 @@ import {
 } from './adaptive-quality';
 import type { PerfProbe } from './perf-probe';
 import {
+  CAMERA_EXTENT,
+  EDGE_OPACITY,
+  INHIBITORY_INK_MIX,
+  NODE_SIZE_PX,
+  edgeStrength,
+  edgeWeightExtent,
+  layoutTopology,
+  type NodeLayout,
+} from './topology-layout';
+import {
   LIVE_SPIKE_EVENT_PROVENANCE,
   SPIKE_EVENT_STEP_MS,
   createSpikeEventBuffer,
@@ -48,6 +58,9 @@ export function oldestPulsesToSkip(buffered: number, limit: number): number {
   return Math.max(0, buffered - Math.max(0, limit));
 }
 
+// Layout and colour rules are shared with the hero's static drawing.
+export { layoutTopology } from './topology-layout';
+
 class RendererSeamError extends Error {
   code: ReasonCode;
 
@@ -56,27 +69,6 @@ class RendererSeamError extends Error {
     this.name = 'TopologyRendererError';
     this.code = code;
   }
-}
-
-interface NodeLayout {
-  x: number;
-  y: number;
-}
-
-/**
- * Deterministic topology layout: nodes on a ring with a small index-keyed
- * radial jitter. Pure function of the topology projection — never of timing or
- * device state.
- */
-export function layoutTopology(nodeCount: number): NodeLayout[] {
-  const positions: NodeLayout[] = [];
-  for (let node = 0; node < nodeCount; node += 1) {
-    const angle = (2 * Math.PI * node) / nodeCount - Math.PI / 2;
-    const jitter = ((node * 2654435761) % 97) / 97;
-    const radius = 0.92 + jitter * 0.14;
-    positions.push({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
-  }
-  return positions;
 }
 
 interface CssPalette {
@@ -216,14 +208,14 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       scene.add(world);
 
       const nodeMaterial = new THREE.PointsMaterial({
-        size: 16,
+        size: NODE_SIZE_PX,
         vertexColors: true,
         sizeAttenuation: false,
       });
       const edgeMaterial = new THREE.LineBasicMaterial({
         vertexColors: true,
         transparent: true,
-        opacity: 0.55,
+        opacity: EDGE_OPACITY,
       });
       // Pulses: one tapered quad (two triangles) per in-flight event, with
       // RGBA vertex colors fading from an opaque head to a clear tail.
@@ -275,7 +267,7 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       const signalColor = new THREE.Color(palette.signal);
       const mutedColor = new THREE.Color(palette.muted);
       const inkColor = new THREE.Color(palette.ink);
-      const inhibitoryColor = mutedColor.clone().lerp(inkColor, 0.25);
+      const inhibitoryColor = mutedColor.clone().lerp(inkColor, INHIBITORY_INK_MIX);
       const excitatoryColor = signalColor.clone();
       // Pulses use the full-strength tokens so they read over the softer edges:
       // `--signal` for excitatory synapses, `--ink` for inhibitory ones.
@@ -340,16 +332,13 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         const edgeCount = state.topologyEdgeSources.length;
         const linePositions = new Float32Array(edgeCount * 6);
         const lineColors = new Float32Array(edgeCount * 6);
-        const weightExtent = state.topologyEdgeWeights.reduce(
-          (extent, weight) => Math.max(extent, Math.abs(weight)),
-          0,
-        ) || 1;
+        const weightExtent = edgeWeightExtent(state.topologyEdgeWeights);
         for (let edge = 0; edge < edgeCount; edge += 1) {
           const source = nodePositions[state.topologyEdgeSources[edge]];
           const target = nodePositions[state.topologyEdgeTargets[edge]];
           linePositions.set([source.x, source.y, -0.01, target.x, target.y, -0.01], edge * 6);
           const base = state.topologyPolarities[edge] === 0 ? excitatoryColor : inhibitoryColor;
-          const strength = Math.min(1, 0.35 + 0.65 * (Math.abs(state.topologyEdgeWeights[edge]) / weightExtent));
+          const strength = edgeStrength(state.topologyEdgeWeights[edge], weightExtent);
           const color = base.clone().lerp(mutedColor, 1 - strength);
           color.toArray(lineColors, edge * 6);
           color.toArray(lineColors, edge * 6 + 3);
@@ -494,7 +483,7 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         renderer.setPixelRatio(pixelRatio);
         renderer.setSize(width, height, false);
         const aspect = width / height;
-        const extent = 1.35;
+        const extent = CAMERA_EXTENT;
         if (aspect >= 1) {
           camera.left = -extent * aspect;
           camera.right = extent * aspect;

@@ -167,7 +167,8 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   assert.match(island, /Play animation/);
   assert.match(island, /aria-live="polite"/);
   assert.match(island, /role="status"/);
-  assert.match(island, /Static neuromorphic pipeline/);
+  // The static first paint is a drawing of the exact live topology (#13).
+  assert.match(island, /Static drawing of the live network/);
   assert.match(island, /origin="static-diagram"/);
   assert.match(island, /runtimeBound/);
   assert.doesNotMatch(island, /origin="live-wasm"/);
@@ -193,6 +194,51 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   assert.match(enhance, /removeEventListener\('webglcontextlost', onContextLost, contextLostCapture\)/);
   assert.match(enhance, /addEventListener\('webglcontextlost', onContextLost, contextLostCapture\)/);
   assert.doesNotMatch(island, /client:only/);
+});
+
+test('the homepage hero hosts the live demo static-first and traces it to its crates', () => {
+  const page = read('src/pages/index.astro');
+  const island = read('src/components/NeuromorphicDemo.astro');
+  const styles = read('src/styles/hero.css');
+  const telemetry = read('src/components/DemoTelemetry.astro');
+  const enhance = read('src/runtime/enhance-demo.ts');
+
+  // The hero copy stays in the page and is the first thing in the island.
+  assert.match(page, /<NeuromorphicDemo>\s*<div class="hero-heading" slot="heading">/);
+  assert.match(page, /<h1 id="hero-title">Building <em>inspectable<\/em> systems for intelligent work\.<\/h1>/);
+  assert.match(page, /class="button button-primary" href="\/work\/"/);
+  assert.match(island, /<section class="hero hero-live" aria-labelledby="hero-title">/);
+  assert.ok(island.indexOf('<slot />') < island.indexOf('<figure class="hero-mesh"'), 'copy precedes the mesh');
+
+  // Static first: the build draws the audited topology into a reserved box,
+  // and the WebGL surface stacks over the same box.
+  assert.match(island, /staticMeshGeometry\(topology\)/);
+  assert.match(island, /const topology = auditedBrowserTopology\(\);/);
+  assert.match(styles, /\.hero-mesh-stage \{[^}]*aspect-ratio: 1 \/ 1;/);
+  assert.match(styles, /\.hero-mesh \.demo-surface\[hidden\] \{\s*display: block;\s*visibility: hidden;/);
+  assert.match(styles, /\.hero-mesh \.demo-surface:not\(\[hidden\]\) \+ \.hero-mesh-static \{ visibility: hidden; \}/);
+
+  // Provenance: runtime-bound origin label, static crate links, evidence kept apart.
+  assert.match(island, /simulating in this browser/);
+  assert.match(island, /liveCrateLayers\.map/);
+  assert.match(island, /href=\{crateLayerHref\(layer\)\}/);
+  assert.match(island, /href="#live-telemetry"/);
+  assert.match(telemetry, /id="live-telemetry"/);
+  assert.match(island, /href="\/labs\/"/);
+  assert.match(island, /href="\/protocol\/"/);
+  assert.match(island, /CUDA and FPGA results are <a href="\/evidence\/">recorded separately<\/a> and never run in this browser/);
+
+  // Viewport gating follows the mesh and the panel, not the whole hero.
+  assert.match(island, /<figure class="hero-mesh" data-demo-viewport>/);
+  assert.match(telemetry, /data-demo-viewport/);
+  assert.match(enhance, /querySelectorAll\('\[data-demo-viewport\]'\)/);
+
+  // Reduced motion keeps an explicit Play, and a hidden Play stays hidden
+  // (`.button` sets a display that would otherwise override `hidden`).
+  // The homepage never loads the labs package.
+  assert.match(island, /data-demo-play hidden>Play animation</);
+  assert.match(read('src/styles/global.css'), /\.button\[hidden\] \{ display: none; \}/);
+  assert.doesNotMatch(`${page}${island}${styles}`, /neuromorphic-adapter-labs|labs\/nir|plasticity/i);
 });
 
 test('the protocol route replays recorded corpus-ipc fixtures static-first and labels them distinctly', () => {
