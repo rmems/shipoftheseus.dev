@@ -2,7 +2,7 @@
 
 - **Status:** accepted for V1
 - **Decision date:** 2026-09-16
-- **Scope:** GitHub #4, #6, #7, #8, #14, #15, #16, and #21
+- **Scope:** GitHub #4, #6, #7, #8, #14, #15, #16, #17, and #21
 
 ## Decision
 
@@ -40,8 +40,9 @@ algorithms owned elsewhere:
 | Sensory-to-spike encoding | `axon-encoder` |
 | Neuron dynamics and spike generation | `neuromod` |
 | Topology, routing, and delays | `synaptic-wiring` |
-| Reward/modulator mapping (when needed) | `limbic-critic` |
-| Training/session orchestration (when needed) | `plasticity-lab` |
+| Reward/modulator mapping (`/labs/plasticity/`) | `limbic-critic` |
+| Training/session orchestration and frozen evaluation (`/labs/plasticity/`) | `plasticity-lab` (`critic` bridge) |
+| Reward-modulated STDP, eligibility traces, weight renormalization | `neuromod` |
 | NIR graph interchange and semantics (`/labs/nir/` inspection) | `nir-rs` without `hdf5` |
 | Canonical protocol/provenance models, envelopes, wire compatibility, fail-closed decode, protocol limits, and validation for the V1 recorded viewer | `corpus-ipc` default schema/validation surface |
 
@@ -667,6 +668,127 @@ network owned by `synaptic-wiring` and `neuromod`.
   structs declare fields alphabetically so the WASM path serializes directly
   instead of through `serde_json::Value`, which saved about 70 KB.
 
+## Reward-modulated learning lab (GitHub #17 / Linear RM-1654)
+
+`/labs/plasticity/` runs a small reward-modulated SNN session live in the
+labs package (`plasticity` cargo feature, labelled `LIVE · Rust/WASM` once the
+package loads and `UNAVAILABLE · Rust/WASM` before that or without it). It is
+a separate route with its own package: the homepage never loads it, and a
+headless-Chrome check confirms the homepage requests only
+`/wasm/neuromorphic-adapter/`.
+
+```text
+Reward / Penalty button → LabObservation (limbic_critic::Environment)
+  → SimpleCritic::try_assess → ModulatorVector
+  → plasticity_lab::bridge::to_neuromodulators → NeuroModulators
+  → PlasticityTrainer::train_step_with_modulators_and_rng(network, stimulus, modulators, rng)
+  → neuromod SpikingNetwork::step_with_rng (LIF, traces, R-STDP, L1 renormalization)
+```
+
+- **Ownership.** `crates/neuromorphic-adapter/src/plasticity.rs` picks the
+  network shape and initial values through `neuromod`'s public API, builds
+  the two stimulus vectors, implements `limbic-critic`'s `Environment` trait
+  for the buttons, loops over the scripted session, and reads state back. It
+  contains no learning rule, reward shaping, or modulator arithmetic. It is
+  exported as `WasmPlasticityLab` (`create(seed)`, `step(stimulus, event)`,
+  `newEpisode()`, `probe()`, typed-array getters) from the labs package only.
+- **Network.** `SpikingNetwork::with_dimensions(2, 0, 4)`: two LIF neurons, no
+  Izhikevich bank, four input channels. Pattern A drives channels 0–1 and
+  pattern B channels 2–3 at amplitude 0.8. Weights start at the documented
+  equal share of `neuromod`'s L1 budget (2.0 / 4 = 0.5); the threshold (0.12),
+  `RmStdpConfig { tau_eligibility: 100, reward_lr: 8 }`, the probe amplitude
+  (0.15), and the six probe steps follow `plasticity-lab`'s delayed-association
+  test at the pinned revision. They are hand-picked for a visible demo, not
+  tuned or fitted.
+- **Enabled mechanisms** (exactly these):
+  1. `limbic-critic` `SimpleCritic::try_assess` (stateless). A reward reports
+     objective +1; a penalty reports objective −1 and stress 1. The critic maps
+     a positive objective to dopamine in [0, 1] and stress to norepinephrine.
+     Serotonin and acetylcholine stay 0 because the lab reports no volatility or
+     surprise.
+  2. `plasticity-lab` `bridge::to_neuromodulators` (a 1:1 field copy) and
+     `PlasticityTrainer::train_step_with_modulators_and_rng` for every step.
+  3. `neuromod` reward-modulated STDP: each step decays and accumulates one
+     eligibility trace per synapse from pre/post spike timing (input spike
+     times come from `neuromod`'s per-channel Bernoulli trial, which is the
+     only RNG use); a dopamine-derived rate (0.5 × dopamine) converts traces
+     into weight changes; each neuron's weights are then renormalized to the
+     L1 budget of 2.0. A reward a few steps after a pattern still pays for it,
+     and it pays every trace still alive, including traces a penalized
+     pattern left earlier in the same episode.
+  4. `neuromod` modulator effects on dynamics: dopamine moves the threshold
+     toward its target, and norepinephrine scales the input gain down to
+     `max(1 − NE, 0.1)`.
+  5. Episodes: `SpikingNetwork::reset` clears spike times, membranes, traces,
+     and modulators and keeps weights and thresholds.
+  6. Probe: `PlasticityTrainer::run_eval_with_rng` (frozen stepping) with
+     default modulators on a field-by-field copy of the network, after
+     `reset` on that copy.
+- **Non-goals and limits.** `limbic-critic` is a reward-shaping map, not an
+  actor-critic: no policy, no learned value function, no temporal-difference
+  backup. `TDCritic` is not used: its signed dopamine has no depression path
+  in `neuromod`, which converts traces only when dopamine is positive, so a
+  penalty withholds reinforcement and never weakens a synapse. The reward is
+  user input; nothing predicts or learns it. `plasticity-lab`'s scalar
+  `RewardMapping` and its `run_session*` batch APIs are not used because they
+  bypass `limbic-critic` (and `run_session_with_observer` uses the thread-local
+  RNG). There is no encoder, `synaptic-wiring` topology, Izhikevich bank, or
+  checkpointing. Both neurons start identical and receive the same input, so
+  `neuromod` keeps them identical: the lab shows credit assigned to input
+  channels, not competition between neurons.
+- **Renormalization rounding.** `neuromod` renormalizes after every training
+  step. When the budget already holds this changes nothing, but float rounding
+  can move a weight by about one unit in the last place (≈6e-8), typically on
+  the step after a payout. The view reports each step's largest `|Δw|` and
+  labels such steps "float rounding only"; tests treat ≤ 1e-6 as rounding and
+  require every learning-sized change to fall on a dopamine step.
+- **Determinism.** A session is a pure function of its explicit `u64` seed
+  (`StdRng::seed_from_u64`, `rand 0.10.2` from the lockfile) and its ordered
+  `(new episode?, stimulus, event)` inputs. The probe draws from a fresh
+  `StdRng::seed_from_u64(seed ^ 0xE7A1_0000)` on a copy, so probing never
+  changes the session. The golden
+  `src/data/plasticity/scripted-session.v1.json` (seed 17, four six-step
+  episodes: A then a delayed reward, B then a delayed penalty, twice) pins per
+  step the reward input, the critic observation and modulator bits, the input
+  and output spikes, the membrane and threshold bits, and the before/after bits
+  of every changed weight, plus the final weight, threshold, and trace bits
+  and the probe before and after. `tests/plasticity_session.rs` regenerates and
+  compares it natively; `test/plasticity-lab.test.mjs` replays it through the
+  committed labs package under Node; "Run scripted session" replays it in the
+  browser and reports `data-plasticity-golden="match"` only if every value is
+  identical. Traces use `f32::exp` (decay and the STDP kernel), so the native
+  test also checks that the exact `exp` inputs the golden needs round
+  correctly on the build target. Regenerate with:
+
+  ```text
+  cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --features plasticity --test plasticity_session regenerate_plasticity_golden -- --ignored --exact
+  ```
+
+  `.gitattributes` keeps the golden LF on every checkout.
+- **Static first.** Without JavaScript or WebAssembly the page shows what the
+  lab does, the enabled mechanisms and limits, and the golden session rendered
+  at build time (every step, final weights, probe before/after). The controls
+  and live panels stay hidden; a blocked or failing package reports
+  `data-plasticity-state="unavailable"` and leaves the static page intact.
+- **Separate state.** Reward input and `limbic-critic` output live in their own
+  panel (dashed signal frame) fed by a bounded modulator history; neuron,
+  spike, weight, and trace state live in another (solid frame) fed by the
+  telemetry panel's spike-raster ring (`createSpikeRaster`, rows = 4 input
+  channels + 2 LIF neurons). Neither panel shows the other's values.
+- **Bounds and cadence.** Rust keeps only the current network. The raster and
+  modulator history keep 48 steps, the event log 8 entries. Rendering goes
+  through the telemetry flush scheduler. Run steps at 4 Hz (1 Hz under
+  `prefers-reduced-motion`, including when the preference changes), never
+  auto-starts, and pauses while the tab is hidden or the lab is off-screen.
+  `pagehide` and `astro:before-swap` free the WASM session.
+- **Why a git revision.** crates.io `plasticity-lab 0.2.1` requires
+  `neuromod ^0.6`, which cannot share a graph with the adapter's
+  `neuromod =0.7.0`. `Limen-Neural/plasticity-lab` `main` at
+  `c80fac2eb96a140df9cfd999278bce414a329a56` requires `neuromod 0.7.0`, adds
+  frozen evaluation, and forwards `wasm-js`; it is unpublished (its manifest
+  still says 0.2.1), so the adapter pins it by revision like `axon-encoder`.
+  The labs graph resolves a single `neuromod 0.7.0`.
+
 ## Browser build profiles
 
 The adapter is one crate and one boundary, compiled once per profile listed in
@@ -675,7 +797,7 @@ The adapter is one crate and one boundary, compiled once per profile listed in
 | Profile | Cargo features | Package | Loaded by |
 | --- | --- | --- | --- |
 | `default` | none | `public/wasm/neuromorphic-adapter/` | the homepage live demo (`src/runtime/wasm-session.ts`) |
-| `labs` | `nir`, `protocol` | `public/wasm/neuromorphic-adapter-labs/` | off-homepage interactive surfaces: `/labs/nir/` (`src/runtime/nir-inspection.ts`) and `/protocol/` (`src/protocol/provenance.ts`) |
+| `labs` | `nir`, `protocol`, `plasticity` | `public/wasm/neuromorphic-adapter-labs/` | off-homepage interactive surfaces: `/labs/nir/` (`src/runtime/nir-inspection.ts`), `/protocol/` (`src/protocol/provenance.ts`), and `/labs/plasticity/` (`src/runtime/plasticity-lab.ts`) |
 
 **Why the split exists.** Off-homepage surfaces need crates the landing page
 never uses. Linking `nir-rs` and its Serde decoder into one shared package
@@ -698,11 +820,16 @@ applies):
 | --- | ---: | ---: | ---: | ---: |
 | `default` (`neuromorphic-adapter/`) | 189,316 B | 67,177 B | 16,606 B | 3,152 B |
 | `labs`, `nir` only (#16, before `protocol`) | 670,382 B | 190,546 B | 21,858 B | 4,106 B |
-| `labs`, `nir` + `protocol` (`neuromorphic-adapter-labs/`) | 966,603 B | 258,008 B | 31,745 B | 5,394 B |
+| `labs`, `nir` + `protocol` (#21, before `plasticity`) | 966,603 B | 258,008 B | 31,745 B | 5,394 B |
+| `labs`, `nir` + `protocol` + `plasticity` (`neuromorphic-adapter-labs/`) | 984,118 B | 265,619 B | 41,037 B | 6,310 B |
 
-The `default` row is unchanged by the `protocol` feature: its `.js`/`.d.ts`
-are byte-identical to a fresh default build, and the committed `.wasm` is kept
-because a rebuild differs only in embedded source paths.
+The `default` row is unchanged by the `protocol` and `plasticity` features:
+its `.js`/`.d.ts` are byte-identical to a fresh default build, and the
+committed `.wasm` is kept because a rebuild differs only in embedded source
+paths. The `plasticity` row was measured on a Windows 11 host with the same
+toolchain (`gzip -9 -c <file> | wc -c`, GNU gzip 1.14); on that host the
+`nir` + `protocol` row above is the committed #21 package (966,603 B,
+258,008 B gzip), so `plasticity` adds 17,515 B (7,611 B gzip) of WASM.
 
 - `npm run build:wasm-web` builds every profile. Each profile has its own cargo
   target directory (`target/`, `target/labs/`), so the outputs never overwrite
@@ -710,17 +837,20 @@ because a rebuild differs only in embedded source paths.
   on drift in the deterministic `.js`/`.d.ts` files.
 - `npm run validate:rust` runs clippy, `cargo test`, and the wasm32
   `cargo check` twice: for the default build and with `--all-features` (the
-  labs configuration, `nir` + `protocol`).
+  labs configuration, `nir` + `protocol` + `plasticity`).
 - `scripts/verify-browser-dependencies.mjs` resolves each profile's graph
-  separately: the native-dependency rules apply to both, `nir-rs` is required
-  in `labs` and absent from `default`, and the adapter's enabled features and
-  direct dependencies must match the profile (`default` enables none and has
-  no direct `nir-rs`, `serde`, `serde_json`, or `sha2`).
+  separately: the native-dependency rules apply to both; `nir-rs`,
+  `plasticity-lab`, and `limbic-critic` are required in `labs` and absent from
+  `default`; `plasticity-lab` may enable only its `critic` and `wasm-js`
+  features; and the adapter's enabled features and direct dependencies must
+  match the profile (`default` enables none and has no direct `nir-rs`,
+  `serde`, `serde_json`, `sha2`, `plasticity-lab`, or `limbic-critic`).
 - The `nir` integration tests (`tests/nir_example.rs`, `tests/nir_inspection.rs`)
-  declare `required-features = ["nir"]` and the protocol tests
+  declare `required-features = ["nir"]`, the protocol tests
   (`tests/protocol_fixtures.rs`, `tests/protocol_ingress.rs`) declare
-  `required-features = ["protocol"]`, so they run in the `--all-features`
-  pass.
+  `required-features = ["protocol"]`, and `tests/plasticity_session.rs`
+  declares `required-features = ["plasticity"]`, so they run in the
+  `--all-features` pass.
 
 ## Read-only `wasm32-unknown-unknown` audit
 
@@ -740,7 +870,10 @@ decision above places it outside the browser.
 | `nir-rs` | `Limen-Neural/nir-rs` | 0.4.3 | `1043cbf7bc6acbece250c769b9c2c8f7c58ce681` | `--no-default-features --features serde` (`hdf5` excluded) | **Pass** |
 | `nir-rs` | `Limen-Neural/nir-rs` | `=0.4.5` | crates.io checksum `cd21419b28aac9b71ec7abc63ec9c596e578f8fa7ce87019c255b93f84d09e00`; audited source/tag `f2d61779b261661a2c8eca14d79bde1e48c39969` (`v0.4.5`) | `default-features = false, features = ["serde"]` (`hdf5` excluded) | **Pass** on 2026-10-09 inside the adapter crate with `--locked --features nir`; approved as the NIR graph model behind the adapter's `nir` feature, linked only into the labs package (see [NIR network inspection](#nir-network-inspection-github-16--linear-rm-1653)). |
 | `limbic-critic` | `Limen-Neural/limbic-critic` | 0.3.0 | `9bf0c79f5a47fac9c5b921dd9011b013d1ae52bb` | `--no-default-features` | **Pass** |
+| `limbic-critic` | `Limen-Neural/limbic-critic` | `=0.3.0` | crates.io checksum `0afb84406e35b755770254f4418c4b7b92b79c089f10e5c671b9ae2016a79329` (the `Cargo.lock` checksum); source `9bf0c79f5a47fac9c5b921dd9011b013d1ae52bb` per the published crate's `.cargo_vcs_info.json` (the commit audited above); no dependencies | default (it has no features) | **Pass** on 2026-10-09 inside the adapter crate with `--locked --features plasticity`; approved as the lab's reward-shaping map behind the adapter's `plasticity` feature, labs package only (see [Reward-modulated learning lab](#reward-modulated-learning-lab-github-17--linear-rm-1654)). |
 | `plasticity-lab` | `Limen-Neural/plasticity-lab` | 0.1.0 | `d47ae33914b6a3044d0539b851cd83621b7f1f4b` | `--no-default-features --features critic` | **Blocked:** its `neuromod 0.6.0` git dependency reaches `getrandom 0.4.3`, which emits the missing-`wasm_js` compile error. |
+| `plasticity-lab` | `Limen-Neural/plasticity-lab` | crates.io 0.2.1 | crates.io release | — | **Not usable:** requires `neuromod ^0.6.0`, which conflicts with the adapter's `neuromod =0.7.0`. |
+| `plasticity-lab` | `Limen-Neural/plasticity-lab` | git (manifest says 0.2.1, unpublished) | `c80fac2eb96a140df9cfd999278bce414a329a56` (`main`); git sources carry no `Cargo.lock` checksum, the revision is the pin | `default-features = false, features = ["critic", "wasm-js"]` | **Pass** on 2026-10-09 inside the adapter crate with `--locked --features plasticity`: one `neuromod 0.7.0` in the graph, no `-sys`, C build tooling, HDF5, ZeroMQ, Tokio, or Axum crates; approved behind the adapter's `plasticity` feature, labs package only. |
 | `myelin-accelerator` | `Limen-Neural/myelin-accelerator` | 0.2.0 | `26651ca0edf96b080cd5ef89045543c453bd786c` | `--no-default-features` (`cuda` excluded) | **Pass**, using the crate's non-CUDA stub PTX build path; still excluded from the browser dependency graph. |
 | `corpus-ipc` | `Limen-Neural/corpus-ipc` | `=0.1.0` | crates.io checksum `eec6624caf88783f1c35109fe1c27615fc85c986249d480c8efabb72d5f92081`; audited source/tag `d99e6544d7925dc0ccfe69fdff372352b0a9d041` | `--no-default-features` (`zmq` and `server` excluded) | **Pass**; approved for the V1 browser adapter/recorded viewer as the canonical protocol/provenance schema and validation layer. |
 
@@ -755,7 +888,8 @@ re-audits must use `--locked` so their dependency resolutions are reproducible.
 
 Merging this ADR and RM-1639 closes only the architecture decision. The exact
 upstream browser-entropy fixes above unblock full RM-1640/GitHub #4 dispatch,
-plus RM-1650/GitHub #14 and RM-1651/GitHub #15. `plasticity-lab` remains a
-separate V2-only blocker until it forwards `neuromod`'s opt-in `wasm-js` feature.
+plus RM-1650/GitHub #14 and RM-1651/GitHub #15. The former `plasticity-lab`
+V2 blocker is resolved at revision `c80fac2`, which depends on `neuromod 0.7.0`
+and forwards its opt-in `wasm-js` feature (GitHub #17 / RM-1654).
 The site must pin the Rust toolchain, commit its dependency lockfile, and run
 locked target checks in CI before enabling the live browser simulation.

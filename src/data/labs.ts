@@ -23,4 +23,12 @@ export const labs: readonly LabEntry[] = [
     origin: 'imported-nir',
     crates: ['nir-rs'],
   },
+  {
+    href: '/labs/plasticity/',
+    title: 'Reward-modulated learning',
+    summary:
+      'Two input patterns, two LIF neurons, and a reward button. limbic-critic maps reward and penalty to neuromodulators, plasticity-lab steps a neuromod network with them, and reward-modulated STDP changes the weights, live in Rust/WASM with a replayable scripted session.',
+    origin: 'live-wasm',
+    crates: ['limbic-critic', 'plasticity-lab', 'neuromod'],
+  },
 ];

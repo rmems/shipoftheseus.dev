@@ -31,6 +31,7 @@ test('every requested primary route is backed by an Astro page', () => {
     'src/pages/evidence.astro',
     'src/pages/labs/index.astro',
     'src/pages/labs/nir.astro',
+    'src/pages/labs/plasticity.astro',
   ]) {
     assert.equal(existsSync(new URL(`../${route}`, import.meta.url)), true, `${route} is missing`);
   }
@@ -239,8 +240,8 @@ test('the browser adapter keeps corpus-ipc on its no-default surface without Zer
   // The protocol decode path is a labs-only cargo feature.
   assert.match(cargoToml, /^protocol = \["dep:serde_json", "dep:sha2"\]$/m);
   assert.match(cargoToml, /^sha2 = \{ version = "=0\.10\.9", default-features = false, optional = true \}$/m);
-  assert.match(profiles, /features: Object\.freeze\(\['nir', 'protocol'\]\)/);
-  assert.match(profiles, /excludedDirectDependencies: Object\.freeze\(\['nir-rs', 'serde', 'serde_json', 'sha2'\]\)/);
+  assert.match(profiles, /features: Object\.freeze\(\['nir', 'protocol', 'plasticity'\]\)/);
+  assert.match(profiles, /excludedDirectDependencies: Object\.freeze\(\['nir-rs', 'serde', 'serde_json', 'sha2', 'plasticity-lab', 'limbic-critic'\]\)/);
   assert.match(read('src/protocol/provenance.ts'), /'\/wasm\/neuromorphic-adapter-labs\/neuromorphic_adapter\.js'/);
   assert.doesNotMatch(read('public/wasm/neuromorphic-adapter/neuromorphic_adapter.js'), /inspectProtocolFixture/);
   assert.match(read('public/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js'), /inspectProtocolFixture/);
@@ -313,6 +314,75 @@ test('the labs index is a list driven by one data array', () => {
   assert.match(labs, /export const labs: readonly LabEntry\[\] = \[/);
   assert.match(labs, /href: '\/labs\/nir\/'/);
   assert.match(labs, /origin: 'imported-nir'/);
+  assert.match(labs, /href: '\/labs\/plasticity\/'/);
+  assert.match(labs, /origin: 'live-wasm',\s*\n\s*crates: \['limbic-critic', 'plasticity-lab', 'neuromod'\]/);
+});
+
+test('the plasticity lab is static-first, keeps reward state apart from spike state, and states its limits', () => {
+  const page = read('src/pages/labs/plasticity.astro');
+  const enhance = read('src/runtime/enhance-plasticity.ts');
+  const runtime = read('src/runtime/plasticity-lab.ts');
+  const styles = read('src/styles/plasticity-lab.css');
+
+  // Static first: the committed golden session renders at build time.
+  assert.match(page, /scripted-session\.v1\.json\?raw/);
+  assert.match(page, /parsePlasticityGolden\(JSON\.parse\(goldenText\)\)/);
+  assert.match(page, /data-plasticity-golden-source/);
+  assert.match(page, /goldenRows\.map\(\(row\) =>/);
+  assert.match(page, /data-plasticity-controls hidden/);
+  assert.match(page, /data-plasticity-live hidden/);
+  assert.match(page, /<noscript>/);
+  assert.match(page, /role="status"/);
+  assert.match(page, /aria-live="polite"/);
+  assert.match(page, /<ExecutionOrigin origin="unavailable-wasm" runtimeBound \/>/);
+  assert.match(page, /import '\.\.\/\.\.\/styles\/plasticity-lab\.css'/);
+  assert.doesNotMatch(page, /client:/);
+
+  // Reward/modulator state and neuron/spike state live in separate panels.
+  assert.match(page, /data-plasticity-panel="reward"/);
+  assert.match(page, /data-plasticity-panel="network"/);
+  assert.ok(page.indexOf('data-plasticity-panel="reward"') < page.indexOf('data-plasticity-panel="network"'));
+  assert.ok(!page.slice(page.indexOf('data-plasticity-panel="reward"'), page.indexOf('data-plasticity-panel="network"')).includes('data-plasticity-raster'));
+  assert.match(styles, /\.plasticity-panel-reward \{\s*border: 1px dashed var\(--signal\)/);
+  assert.match(styles, /\.plasticity-panel-network \{\s*border: 1px solid var\(--ink\)/);
+
+  // Enabled mechanisms and the limits of the crates are stated plainly.
+  assert.match(page, /What is enabled, exactly\./);
+  assert.match(page, /not an actor-critic/);
+  assert.match(page, /No penalty-driven weakening/);
+  assert.match(page, /SimpleCritic::try_assess/);
+  assert.match(page, /bridge::to_neuromodulators/);
+  assert.match(page, /train_step_with_modulators_and_rng/);
+  assert.match(page, /run_eval_with_rng/);
+
+  // Bounded buffers, throttled rendering, pausing, and reduced motion.
+  assert.match(runtime, /createSpikeRaster/);
+  assert.match(runtime, /export const PLASTICITY_HISTORY_STEPS = \d+;/);
+  assert.match(enhance, /createFlushScheduler/);
+  assert.match(enhance, /prefers-reduced-motion: reduce/);
+  assert.match(enhance, /visibilitychange/);
+  assert.match(enhance, /IntersectionObserver/);
+  assert.match(enhance, /document\.hidden/);
+  assert.match(enhance, /astro:before-swap/);
+  assert.match(enhance, /pagehide/);
+  assert.match(enhance, /session\?\.dispose\(\)/);
+  assert.match(enhance, /executionOriginLabel\(originKind\)/);
+});
+
+test('the plasticity lab ships only in the labs package and never touches the homepage', () => {
+  const lib = read('crates/neuromorphic-adapter/src/lib.rs');
+  const manifest = read('crates/neuromorphic-adapter/Cargo.toml');
+
+  assert.match(lib, /#\[cfg\(feature = "plasticity"\)\]\s*\npub mod plasticity;/);
+  assert.match(manifest, /^plasticity = \["dep:limbic-critic", "dep:plasticity-lab"\]$/m);
+  assert.match(manifest, /^\[\[test\]\]\r?\nname = "plasticity_session"\r?\nrequired-features = \["plasticity"\]$/m);
+  assert.match(read('src/runtime/plasticity-lab.ts'), /'\/wasm\/neuromorphic-adapter-labs\/neuromorphic_adapter\.js'/);
+  assert.match(read('public/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js'), /WasmPlasticityLab/);
+  assert.doesNotMatch(read('public/wasm/neuromorphic-adapter/neuromorphic_adapter.js'), /WasmPlasticityLab/);
+  for (const path of ['src/pages/index.astro', 'src/components/NeuromorphicDemo.astro', 'src/runtime/enhance-demo.ts', 'src/runtime/wasm-session.ts', 'src/runtime/neuromorphic-worker.ts']) {
+    assert.doesNotMatch(read(path), /plasticity|neuromorphic-adapter-labs/i, `${path} must not reach the plasticity lab`);
+  }
+  assert.match(read('.gitattributes'), /^src\/data\/plasticity\/\*\.json text eol=lf$/m);
 });
 
 test('the NIR lab is static-first and labelled as imported structure, not the live simulation', () => {
