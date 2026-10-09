@@ -11,8 +11,10 @@ import {
   SPIKE_EVENT_STEP_MS,
   createSpikeEventBuffer,
   feedSpikeEvents,
-  propagationSpan,
+  propagationSpanInto,
+  type PropagationSpan,
   type SpikeEventBuffer,
+  type SpikePropagationEvent,
 } from './spike-events';
 
 /** Drawn pulse width at its head, in CSS pixels. */
@@ -221,6 +223,8 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       // `--signal` for excitatory synapses, `--ink` for inhibitory ones.
       const excitatoryPulseColor = signalColor.clone();
       const inhibitoryPulseColor = inkColor.clone();
+      // Reused for per-frame node colors instead of cloning each frame.
+      const nodeScratchColor = mutedColor.clone();
       const spikeFlash = new Map<number, number>();
       let latest: NeuromorphicState | null = options.channel.latest();
       let latestAt = 0;
@@ -356,35 +360,45 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         writeVertex(base + 5, hx - nx, hy - ny, 1, color);
       };
 
+      // Per-frame pulse state lives here and the visitor is created once, so
+      // drawing a frame allocates nothing: no span objects, no closures.
+      const pulseSpan: PropagationSpan = { head: 0, tail: 0 };
+      let frameStep = 0;
+      let drawn = 0;
+      const visitPulse = (event: SpikePropagationEvent) => {
+        if (drawn >= pulseCapacity || event.topologyDigest !== builtDigest) {
+          return;
+        }
+        const source = nodePositions[event.sourceNeuron];
+        const target = nodePositions[event.targetNeuron];
+        if (
+          !source ||
+          !target ||
+          !propagationSpanInto(pulseSpan, event.delaySteps, frameStep - Number(event.emittedStep))
+        ) {
+          return;
+        }
+        writePulse(
+          drawn,
+          source,
+          target,
+          pulseSpan.head,
+          pulseSpan.tail,
+          event.polarity === 0 ? excitatoryPulseColor : inhibitoryPulseColor,
+        );
+        drawn += 1;
+      };
+
       const drawPulses = (time: number) => {
-        let drawn = 0;
+        drawn = 0;
         const latestStep = spikeEvents.latestStep();
         if (motionEnabled && latestStep !== null && nodeCount > 0) {
           // Sub-step progress since the latest snapshot, capped at one step
           // so a stalled simulation cannot run pulses ahead of it.
           const fraction = Math.min(1, Math.max(0, (time - latestAt) / SPIKE_EVENT_STEP_MS));
           // Steps stay exact as numbers for 2^53 ticks; avoids bigint math per event.
-          const now = Number(latestStep) + fraction;
-          spikeEvents.forEach((event) => {
-            if (drawn >= pulseCapacity || event.topologyDigest !== builtDigest) {
-              return;
-            }
-            const span = propagationSpan(event.delaySteps, now - Number(event.emittedStep));
-            const source = nodePositions[event.sourceNeuron];
-            const target = nodePositions[event.targetNeuron];
-            if (!span || !source || !target) {
-              return;
-            }
-            writePulse(
-              drawn,
-              source,
-              target,
-              span.head,
-              span.tail,
-              event.polarity === 0 ? excitatoryPulseColor : inhibitoryPulseColor,
-            );
-            drawn += 1;
-          });
+          frameStep = Number(latestStep) + fraction;
+          spikeEvents.forEach(visitPulse);
         }
         pulseGeometry.setDrawRange(0, drawn * 6);
         if (drawn > 0) {
@@ -434,10 +448,10 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
             const potential = latest.membranePotentials[node] ?? 0;
             const activation = Math.min(1, Math.max(0, Math.abs(potential)));
             const flash = spikeFlash.get(node) ?? 0;
-            const color = mutedColor
-              .clone()
-              .lerp(signalColor, Math.min(1, activation * 0.9 + flash));
-            color.toArray(colors.array as Float32Array, node * 3);
+            nodeScratchColor
+              .copy(mutedColor)
+              .lerp(signalColor, Math.min(1, activation * 0.9 + flash))
+              .toArray(colors.array as Float32Array, node * 3);
             if (flash > 0) {
               spikeFlash.set(node, Math.max(0, flash - delta * 3));
             }

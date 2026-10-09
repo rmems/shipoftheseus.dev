@@ -271,18 +271,26 @@ synaptic-wiring projection (same snapshot) ──┴→ mapSpikesThroughTopology
 - **Consumer API** (for #9 telemetry and #10 performance budgets).
   `buffer.subscribe(batch => …)` delivers each step's `{ provenance, step,
   topologyDigest, spikeNeurons, events }` after the buffer is updated.
+  Every subscriber receives batches in step order. If a subscriber ingests
+  from inside its callback, that snapshot is applied at once, but its batch
+  waits until every subscriber has received the current one. During delivery,
+  `batch.step` is therefore authoritative and `latestStep()` may be ahead.
   Listener errors are reported, never thrown into ingestion.
   `buffer.forEach` and `buffer.events()` read in-flight events oldest first.
   `buffer.stats()` reports capacity, size, latest step, and the lifetime
   `emitted`, `retired`, `evicted`, `resets`, and `clears` counters.
   `createTopologyRendererSeam(...).inspect()` reports the last frame's
   `drawnPulses`, `bufferedEvents`, and `motionEnabled`. `mapSpikesThroughTopology`,
-  `propagationSpan`, and `delayStepsToMs` are pure helpers.
+  `propagationSpan`, `propagationSpanInto` (writes into a caller-owned object
+  for frame loops), and `delayStepsToMs` are pure helpers.
 - **Rendering and reduced motion.** Each in-flight event is one tapered quad,
   3 CSS px wide at the head and fading to clear at the tail, drawn in
   `--signal` for excitatory synapses and `--ink` for inhibitory ones. Pulses
   sit above the softer edge lines and under the nodes. Pulse buffers are
-  preallocated to the ring capacity, and only the drawn range is uploaded. The
+  preallocated to the ring capacity, and only the drawn range is uploaded.
+  The site's per-frame code allocates nothing (three.js internals aside): one
+  span object, one visitor, and one scratch color are reused for every event
+  and node. The
   renderer's motion flag, which is off whenever `prefers-reduced-motion:
   reduce` applies, turns off pulses together with camera drift. After an
   explicit Play under reduced motion, events are still buffered for telemetry

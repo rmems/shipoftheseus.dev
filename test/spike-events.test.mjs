@@ -339,6 +339,48 @@ test('reading or changing the buffer from a listener cannot corrupt iteration', 
   assert.equal(buffer.latestStep(), 4n);
 });
 
+test('every subscriber receives steps in order when one of them ingests re-entrantly', () => {
+  const topology = denseFixture(4, 2, 3);
+  const buffer = fixtureBuffer();
+  const first = [];
+  const second = [];
+  const third = [];
+  buffer.subscribe((batch) => {
+    first.push(batch.step);
+    // Re-enter twice from inside delivery: steps 4 and then 5 (from 4's delivery).
+    if (batch.step === 3n || batch.step === 4n) {
+      const nested = buffer.ingest(fixtureStep(topology, Number(batch.step) + 1, [0]));
+      assert.equal(nested.step, batch.step + 1n, 'the nested ingest still returns its own batch');
+    }
+  });
+  buffer.subscribe((batch) => second.push([batch.step, batch.events.length]));
+  buffer.subscribe((batch) => third.push(batch.step));
+
+  buffer.ingest(fixtureStep(topology, 3, [1, 2]));
+
+  assert.deepEqual(first, [3n, 4n, 5n]);
+  assert.deepEqual(second, [[3n, 4], [4n, 2], [5n, 2]], 'the second subscriber never sees a later step first');
+  assert.deepEqual(third, [3n, 4n, 5n]);
+  assert.equal(buffer.latestStep(), 5n);
+
+  // Delivery resumes normally once the queue has drained.
+  buffer.ingest(fixtureStep(topology, 6, []));
+  assert.deepEqual(third, [3n, 4n, 5n, 6n]);
+
+  // Disposing from inside delivery drops the queued batches and the rest of the listeners.
+  const late = fixtureBuffer();
+  const seenAfterDispose = [];
+  late.subscribe((batch) => {
+    if (batch.step === 1n) {
+      late.ingest(fixtureStep(topology, 2, [0]));
+      late.dispose();
+    }
+  });
+  late.subscribe((batch) => seenAfterDispose.push(batch.step));
+  late.ingest(fixtureStep(topology, 1, [0]));
+  assert.deepEqual(seenAfterDispose, [], 'no batch reaches listeners after dispose');
+});
+
 test('repeated steps are ignored; a restarted session or new topology resets the buffer', () => {
   const buffer = fixtureBuffer();
   const topology = fixtureTopology();
@@ -521,6 +563,33 @@ test('propagation timing follows synaptic-wiring delays at the 50 ms demo step',
   // Retention always outlives the drawn pulse, so frames never lose a pulse
   // the buffer has already retired.
   assert.ok(spikes.DEFAULT_SPIKE_EVENT_RETAIN_STEPS >= tail);
+});
+
+test('the per-frame span helper writes into one caller-owned object and matches propagationSpan', () => {
+  const out = { head: -1, tail: -1 };
+  for (const delay of [0, 1, 2, 4, 9]) {
+    for (let elapsed = -0.5; elapsed <= delay + 1.5; elapsed += 0.05) {
+      const expected = spikes.propagationSpan(delay, elapsed);
+      const before = { ...out };
+      const visible = spikes.propagationSpanInto(out, delay, elapsed);
+      assert.equal(visible, expected !== null, `delay ${delay}, elapsed ${elapsed}`);
+      // Hidden pulses leave the reused object untouched; visible ones overwrite it.
+      assert.deepEqual({ ...out }, expected ?? before);
+    }
+  }
+  assert.equal(spikes.propagationSpanInto(out, 2, Number.NaN), false);
+});
+
+test('the renderer frame path reuses its span and visitor instead of allocating per event', () => {
+  const source = readSource('../src/runtime/topology-renderer.ts');
+  const start = source.indexOf('const writeVertex = ');
+  const end = source.indexOf('const loop = ');
+  assert.ok(start > 0 && end > start, 'frame-path functions are where this guard expects them');
+  const framePath = source.slice(start, end);
+  assert.match(framePath, /propagationSpanInto\(pulseSpan,/);
+  assert.match(framePath, /spikeEvents\.forEach\(visitPulse\)/);
+  assert.doesNotMatch(framePath, /propagationSpan\(/, 'the allocating span helper stays out of frames');
+  assert.doesNotMatch(framePath, /new [A-Z]|\.clone\(|forEach\(\(|\[\.\.\.|\.map\(/, 'no per-frame allocation');
 });
 
 test('live seams share one live-wasm buffer with an inspectable renderer seam', () => {

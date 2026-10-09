@@ -140,7 +140,14 @@ export interface SpikeEventBuffer {
   size: () => number;
   latestStep: () => bigint | null;
   stats: () => SpikeEventBufferStats;
-  /** Called after each successful ingest; listener errors are reported, not thrown. */
+  /**
+   * Called once per successful ingest, after the buffer is updated, in step
+   * order for every subscriber. An `ingest` made from inside a listener is
+   * applied immediately but its batch is queued until all subscribers have
+   * received the current one, so `batch.step` (not `latestStep()`) is the
+   * authoritative step during delivery. Listener errors are reported, not
+   * thrown.
+   */
   subscribe: (listener: (batch: SpikeStepBatch) => void) => () => void;
   /** Drop every buffered event (pause). Lifetime counters are kept. */
   clear: () => void;
@@ -255,26 +262,52 @@ function edgePosition(delaySteps: number, elapsedSteps: number): number {
   return clamp01(elapsedSteps / delaySteps);
 }
 
+/** A pulse's extent along its edge, as fractions from source (0) to target (1). */
+export interface PropagationSpan {
+  head: number;
+  tail: number;
+}
+
+/**
+ * Allocation-free form of {@link propagationSpan} for per-frame use: writes
+ * the span into the caller-owned `out` and returns `true`, or returns `false`
+ * (leaving `out` untouched) when the pulse is not visible.
+ */
+export function propagationSpanInto(
+  out: PropagationSpan,
+  delaySteps: number,
+  elapsedSteps: number,
+  tailSteps: number = PULSE_TAIL_STEPS,
+): boolean {
+  if (!(elapsedSteps >= 0) || !Number.isFinite(elapsedSteps)) {
+    return false;
+  }
+  const tail = delaySteps <= 0
+    ? (elapsedSteps >= tailSteps ? 1 : 0)
+    : edgePosition(delaySteps, elapsedSteps - tailSteps);
+  if (tail >= 1) {
+    return false;
+  }
+  out.head = edgePosition(delaySteps, elapsedSteps);
+  out.tail = tail;
+  return true;
+}
+
 /**
  * Where a pulse is on its edge, as fractions from source (0) to target (1),
  * `elapsedSteps` after emission. The head moves at `1 / delaySteps` edge per
  * step, so it reaches the target exactly at the arrival step; the tail trails
  * by `tailSteps`. Returns `null` before emission and after the tail lands. A
- * zero-delay edge shows the whole edge for `tailSteps`.
+ * zero-delay edge shows the whole edge for `tailSteps`. Allocates its result;
+ * frame loops use {@link propagationSpanInto}.
  */
 export function propagationSpan(
   delaySteps: number,
   elapsedSteps: number,
   tailSteps: number = PULSE_TAIL_STEPS,
-): { head: number; tail: number } | null {
-  if (!(elapsedSteps >= 0) || !Number.isFinite(elapsedSteps)) {
-    return null;
-  }
-  const head = edgePosition(delaySteps, elapsedSteps);
-  const tail = delaySteps <= 0
-    ? (elapsedSteps >= tailSteps ? 1 : 0)
-    : edgePosition(delaySteps, elapsedSteps - tailSteps);
-  return tail >= 1 ? null : { head, tail };
+): PropagationSpan | null {
+  const span = { head: 0, tail: 0 };
+  return propagationSpanInto(span, delaySteps, elapsedSteps, tailSteps) ? span : null;
 }
 
 /**
@@ -358,6 +391,37 @@ export function createSpikeEventBuffer(options: SpikeEventBufferOptions): SpikeE
     size += 1;
   };
 
+  // Batches go out strictly in ingest order. A subscriber that ingests
+  // re-entrantly only queues its batch; it is delivered once every subscriber
+  // has received the current one, so no subscriber ever sees steps go
+  // backward.
+  const outbox: SpikeStepBatch[] = [];
+  let delivering = false;
+  const deliver = (batch: SpikeStepBatch) => {
+    outbox.push(batch);
+    if (delivering) {
+      return;
+    }
+    delivering = true;
+    try {
+      for (let next = outbox.shift(); next && !disposed; next = outbox.shift()) {
+        for (const listener of [...listeners]) {
+          if (disposed) {
+            break;
+          }
+          try {
+            listener(next);
+          } catch (error) {
+            reportListenerError(error);
+          }
+        }
+      }
+    } finally {
+      outbox.length = 0;
+      delivering = false;
+    }
+  };
+
   return {
     provenance,
     capacity,
@@ -398,13 +462,7 @@ export function createSpikeEventBuffer(options: SpikeEventBufferOptions): SpikeE
         spikeNeurons: Object.freeze(Array.from(snapshot.spikeNeurons)),
         events: Object.freeze(mapped),
       });
-      for (const listener of [...listeners]) {
-        try {
-          listener(batch);
-        } catch (error) {
-          reportListenerError(error);
-        }
-      }
+      deliver(batch);
       return batch;
     },
     forEach(visit) {
