@@ -1,5 +1,4 @@
 import { provideDemoSeams, type DemoSeams } from './demo-runtime';
-import { registerLiveTelemetrySources } from './demo-telemetry';
 import { createPointerTelemetry, createScriptedTelemetry } from './kinetic-telemetry';
 import { createSimulationChannel } from './simulation-channel';
 import {
@@ -8,6 +7,7 @@ import {
   type SpikeEventBuffer,
   type SpikePropagationEvent,
 } from './spike-events';
+import { registerLiveTelemetrySources } from './telemetry-entry';
 import { createTopologyRendererSeam, type TopologyRendererSeam } from './topology-renderer';
 import { createWasmSeam, type TelemetryFrame } from './wasm-session';
 

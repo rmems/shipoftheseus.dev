@@ -7,14 +7,13 @@ import {
   NEUROMORPHIC_CONTRACT_VERSION_V5,
   type NeuromorphicState,
 } from './neuromorphic-adapter';
-import type { SimulationChannel } from './simulation-channel';
 import {
   LIVE_SPIKE_EVENT_PROVENANCE,
   delayStepsToMs,
-  type SpikeEventBuffer,
   type SpikeEventProvenance,
   type SpikeStepBatch,
 } from './spike-events';
+import type { LiveTelemetrySources } from './telemetry-entry';
 
 /**
  * Live telemetry for the neuromorphic demo (GitHub #9 / Linear RM-1652).
@@ -22,7 +21,9 @@ import {
  * This module is the DOM-free half of the telemetry panel: a fixed-size spike
  * raster ring, a throttled flush scheduler, the per-neuron and per-encoder
  * inspection models, and the controller that ties them to the live seams.
- * `telemetry-view.ts` only writes what the controller hands it.
+ * `telemetry-view.ts` only writes what the controller hands it. Both load on
+ * first open of the panel (see `telemetry-entry.ts`, which holds the source
+ * registry the live seams fill).
  *
  * **Sources.** Telemetry never computes or synthesizes simulation values.
  * Spikes come from the island's single `live-wasm` spike-event buffer
@@ -82,37 +83,6 @@ export const KINETIC_FEATURE_LABELS: readonly string[] = Object.freeze([
 /** Status shown before any script runs, and whenever no live runtime is connected. */
 export const TELEMETRY_STATIC_STATUS =
   'Telemetry reads the live Rust/WASM runtime. It needs JavaScript, WebGL, and WebAssembly; without them the static diagram is the complete demo.';
-
-// ---------------------------------------------------------------------------
-// Live sources
-// ---------------------------------------------------------------------------
-
-/** What the live seams give the telemetry panel. Nothing here is writable. */
-export interface LiveTelemetrySources {
-  /** The island's spike-event buffer. Must be the `live-wasm` buffer. */
-  readonly spikeEvents: Pick<SpikeEventBuffer, 'provenance' | 'subscribe' | 'stats'>;
-  /** The island's simulation channel; telemetry only reads `latest()`. */
-  readonly channel: Pick<SimulationChannel, 'latest'>;
-  /** Where the latest telemetry packet came from (site DOM input). */
-  readonly inputSource: () => TelemetrySourceKind | null;
-}
-
-const liveSources = new WeakMap<object, LiveTelemetrySources>();
-
-/**
- * Called by `live-seams.ts` for each island. Only the `live-wasm` buffer may
- * back the panel, so a mislabeled source fails here instead of in the UI.
- */
-export function registerLiveTelemetrySources(island: object, sources: LiveTelemetrySources): void {
-  if (sources.spikeEvents.provenance !== LIVE_SPIKE_EVENT_PROVENANCE) {
-    throw new RangeError('demo telemetry reads only the live-wasm spike-event buffer');
-  }
-  liveSources.set(island, sources);
-}
-
-export function liveTelemetrySources(island: object): LiveTelemetrySources | null {
-  return liveSources.get(island) ?? null;
-}
 
 /** Report a telemetry failure without letting it reach the simulation. */
 function reportTelemetryError(error: unknown): void {

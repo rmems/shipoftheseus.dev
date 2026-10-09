@@ -395,7 +395,10 @@ The demo island carries a collapsible, closed-by-default `<details>` panel
 (`src/components/DemoTelemetry.astro`) with a spike raster, a neuron
 inspector, and the active input and encoder state. It is a consumer of the
 seams above, never a second source: `src/runtime/demo-telemetry.ts` holds the
-DOM-free logic and `src/runtime/telemetry-view.ts` writes the DOM.
+DOM-free logic and `src/runtime/telemetry-view.ts` writes the DOM. Both load
+when a reader first opens the panel; the always-loaded
+`src/runtime/telemetry-entry.ts` only holds the per-island source registry and
+that lazy binder.
 
 ```text
 channel.publish(snapshot) ─→ live-wasm SpikeEventBuffer ─ subscribe(batch) ─→ raster ring (per step)
@@ -424,9 +427,10 @@ raster ring + latest snapshot ─ throttled flush (default 4 Hz) ─→ canvas +
   ring (`DEFAULT_RASTER_STEPS` = 120 steps × neurons); DOM work happens only in
   flushes coalesced to the requested cadence (default 4 Hz, capped at one per
   step) and only after new data or a demo-mode change. Reduced motion caps the
-  cadence at 1 Hz. `getDemoTelemetry(island)` returns the controller, whose
-  `setCadenceHz(hz)` and `setEnabled(false)` let a performance budget lower or
-  stop telemetry without touching the simulation or the renderer.
+  cadence at 1 Hz. `getDemoTelemetry(island)` (in `telemetry-entry.ts`)
+  returns the controller once the panel has been opened; its `setCadenceHz(hz)`
+  and `setEnabled(false)` let a performance budget lower or stop telemetry
+  without touching the simulation or the renderer.
 - **Pausing.** Telemetry receives data only while the simulation ticks and the
   renderer feeds the buffer, so it stops with the demo (off-screen, background
   tab, user pause, reduced motion before Play). After a user pause the last

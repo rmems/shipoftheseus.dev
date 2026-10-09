@@ -1,7 +1,6 @@
 import { executionOriginData, executionOriginLabel } from '../native-evidence/view';
 import {
   createTelemetryController,
-  liveTelemetrySources,
   telemetryDigestLabel,
   type NeuronInspection,
   type SynapseInspection,
@@ -10,11 +9,13 @@ import {
   type TelemetryViewModel,
 } from './demo-telemetry';
 import { ENCODER_FEATURE_COUNT } from './neuromorphic-adapter';
+import { liveTelemetrySources, registerDemoTelemetry } from './telemetry-entry';
 
 /**
  * DOM half of the demo telemetry panel (`src/components/DemoTelemetry.astro`).
  * It only writes what the controller in `demo-telemetry.ts` hands it, during
- * throttled flushes; it never reads simulation state on its own.
+ * throttled flushes; it never reads simulation state on its own. Loaded on
+ * first open by `bindDemoTelemetryPanel` in `telemetry-entry.ts`.
  */
 
 export interface DemoTelemetryOptions {
@@ -25,17 +26,7 @@ export interface DemoTelemetryOptions {
   clock?: TelemetryClock;
 }
 
-const controllers = new WeakMap<object, TelemetryController>();
 let panelCount = 0;
-
-/**
- * The island's telemetry controller, so a performance budget can lower the
- * refresh rate (`setCadenceHz`) or turn telemetry off (`setEnabled(false)`)
- * without touching the simulation.
- */
-export function getDemoTelemetry(island: object): TelemetryController | null {
-  return controllers.get(island) ?? null;
-}
 
 interface RasterPalette {
   background: string;
@@ -432,17 +423,16 @@ export function bindDemoTelemetry(island: HTMLElement, options: DemoTelemetryOpt
   });
   controller = created;
 
+  let unregister = () => {};
   const bound: TelemetryController = {
     ...created,
     dispose() {
       created.dispose();
       elements.neurons.removeEventListener('change', onNeuronChange);
-      if (controllers.get(island) === bound) {
-        controllers.delete(island);
-      }
+      unregister();
     },
   };
-  controllers.set(island, bound);
+  unregister = registerDemoTelemetry(island, bound);
 
   if (import.meta.env?.DEV) {
     (globalThis as { __neuromorphicTelemetryPanel?: Pick<TelemetryController, 'inspect' | 'setCadenceHz' | 'setEnabled'> }).__neuromorphicTelemetryPanel = {

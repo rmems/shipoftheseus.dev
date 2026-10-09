@@ -11,6 +11,7 @@ const channelModule = await loadTsModule('../src/runtime/simulation-channel.ts')
 const stimulus = await loadTsModule('../src/runtime/demo-stimulus.ts');
 const wasmSession = await loadTsModule('../src/runtime/wasm-session.ts');
 const view = await loadTsModule('../src/runtime/telemetry-view.ts');
+const entry = await loadTsModule('../src/runtime/telemetry-entry.ts');
 
 // ---------------------------------------------------------------------------
 // Helpers. Hand-built batches are tagged `fixture` and used only for the ring
@@ -459,10 +460,11 @@ test('the simulation produces identical state with telemetry open, closed, or fa
 test('telemetry reads the live seams but has no handle to drive them', () => {
   const source = readSource('../src/runtime/demo-telemetry.ts');
   const viewSource = readSource('../src/runtime/telemetry-view.ts');
-  const both = `${source}\n${viewSource}`;
+  const entrySource = readSource('../src/runtime/telemetry-entry.ts');
+  const both = `${source}\n${viewSource}\n${entrySource}`;
   assert.doesNotMatch(both, /\.publish\(|\.ingest\(|\.input\(|\.step\(\)|spikeEvents\.clear|feedSpikeEvents|createSpikeEventBuffer|setActive\(/);
   assert.doesNotMatch(both, /Math\.random|getRandomValues|spikeTrain|fakeNeuron|toySnn|simulateNetwork/);
-  assert.match(source, /channel: Pick<SimulationChannel, 'latest'>/, 'the channel is read-only to telemetry');
+  assert.match(entrySource, /channel: Pick<SimulationChannel, 'latest'>/, 'the channel is read-only to telemetry');
   assert.match(readSource('../src/runtime/live-seams.ts'), /registerLiveTelemetrySources\(island, \{\s*spikeEvents,/);
   assert.doesNotMatch(viewSource, /'fixture'|"fixture"/);
 });
@@ -598,16 +600,16 @@ test('only live-wasm data is labeled as the live Rust/WASM runtime', async () =>
 
   const fixtureBuffer = spikes.createSpikeEventBuffer({ provenance: 'fixture' });
   assert.throws(
-    () => telemetry.registerLiveTelemetrySources({}, { spikeEvents: fixtureBuffer, channel: { latest: () => null }, inputSource: () => null }),
+    () => entry.registerLiveTelemetrySources({}, { spikeEvents: fixtureBuffer, channel: { latest: () => null }, inputSource: () => null }),
     RangeError,
     'the panel can only be registered against the live-wasm buffer',
   );
   const island = {};
   const liveBuffer = spikes.createSpikeEventBuffer({ provenance: 'live-wasm' });
   const sources = { spikeEvents: liveBuffer, channel: { latest: () => null }, inputSource: () => null };
-  assert.equal(telemetry.liveTelemetrySources(island), null);
-  telemetry.registerLiveTelemetrySources(island, sources);
-  assert.equal(telemetry.liveTelemetrySources(island), sources);
+  assert.equal(entry.liveTelemetrySources(island), null);
+  entry.registerLiveTelemetrySources(island, sources);
+  assert.equal(entry.liveTelemetrySources(island), sources);
 
   // A fixture-fed controller (tests only) never renders the live label.
   const fixtureState = { ...(await firstLiveState()) };
@@ -795,7 +797,7 @@ test('the telemetry panel is collapsible, closed by default, and static-first', 
   assert.match(component, /role="img"/);
   assert.match(component, /<legend>/);
   assert.match(component, /import '\.\.\/styles\/telemetry\.css'/);
-  assert.match(enhance, /const telemetry = bindDemoTelemetry\(root\)/);
+  assert.match(enhance, /const telemetry = bindDemoTelemetryPanel\(root\)/);
   assert.match(enhance, /telemetry\?\.dispose\(\)/);
   assert.match(styles, /\.demo-telemetry-table-scroll \{[^}]*overflow-x: auto/);
   assert.match(styles, /\.demo-telemetry-chip input:focus-visible \+ span/);
@@ -804,5 +806,43 @@ test('the telemetry panel is collapsible, closed by default, and static-first', 
 
   assert.equal(typeof view.bindDemoTelemetry, 'function');
   assert.equal(view.bindDemoTelemetry({ querySelector: () => null }), null, 'islands without the panel are left alone');
-  assert.equal(view.getDemoTelemetry({}), null);
+  assert.equal(entry.bindDemoTelemetryPanel({ querySelector: () => null }), null);
+  assert.equal(entry.getDemoTelemetry({}), null);
+});
+
+test('the panel code loads only when a reader opens the panel', async () => {
+  // The always-loaded island script reaches telemetry only through the small
+  // entry module; the raster, inspector, and view are a lazy chunk.
+  const enhance = readSource('../src/runtime/enhance-demo.ts');
+  const liveSeams = readSource('../src/runtime/live-seams.ts');
+  const entrySource = readSource('../src/runtime/telemetry-entry.ts');
+  assert.doesNotMatch(`${enhance}\n${liveSeams}`, /from '\.\/(demo-telemetry|telemetry-view)'/);
+  assert.match(enhance, /from '\.\/telemetry-entry'/);
+  assert.match(liveSeams, /from '\.\/telemetry-entry'/);
+  assert.doesNotMatch(entrySource, /^import \{[^}]*\} from '\.\/(demo-telemetry|telemetry-view)'/m, 'only type imports from the lazy modules');
+  assert.match(entrySource, /import\('\.\/telemetry-view'\)/);
+
+  const listeners = new Set();
+  const panel = {
+    open: false,
+    addEventListener(type, listener) {
+      if (type === 'toggle') listeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      if (type === 'toggle') listeners.delete(listener);
+    },
+  };
+  const binding = entry.bindDemoTelemetryPanel({
+    querySelector: (selector) => (selector === 'details[data-demo-telemetry]' ? panel : null),
+  });
+  assert.ok(binding);
+  assert.equal(listeners.size, 1, 'a closed panel costs one toggle listener');
+  // Opening starts the lazy load. In Node the chunk cannot resolve from a
+  // data: URL module; the failure is contained and the panel stays static.
+  panel.open = true;
+  for (const listener of [...listeners]) listener();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  binding.dispose();
+  assert.equal(listeners.size, 0, 'dispose removes the listener');
+  binding.dispose();
 });
