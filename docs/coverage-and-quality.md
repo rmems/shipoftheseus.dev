@@ -54,7 +54,10 @@ Explicit ignores are listed in:
 - `.c8rc.json` (Node report scope)
 
 Generated WASM under `public/wasm/`, build output (`dist/`, `.astro/`), tests,
-fixtures, and dependencies are excluded.
+fixtures, and dependencies are excluded. So are the manual performance
+harnesses (`scripts/perf/**` and `crates/**/examples/**`; see
+`docs/architecture/performance-budgets.md`), which are machine-dependent and
+never run in CI.
 
 ## Local commands
 

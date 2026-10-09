@@ -451,6 +451,30 @@ raster ring + latest snapshot ─ throttled flush (default 4 Hz) ─→ canvas +
   exposes `inspect()`, `setCadenceHz(hz)`, and `setEnabled(enabled)`. The panel
   element reports `data-telemetry-state` and `data-telemetry-step`.
 
+### Performance budgets and adaptive quality (GitHub #10 / Linear RM-1646)
+
+Budgets, the measured tables with their machine and browser context, the
+buffer audit, and how to reproduce each measurement are in
+[`performance-budgets.md`](performance-budgets.md).
+
+- **Adaptive quality is presentation only.** `adaptive-quality.ts` steps the
+  renderer's pixel-ratio cap, pulse cap, frame-rate cap, and telemetry refresh
+  cadence down under sustained frame-time pressure, with hysteresis. It never
+  reaches the WASM seam. The 50 ms tick, input packets, and spike-event
+  buffering are identical at every level, and
+  `test/performance-semantics.test.mjs` checks snapshots byte for byte.
+- **Telemetry cadence for consumers.** The island carries `data-demo-quality`
+  and `data-demo-telemetry-cadence-ms`. The live renderer seam exposes the
+  controller's read side as `renderer.quality`, and `shouldSampleTelemetry`
+  keys refreshes to simulation steps.
+- **Snapshot transfer.** The bridge reads each wasm-bindgen getter once, frees
+  the `WasmState` handle immediately instead of waiting for a GC finalizer,
+  and checks the routed topology by value against the last verified copy.
+  Exported values are unchanged.
+- **Opt-in timing.** Under `astro dev`, or with `?neuromorphic-perf`,
+  `globalThis.__neuromorphicPerf` reports per-stage timing (`perf-probe.ts`).
+  Normal visits create no probe.
+
 ### `neuromod` engine integration
 
 `neuromod` owns neuron dynamics and spike generation. `synaptic-wiring` owns
