@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { errorMessage } from './inspector';
 import {
   PROTOCOL_FIXTURE_BYTE_LIMIT,
   PROTOCOL_FIXTURE_DIR,
@@ -78,7 +79,7 @@ export function loadProtocolFixtureCatalog(directory = protocolFixtureDirectory(
   try {
     manifest = JSON.parse(readFileSync(resolve(directory, PROTOCOL_MANIFEST_FILE), 'utf8'));
   } catch (error) {
-    fail(`${PROTOCOL_MANIFEST_FILE} is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+    fail(`${PROTOCOL_MANIFEST_FILE} is unreadable: ${errorMessage(error)}`);
   }
   if (!isRecord(manifest)) fail('manifest must be an object');
   if (manifest.schema !== MANIFEST_SCHEMA || manifest.schema_version !== 1) fail('unsupported manifest schema');

@@ -7,8 +7,8 @@ use std::collections::HashSet;
 
 use corpus_ipc::{IpcMessage, SpikeBatch, StimulusBatch, WireEnvelope};
 use neuromorphic_adapter::protocol::{
-    MAX_PROTOCOL_FIXTURE_BYTES, ProtocolErrorCode, ProtocolVariant, accept_decoded_envelope,
-    inspect_protocol_fixture,
+    CanonicalDifference, MAX_PROTOCOL_FIXTURE_BYTES, ProtocolErrorCode, ProtocolVariant,
+    accept_decoded_envelope, inspect_protocol_fixture,
 };
 use sha2::{Digest, Sha256};
 
@@ -394,6 +394,52 @@ fn additive_unknown_fields_keep_corpus_ipc_forward_compatibility() {
     );
     assert!(!inspection.canonical_json.contains("added_later"));
     assert!(!inspection.canonical_json.contains("producer"));
+    assert_eq!(
+        inspection.canonical_difference,
+        CanonicalDifference::DroppedFields(vec![
+            "payload.Stimuli.added_later".to_owned(),
+            "payload.Stimuli.metadata.added_later".to_owned(),
+            "producer".to_owned(),
+        ])
+    );
+}
+
+#[test]
+fn canonical_differences_claim_only_what_the_comparison_shows() {
+    // Whitespace and key order only: the same JSON value.
+    let reordered = r#"{ "payload": {"Spikes": {"timestamp": 2, "batch_id": 1, "session_id": "s",
+        "spikes": [ {"strength": 1.0, "time": 4, "channel": 3} ], "metadata": null}},
+        "wire_version": 1 }"#;
+    let inspection = signed(reordered.as_bytes(), "Spikes").expect("valid");
+    assert!(!inspection.canonical_matches_input);
+    assert_eq!(
+        inspection.canonical_difference,
+        CanonicalDifference::Formatting
+    );
+    assert_eq!(inspection.canonical_json, SPIKES);
+
+    // An omitted optional field is re-encoded as null: no field was dropped.
+    let without_metadata = SPIKES.replace(r#","metadata":null"#, "");
+    let inspection = signed(without_metadata.as_bytes(), "Spikes").expect("valid");
+    assert_eq!(
+        inspection.canonical_difference,
+        CanonicalDifference::Differs
+    );
+
+    // Extra f32 digits are rounded by the re-encoding: no field was dropped.
+    let extra_digits = STIMULI.replace("[0.5,1.0]", "[0.5000000001,1.0]");
+    let inspection = signed(extra_digits.as_bytes(), "Stimuli").expect("valid");
+    assert_eq!(
+        inspection.canonical_difference,
+        CanonicalDifference::Differs
+    );
+
+    let identical = signed(SPIKES.as_bytes(), "Spikes").expect("valid");
+    assert_eq!(
+        identical.canonical_difference,
+        CanonicalDifference::Identical
+    );
+    assert_eq!(identical.canonical_difference.as_str(), "identical");
 }
 
 #[test]

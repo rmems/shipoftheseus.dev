@@ -57,6 +57,14 @@ export class WasmProtocolInspection {
     [Symbol.dispose](): void;
     readonly batch_id: bigint;
     readonly byte_length: number;
+    /**
+     * `identical`, `formatting`, `dropped-fields`, or `differs`.
+     */
+    readonly canonical_difference: string;
+    /**
+     * Dotted paths of input fields the re-encoding dropped (at most 32).
+     */
+    readonly canonical_dropped_fields: Array<any>;
     readonly canonical_json: string;
     readonly canonical_matches_input: boolean;
     /**
@@ -139,32 +147,6 @@ export interface InitOutput {
     readonly wasmnirinspection_node_count: (a: number) => number;
     readonly wasmnirinspection_node_json: (a: number, b: number, c: number) => [number, number, number, number];
     readonly wasmnirinspection_parse: (a: number, b: number) => [number, number, number];
-    readonly __wbg_wasmprotocolinspection_free: (a: number, b: number) => void;
-    readonly inspectProtocolFixture: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
-    readonly protocolFixtureByteLimit: () => number;
-    readonly wasmprotocolinspection_batch_id: (a: number) => bigint;
-    readonly wasmprotocolinspection_byte_length: (a: number) => number;
-    readonly wasmprotocolinspection_canonical_json: (a: number) => [number, number];
-    readonly wasmprotocolinspection_canonical_matches_input: (a: number) => number;
-    readonly wasmprotocolinspection_metadata_custom: (a: number) => any;
-    readonly wasmprotocolinspection_metadata_present: (a: number) => number;
-    readonly wasmprotocolinspection_metadata_processing_latency_ns: (a: number) => [number, bigint];
-    readonly wasmprotocolinspection_metadata_source: (a: number) => [number, number];
-    readonly wasmprotocolinspection_session_id: (a: number) => [number, number];
-    readonly wasmprotocolinspection_sha256: (a: number) => [number, number];
-    readonly wasmprotocolinspection_spike_channels: (a: number) => any;
-    readonly wasmprotocolinspection_spike_strengths: (a: number) => any;
-    readonly wasmprotocolinspection_spike_times: (a: number) => any;
-    readonly wasmprotocolinspection_stimulus_valid_mask: (a: number) => any;
-    readonly wasmprotocolinspection_stimulus_values: (a: number) => any;
-    readonly wasmprotocolinspection_timestamp: (a: number) => [number, bigint];
-    readonly wasmprotocolinspection_trace_channel_ids: (a: number) => any;
-    readonly wasmprotocolinspection_trace_last_spike_times: (a: number) => any;
-    readonly wasmprotocolinspection_trace_values: (a: number) => any;
-    readonly wasmprotocolinspection_variant: (a: number) => [number, number];
-    readonly wasmprotocolinspection_wire_current: (a: number) => number;
-    readonly wasmprotocolinspection_wire_version: (a: number) => number;
-    readonly wasmprotocolinspection_wire_min_supported: (a: number) => number;
     readonly __wbg_wasmadapter_free: (a: number, b: number) => void;
     readonly __wbg_wasmstate_free: (a: number, b: number) => void;
     readonly wasmadapter_dispose: (a: number) => void;
@@ -199,6 +181,34 @@ export interface InitOutput {
     readonly wasmstate_topology_targets: (a: number) => any;
     readonly wasmstate_topology_weight_bits: (a: number) => any;
     readonly wasmstate_topology_weights: (a: number) => any;
+    readonly __wbg_wasmprotocolinspection_free: (a: number, b: number) => void;
+    readonly inspectProtocolFixture: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly protocolFixtureByteLimit: () => number;
+    readonly wasmprotocolinspection_batch_id: (a: number) => bigint;
+    readonly wasmprotocolinspection_byte_length: (a: number) => number;
+    readonly wasmprotocolinspection_canonical_difference: (a: number) => [number, number];
+    readonly wasmprotocolinspection_canonical_dropped_fields: (a: number) => any;
+    readonly wasmprotocolinspection_canonical_json: (a: number) => [number, number];
+    readonly wasmprotocolinspection_canonical_matches_input: (a: number) => number;
+    readonly wasmprotocolinspection_metadata_custom: (a: number) => any;
+    readonly wasmprotocolinspection_metadata_present: (a: number) => number;
+    readonly wasmprotocolinspection_metadata_processing_latency_ns: (a: number) => [number, bigint];
+    readonly wasmprotocolinspection_metadata_source: (a: number) => [number, number];
+    readonly wasmprotocolinspection_session_id: (a: number) => [number, number];
+    readonly wasmprotocolinspection_sha256: (a: number) => [number, number];
+    readonly wasmprotocolinspection_spike_channels: (a: number) => any;
+    readonly wasmprotocolinspection_spike_strengths: (a: number) => any;
+    readonly wasmprotocolinspection_spike_times: (a: number) => any;
+    readonly wasmprotocolinspection_stimulus_valid_mask: (a: number) => any;
+    readonly wasmprotocolinspection_stimulus_values: (a: number) => any;
+    readonly wasmprotocolinspection_timestamp: (a: number) => [number, bigint];
+    readonly wasmprotocolinspection_trace_channel_ids: (a: number) => any;
+    readonly wasmprotocolinspection_trace_last_spike_times: (a: number) => any;
+    readonly wasmprotocolinspection_trace_values: (a: number) => any;
+    readonly wasmprotocolinspection_variant: (a: number) => [number, number];
+    readonly wasmprotocolinspection_wire_current: (a: number) => number;
+    readonly wasmprotocolinspection_wire_version: (a: number) => number;
+    readonly wasmprotocolinspection_wire_min_supported: (a: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

@@ -55,6 +55,8 @@ interface RawProtocolInspection {
   metadata_custom: unknown;
   canonical_json: string;
   canonical_matches_input: boolean;
+  canonical_difference: string;
+  canonical_dropped_fields: unknown;
   free?: () => void;
 }
 
@@ -79,7 +81,18 @@ export interface ProtocolInspection {
   metadata: { source: string | null; processingLatencyNs: bigint | null; custom: Array<[string, string]> } | null;
   canonicalJson: string;
   canonicalMatchesInput: boolean;
+  /**
+   * How the input relates to corpus-ipc's re-encoding: `identical`, only
+   * `formatting` (same JSON value), `dropped-fields` (input keys absent from
+   * the re-encoding, listed in `droppedFields`), or `differs` (nothing more
+   * specific is known).
+   */
+  canonicalDifference: CanonicalDifference;
+  droppedFields: string[];
 }
+
+export type CanonicalDifference = 'identical' | 'formatting' | 'dropped-fields' | 'differs';
+const CANONICAL_DIFFERENCES: ReadonlySet<string> = new Set(['identical', 'formatting', 'dropped-fields', 'differs']);
 
 export interface ProtocolInspector {
   /** The adapter's pre-parse byte limit. */
@@ -118,7 +131,141 @@ function sameLength(...arrays: ArrayLike<unknown>[]): boolean {
   return arrays.every((array) => array.length === arrays[0].length);
 }
 
-/** Copy one accepted inspection into JS-owned values after checking its shape. */
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+/**
+ * A readable message for anything thrown: an `Error`, a string thrown by
+ * wasm-bindgen glue, or another primitive. Objects never print as
+ * `[object Object]`.
+ */
+export function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  switch (typeof error) {
+    case 'string':
+      return error;
+    case 'number':
+    case 'boolean':
+    case 'bigint':
+    case 'symbol':
+      return error.toString();
+    default:
+      return 'Unknown error';
+  }
+}
+
+// Each `WasmProtocolInspection` getter allocates on the WASM side (strings and
+// typed arrays are copied out of linear memory). The readers below call every
+// getter at most once, check that local value, and copy it into JS-owned
+// storage. Only the decoded variant's row getters are read.
+
+function readStimuli(raw: RawProtocolInspection): NonNullable<ProtocolInspection['stimuli']> {
+  const values = raw.stimulus_values;
+  const validMask = raw.stimulus_valid_mask;
+  if (
+    !(values instanceof Float32Array) ||
+    !(validMask === undefined || validMask instanceof Uint8Array) ||
+    (validMask !== undefined && validMask.length !== values.length)
+  ) {
+    throw contractError('stimulus rows');
+  }
+  return { values: new Float32Array(values), validMask: validMask ? new Uint8Array(validMask) : null };
+}
+
+function readSpikes(raw: RawProtocolInspection): NonNullable<ProtocolInspection['spikes']> {
+  const channels = raw.spike_channels;
+  const times = raw.spike_times;
+  const strengths = raw.spike_strengths;
+  if (
+    !(channels instanceof Uint16Array) ||
+    !(times instanceof Uint32Array) ||
+    !(strengths instanceof Float32Array) ||
+    !sameLength(channels, times, strengths)
+  ) {
+    throw contractError('spike rows');
+  }
+  return { channels: new Uint16Array(channels), times: new Uint32Array(times), strengths: new Float32Array(strengths) };
+}
+
+function readTraces(raw: RawProtocolInspection): NonNullable<ProtocolInspection['traces']> {
+  const channelIds = raw.trace_channel_ids;
+  const values = raw.trace_values;
+  const lastSpikeTimes = raw.trace_last_spike_times;
+  if (
+    !(channelIds instanceof Uint16Array) ||
+    !(values instanceof Float32Array) ||
+    !(lastSpikeTimes instanceof Uint32Array) ||
+    !sameLength(channelIds, values, lastSpikeTimes)
+  ) {
+    throw contractError('trace rows');
+  }
+  return {
+    channelIds: new Uint16Array(channelIds),
+    values: new Float32Array(values),
+    lastSpikeTimes: new Uint32Array(lastSpikeTimes),
+  };
+}
+
+function readMetadata(raw: RawProtocolInspection): ProtocolInspection['metadata'] {
+  const present = raw.metadata_present;
+  if (typeof present !== 'boolean') throw contractError('metadata');
+  if (!present) return null;
+  const source = raw.metadata_source;
+  const processingLatencyNs = raw.metadata_processing_latency_ns;
+  const custom = raw.metadata_custom;
+  if (!optionalString(source) || !optionalU64(processingLatencyNs) || !isStringPairs(custom)) {
+    throw contractError('metadata');
+  }
+  return {
+    source: source ?? null,
+    processingLatencyNs: processingLatencyNs ?? null,
+    custom: custom.map(([key, value]) => [key, value] as [string, string]),
+  };
+}
+
+function readWireVersion(raw: RawProtocolInspection): Pick<ProtocolInspection, 'wireVersion' | 'wireWindow'> {
+  const wireVersion = raw.wire_version;
+  const minSupported = raw.wire_min_supported;
+  const current = raw.wire_current;
+  if (
+    wireVersion !== PROTOCOL_WIRE_VERSION ||
+    !Number.isInteger(minSupported) ||
+    !Number.isInteger(current) ||
+    wireVersion < minSupported ||
+    wireVersion > current
+  ) {
+    throw contractError('wire version');
+  }
+  return { wireVersion, wireWindow: { minSupported, current } };
+}
+
+function readCanonical(
+  raw: RawProtocolInspection,
+): Pick<ProtocolInspection, 'canonicalJson' | 'canonicalMatchesInput' | 'canonicalDifference' | 'droppedFields'> {
+  const canonicalJson = raw.canonical_json;
+  const canonicalMatchesInput = raw.canonical_matches_input;
+  const canonicalDifference = raw.canonical_difference;
+  const droppedFields = raw.canonical_dropped_fields;
+  if (
+    typeof canonicalJson !== 'string' ||
+    typeof canonicalMatchesInput !== 'boolean' ||
+    !CANONICAL_DIFFERENCES.has(canonicalDifference) ||
+    canonicalMatchesInput !== (canonicalDifference === 'identical') ||
+    !isStringArray(droppedFields) ||
+    (canonicalDifference === 'dropped-fields') !== droppedFields.length > 0
+  ) {
+    throw contractError('canonical encoding');
+  }
+  return {
+    canonicalJson,
+    canonicalMatchesInput,
+    canonicalDifference: canonicalDifference as CanonicalDifference,
+    droppedFields: [...droppedFields],
+  };
+}
+
+/** Check one accepted inspection and copy it into JS-owned values. */
 export function toProtocolInspection(
   raw: RawProtocolInspection,
   bytes: Uint8Array,
@@ -126,88 +273,36 @@ export function toProtocolInspection(
   expectedVariant: ProtocolVariant,
 ): ProtocolInspection {
   if (!raw || typeof raw !== 'object') throw contractError('not an object');
-  if (!isProtocolVariant(raw.variant) || raw.variant !== expectedVariant) throw contractError('variant');
-  if (
-    raw.wire_version !== PROTOCOL_WIRE_VERSION ||
-    !Number.isInteger(raw.wire_min_supported) ||
-    !Number.isInteger(raw.wire_current) ||
-    raw.wire_version < raw.wire_min_supported ||
-    raw.wire_version > raw.wire_current
-  ) {
-    throw contractError('wire version');
-  }
-  if (raw.sha256 !== expectedSha256 || raw.byte_length !== bytes.length) throw contractError('digest or size');
-  if (!isU64(raw.batch_id) || !optionalU64(raw.timestamp) || !optionalU64(raw.metadata_processing_latency_ns)) {
-    throw contractError('u64 values must be bigint');
-  }
-  if (!optionalString(raw.session_id) || !optionalString(raw.metadata_source)) throw contractError('strings');
-  if (
-    !(raw.stimulus_values instanceof Float32Array) ||
-    !(raw.stimulus_valid_mask === undefined || raw.stimulus_valid_mask instanceof Uint8Array) ||
-    !(raw.spike_channels instanceof Uint16Array) ||
-    !(raw.spike_times instanceof Uint32Array) ||
-    !(raw.spike_strengths instanceof Float32Array) ||
-    !(raw.trace_channel_ids instanceof Uint16Array) ||
-    !(raw.trace_values instanceof Float32Array) ||
-    !(raw.trace_last_spike_times instanceof Uint32Array) ||
-    !sameLength(raw.spike_channels, raw.spike_times, raw.spike_strengths) ||
-    !sameLength(raw.trace_channel_ids, raw.trace_values, raw.trace_last_spike_times)
-  ) {
-    throw contractError('typed arrays');
-  }
-  if (typeof raw.metadata_present !== 'boolean' || !isStringPairs(raw.metadata_custom)) throw contractError('metadata');
-  if (typeof raw.canonical_json !== 'string' || typeof raw.canonical_matches_input !== 'boolean') {
-    throw contractError('canonical encoding');
-  }
-
   const variant = raw.variant;
+  if (!isProtocolVariant(variant) || variant !== expectedVariant) throw contractError('variant');
+  const sha256 = raw.sha256;
+  const byteLength = raw.byte_length;
+  if (sha256 !== expectedSha256 || byteLength !== bytes.length) throw contractError('digest or size');
+  const batchId = raw.batch_id;
+  const timestamp = raw.timestamp;
+  if (!isU64(batchId) || !optionalU64(timestamp)) throw contractError('u64 values must be bigint');
+  const sessionId = raw.session_id;
+  if (!optionalString(sessionId)) throw contractError('strings');
+
   return {
     variant,
-    wireVersion: raw.wire_version,
-    wireWindow: { minSupported: raw.wire_min_supported, current: raw.wire_current },
-    sha256: raw.sha256,
-    byteLength: raw.byte_length,
-    sessionId: raw.session_id ?? null,
-    batchId: raw.batch_id,
-    timestamp: raw.timestamp ?? null,
-    stimuli:
-      variant === 'Stimuli'
-        ? {
-            values: new Float32Array(raw.stimulus_values),
-            validMask: raw.stimulus_valid_mask ? new Uint8Array(raw.stimulus_valid_mask) : null,
-          }
-        : null,
-    spikes:
-      variant === 'Spikes'
-        ? {
-            channels: new Uint16Array(raw.spike_channels),
-            times: new Uint32Array(raw.spike_times),
-            strengths: new Float32Array(raw.spike_strengths),
-          }
-        : null,
-    traces:
-      variant === 'EligibilityTraces'
-        ? {
-            channelIds: new Uint16Array(raw.trace_channel_ids),
-            values: new Float32Array(raw.trace_values),
-            lastSpikeTimes: new Uint32Array(raw.trace_last_spike_times),
-          }
-        : null,
-    metadata: raw.metadata_present
-      ? {
-          source: raw.metadata_source ?? null,
-          processingLatencyNs: raw.metadata_processing_latency_ns ?? null,
-          custom: raw.metadata_custom.map(([key, value]) => [key, value] as [string, string]),
-        }
-      : null,
-    canonicalJson: raw.canonical_json,
-    canonicalMatchesInput: raw.canonical_matches_input,
+    ...readWireVersion(raw),
+    sha256,
+    byteLength,
+    sessionId: sessionId ?? null,
+    batchId,
+    timestamp: timestamp ?? null,
+    stimuli: variant === 'Stimuli' ? readStimuli(raw) : null,
+    spikes: variant === 'Spikes' ? readSpikes(raw) : null,
+    traces: variant === 'EligibilityTraces' ? readTraces(raw) : null,
+    metadata: readMetadata(raw),
+    ...readCanonical(raw),
   };
 }
 
 function adapterFailure(error: unknown): ProtocolFixtureError {
   if (error instanceof ProtocolFixtureError) return error;
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
   return isProtocolErrorCode(code)
     ? new ProtocolFixtureError(code, message)
@@ -232,7 +327,7 @@ export async function createProtocolInspector(
   } catch (error) {
     throw new ProtocolFixtureError(
       'wasm-unavailable',
-      `The Rust/WASM adapter failed to load: ${error instanceof Error ? error.message : String(error)}`,
+      `The Rust/WASM adapter failed to load: ${errorMessage(error)}`,
     );
   }
   if (typeof wasm.inspectProtocolFixture !== 'function' || typeof wasm.protocolFixtureByteLimit !== 'function') {

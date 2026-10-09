@@ -6,6 +6,7 @@
  */
 import {
   createProtocolInspector,
+  errorMessage,
   formatF32,
   ProtocolFixtureError,
   readBoundedBytes,
@@ -34,9 +35,30 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 function failureOf(error: unknown): ProtocolFixtureError {
-  return error instanceof ProtocolFixtureError
-    ? error
-    : new ProtocolFixtureError('adapter-error', error instanceof Error ? error.message : String(error));
+  if (error instanceof ProtocolFixtureError) return error;
+  return new ProtocolFixtureError('adapter-error', errorMessage(error));
+}
+
+/**
+ * Describe only what the adapter's comparison established about the input
+ * versus corpus-ipc's canonical re-encoding.
+ */
+export function canonicalSummary(inspection: Pick<ProtocolInspection, 'canonicalDifference' | 'droppedFields'>): string {
+  switch (inspection.canonicalDifference) {
+    case 'identical':
+      return 'corpus-ipc re-encodes it byte-for-byte (lossless)';
+    case 'formatting':
+      return 'accepted; the bytes differ from corpus-ipc’s re-encoding only in JSON formatting (same value)';
+    case 'dropped-fields':
+      return `accepted; corpus-ipc’s re-encoding omits fields it does not define: ${inspection.droppedFields.join(', ')}`;
+    case 'differs':
+      return 'accepted; the bytes differ from corpus-ipc’s canonical re-encoding';
+  }
+}
+
+function validityLabel(validMask: Uint8Array | null, index: number): string {
+  if (!validMask) return 'yes';
+  return validMask[index] ? 'yes' : 'no';
 }
 
 /**
@@ -165,14 +187,7 @@ export function renderInspection(container: HTMLElement, inspection: ProtocolIns
         : inspection.metadata.custom.map(([key, value]) => `${key} = ${value}`).join(', '),
     );
   }
-  field(
-    fields,
-    'Re-encoding',
-    inspection.canonicalMatchesInput
-      ? 'corpus-ipc re-encodes it byte-for-byte (lossless)'
-      : 'accepted; corpus-ipc re-encoding differs (unknown fields are dropped)',
-    'protocolCanonical',
-  );
+  field(fields, 'Re-encoding', canonicalSummary(inspection), 'protocolCanonical');
 
   const parts: Node[] = [fields];
   if (inspection.stimuli) {
@@ -184,7 +199,7 @@ export function renderInspection(container: HTMLElement, inspection: ProtocolIns
         Array.from(values, (value, index) => [
           String(index),
           formatF32(value),
-          validMask ? (validMask[index] ? 'yes' : 'no') : 'yes',
+          validityLabel(validMask, index),
         ]),
       ),
     );

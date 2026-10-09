@@ -70,6 +70,8 @@ test('the committed recorded fixtures decode through the real adapter with exact
     assert.equal(inspection.batchId, 9007199254740993n);
     assert.equal(inspection.sessionId, 'kinetic-seed9-golden');
     assert.equal(inspection.canonicalMatchesInput, true);
+    assert.equal(inspection.canonicalDifference, 'identical');
+    assert.deepEqual(inspection.droppedFields, []);
     assert.equal(inspection.canonicalJson, new TextDecoder().decode(bytes));
   }
 
@@ -202,6 +204,64 @@ test('additive unknown fields keep corpus-ipc forward compatibility', () => {
   assert.equal(inspection.batchId, 9007199254740993n);
   assert.equal(inspection.canonicalMatchesInput, false);
   assert.doesNotMatch(inspection.canonicalJson, /added_later|producer/);
+  assert.equal(inspection.canonicalDifference, 'dropped-fields');
+  assert.deepEqual(inspection.droppedFields, ['payload.Stimuli.added_later', 'producer']);
+  assert.match(enhance.canonicalSummary(inspection), /omits fields it does not define: payload\.Stimuli\.added_later, producer$/);
+});
+
+test('a re-encoding difference is described only as far as it is known', () => {
+  // Whitespace and key order only: same JSON value, nothing dropped.
+  const reordered = '{ "payload": {"Spikes": {"timestamp": 2, "batch_id": 1, "session_id": "s", "spikes": [{"strength": 1.0, "time": 4, "channel": 3}], "metadata": null}}, "wire_version": 1 }';
+  const formatting = signedInspect(reordered, 'Spikes');
+  assert.equal(formatting.canonicalMatchesInput, false);
+  assert.equal(formatting.canonicalDifference, 'formatting');
+  assert.deepEqual(formatting.droppedFields, []);
+  assert.equal(formatting.canonicalJson, SPIKES);
+  assert.match(enhance.canonicalSummary(formatting), /only in JSON formatting/);
+  assert.doesNotMatch(enhance.canonicalSummary(formatting), /dropped|omits|unknown/);
+
+  // An omitted optional field becomes null in the re-encoding: not a dropped field.
+  const differs = signedInspect(SPIKES.replace(',"metadata":null', ''), 'Spikes');
+  assert.equal(differs.canonicalDifference, 'differs');
+  assert.equal(enhance.canonicalSummary(differs), 'accepted; the bytes differ from corpus-ipc’s canonical re-encoding');
+
+  const identical = signedInspect(SPIKES, 'Spikes');
+  assert.equal(identical.canonicalDifference, 'identical');
+  assert.match(enhance.canonicalSummary(identical), /byte-for-byte/);
+});
+
+test('the bridge reads each allocating WASM getter at most once', () => {
+  const bytes = encode(STIMULI);
+  const reads = new Map();
+  const counting = {
+    ...wasm,
+    inspectProtocolFixture: (input, digest, variant) => {
+      const raw = wasm.inspectProtocolFixture(input, digest, variant);
+      return new Proxy(raw, {
+        get(target, key) {
+          if (typeof key === 'string' && key !== 'free') reads.set(key, (reads.get(key) ?? 0) + 1);
+          return Reflect.get(target, key);
+        },
+      });
+    },
+  };
+  const raw = counting.inspectProtocolFixture(bytes, sha256(bytes), 'Stimuli');
+  const inspection = bridge.toProtocolInspection(raw, bytes, sha256(bytes), 'Stimuli');
+  raw.free();
+  assert.equal(inspection.batchId, 9007199254740993n);
+  assert.ok(reads.size > 10, 'the bridge reads the inspection');
+  for (const [key, count] of reads) assert.equal(count, 1, `${key} read ${count} times`);
+  for (const other of ['spike_channels', 'spike_times', 'spike_strengths', 'trace_channel_ids', 'trace_values', 'trace_last_spike_times']) {
+    assert.equal(reads.has(other), false, `${other} is not read for a Stimuli message`);
+  }
+});
+
+test('errorMessage never prints [object Object]', () => {
+  assert.equal(bridge.errorMessage(new Error('boom')), 'boom');
+  assert.equal(bridge.errorMessage('thrown by wasm-bindgen'), 'thrown by wasm-bindgen');
+  assert.equal(bridge.errorMessage(42), '42');
+  assert.equal(bridge.errorMessage({ reason: 'opaque' }), 'Unknown error');
+  assert.equal(bridge.errorMessage(undefined), 'Unknown error');
 });
 
 test('the page check mutations fail closed through the adapter', async () => {

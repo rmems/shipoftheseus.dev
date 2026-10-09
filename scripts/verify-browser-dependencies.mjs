@@ -64,11 +64,62 @@ function nativeReason(pkg) {
 function adapterSurface(metadata, packagesById) {
   const node = metadata.resolve.nodes.find((candidate) => packagesById.get(candidate.id)?.name === ADAPTER_CRATE);
   if (!node) return null;
-  const features = (node.features ?? []).filter((feature) => feature !== 'default').sort();
+  const features = (node.features ?? [])
+    .filter((feature) => feature !== 'default')
+    .sort((left, right) => left.localeCompare(right));
   const directDependencies = (node.deps ?? [])
     .filter((dep) => (dep.dep_kinds ?? [{ kind: null }]).some((kind) => kind.kind === null))
     .map((dep) => packagesById.get(dep.pkg)?.name ?? dep.name);
   return { features, directDependencies };
+}
+
+const byName = (left, right) => left.localeCompare(right);
+
+/** Native-library, native-service, and native-tooling packages in the graph. */
+function nativeViolations(resolved) {
+  return resolved.flatMap((pkg) => {
+    const reason = nativeReason(pkg);
+    return reason ? [`${pkg.name}: ${reason}`] : [];
+  });
+}
+
+/** The profile's `requiredCrates` / `excludedCrates`, anywhere in the graph. */
+function crateViolations(resolved, requiredCrates, excludedCrates) {
+  const has = (name) => resolved.some((pkg) => pkg.name === name);
+  return [
+    ...requiredCrates
+      .filter((name) => !has(name))
+      .map((name) => `${name}: required by this profile but missing from its graph`),
+    ...excludedCrates.filter(has).map((name) => `${name}: must stay out of this profile's graph`),
+  ];
+}
+
+/** The adapter's own enabled features and direct dependencies for the profile. */
+function adapterViolations(adapter, { features, requiredDirectDependencies, excludedDirectDependencies }) {
+  const violations = [];
+  if (adapter && features) {
+    const expected = [...features].sort(byName);
+    if (adapter.features.join(',') !== expected.join(',')) {
+      violations.push(`${ADAPTER_CRATE}: enables features [${adapter.features.join(', ')}], profile expects [${expected.join(', ')}]`);
+    }
+  }
+  // Cargo spells dependency names with underscores; compare crate names that way.
+  const crateKey = (name) => name.replaceAll('-', '_');
+  const direct = new Set((adapter?.directDependencies ?? []).map(crateKey));
+  for (const name of requiredDirectDependencies) {
+    if (!direct.has(crateKey(name))) violations.push(`${name}: this profile needs it as a direct ${ADAPTER_CRATE} dependency`);
+  }
+  for (const name of excludedDirectDependencies) {
+    if (direct.has(crateKey(name))) violations.push(`${name}: must not be a direct ${ADAPTER_CRATE} dependency in this profile`);
+  }
+  return violations;
+}
+
+/** corpus-ipc's `server` (Axum/Tokio) and `zmq` features never enter the browser. */
+function corpusIpcViolations(resolved) {
+  const corpusIpc = resolved.find((pkg) => pkg.name === 'corpus-ipc');
+  if (!corpusIpc?.features.some((feature) => feature === 'server' || feature === 'zmq')) return [];
+  return [`corpus-ipc: browser features must not enable server or zmq: ${corpusIpc.features.join(', ')}`];
 }
 
 /**
@@ -91,44 +142,13 @@ export function browserDependencyViolations(
 ) {
   const packagesById = new Map(metadata.packages.map((pkg) => [pkg.id, pkg]));
   const resolved = metadata.resolve.nodes.map((node) => ({ ...packagesById.get(node.id), features: node.features }));
-  const has = (name) => resolved.some((pkg) => pkg.name === name);
-  const violations = [];
-
-  for (const pkg of resolved) {
-    const reason = nativeReason(pkg);
-    if (reason) violations.push(`${pkg.name}: ${reason}`);
-  }
-
-  for (const name of requiredCrates) {
-    if (!has(name)) violations.push(`${name}: required by this profile but missing from its graph`);
-  }
-  for (const name of excludedCrates) {
-    if (has(name)) violations.push(`${name}: must stay out of this profile's graph`);
-  }
-
   const adapter = adapterSurface(metadata, packagesById);
-  if (adapter && features) {
-    const expected = [...features].sort();
-    if (adapter.features.join(',') !== expected.join(',')) {
-      violations.push(`${ADAPTER_CRATE}: enables features [${adapter.features.join(', ')}], profile expects [${expected.join(', ')}]`);
-    }
-  }
-  // Cargo spells dependency names with underscores; compare crate names that way.
-  const crateKey = (name) => name.replaceAll('-', '_');
-  const direct = new Set((adapter?.directDependencies ?? []).map(crateKey));
-  for (const name of requiredDirectDependencies) {
-    if (!direct.has(crateKey(name))) violations.push(`${name}: this profile needs it as a direct ${ADAPTER_CRATE} dependency`);
-  }
-  for (const name of excludedDirectDependencies) {
-    if (direct.has(crateKey(name))) violations.push(`${name}: must not be a direct ${ADAPTER_CRATE} dependency in this profile`);
-  }
-
-  const corpusIpc = resolved.find((pkg) => pkg.name === 'corpus-ipc');
-  if (corpusIpc?.features.some((feature) => feature === 'server' || feature === 'zmq')) {
-    violations.push(`corpus-ipc: browser features must not enable server or zmq: ${corpusIpc.features.join(', ')}`);
-  }
-
-  return violations.sort((left, right) => left.localeCompare(right));
+  return [
+    ...nativeViolations(resolved),
+    ...crateViolations(resolved, requiredCrates, excludedCrates),
+    ...adapterViolations(adapter, { features, requiredDirectDependencies, excludedDirectDependencies }),
+    ...corpusIpcViolations(resolved),
+  ].sort(byName);
 }
 
 async function main() {

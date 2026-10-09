@@ -215,9 +215,107 @@ pub struct ProtocolInspection {
     pub message: IpcMessage,
     /// `corpus-ipc` re-encoding of the accepted envelope.
     pub canonical_json: String,
-    /// Whether the re-encoding is byte-identical to the input. Additive
-    /// unknown fields are accepted but dropped, so they make this `false`.
+    /// Whether the re-encoding is byte-identical to the input.
     pub canonical_matches_input: bool,
+    /// How the input relates to the re-encoding when they are not identical.
+    pub canonical_difference: CanonicalDifference,
+}
+
+/// At most this many dropped field paths are reported.
+pub const MAX_REPORTED_DROPPED_FIELDS: usize = 32;
+
+/// How accepted input bytes relate to `corpus-ipc`'s canonical re-encoding.
+/// Each variant claims only what the comparison established.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CanonicalDifference {
+    /// Byte-identical.
+    Identical,
+    /// Both parse to the same JSON value: only formatting differs (for example
+    /// whitespace or object key order).
+    Formatting,
+    /// Object keys present in the input but absent from the re-encoding, as
+    /// dotted paths (`payload.Stimuli.added_later`). `corpus-ipc` ignores
+    /// unknown fields, so these did not survive decoding.
+    DroppedFields(Vec<String>),
+    /// The bytes and values differ, but no input key was dropped (for example
+    /// an omitted optional field the re-encoding writes as `null`, or an
+    /// `f32` written with extra digits). Nothing more specific is claimed.
+    Differs,
+}
+
+impl CanonicalDifference {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Identical => "identical",
+            Self::Formatting => "formatting",
+            Self::DroppedFields(_) => "dropped-fields",
+            Self::Differs => "differs",
+        }
+    }
+
+    pub fn dropped_fields(&self) -> &[String] {
+        match self {
+            Self::DroppedFields(paths) => paths,
+            _ => &[],
+        }
+    }
+}
+
+fn collect_dropped_fields(
+    input: &serde_json::Value,
+    canonical: &serde_json::Value,
+    path: &str,
+    dropped: &mut Vec<String>,
+) {
+    use serde_json::Value;
+    match (input, canonical) {
+        (Value::Object(input), Value::Object(canonical)) => {
+            for (key, value) in input {
+                if dropped.len() >= MAX_REPORTED_DROPPED_FIELDS {
+                    return;
+                }
+                let child = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                match canonical.get(key) {
+                    Some(other) => collect_dropped_fields(value, other, &child, dropped),
+                    None => dropped.push(child),
+                }
+            }
+        }
+        (Value::Array(input), Value::Array(canonical)) => {
+            for (index, (value, other)) in input.iter().zip(canonical).enumerate() {
+                collect_dropped_fields(value, other, &format!("{path}[{index}]"), dropped);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Compare accepted input with the canonical re-encoding. Both are already
+/// known to be valid JSON within the byte limit; this only explains a
+/// difference and never affects acceptance.
+pub fn canonical_difference(input: &[u8], canonical: &[u8]) -> CanonicalDifference {
+    if input == canonical {
+        return CanonicalDifference::Identical;
+    }
+    let (Ok(input), Ok(canonical)) = (
+        serde_json::from_slice::<serde_json::Value>(input),
+        serde_json::from_slice::<serde_json::Value>(canonical),
+    ) else {
+        return CanonicalDifference::Differs;
+    };
+    let mut dropped = Vec::new();
+    collect_dropped_fields(&input, &canonical, "", &mut dropped);
+    if !dropped.is_empty() {
+        CanonicalDifference::DroppedFields(dropped)
+    } else if input == canonical {
+        CanonicalDifference::Formatting
+    } else {
+        CanonicalDifference::Differs
+    }
 }
 
 /// Metadata projection with a deterministic (key-sorted) custom map.
@@ -447,6 +545,7 @@ pub fn inspect_protocol_fixture(
         )
     })?;
     let canonical_matches_input = canonical == bytes;
+    let canonical_difference = canonical_difference(bytes, &canonical);
     let canonical_json = String::from_utf8(canonical).map_err(|_| {
         ProtocolError::new(
             ProtocolErrorCode::CanonicalEncodingFailed,
@@ -462,6 +561,7 @@ pub fn inspect_protocol_fixture(
         message,
         canonical_json,
         canonical_matches_input,
+        canonical_difference,
     })
 }
 
@@ -635,6 +735,21 @@ impl WasmProtocolInspection {
     #[wasm_bindgen(getter)]
     pub fn canonical_matches_input(&self) -> bool {
         self.inspection.canonical_matches_input
+    }
+    /// `identical`, `formatting`, `dropped-fields`, or `differs`.
+    #[wasm_bindgen(getter)]
+    pub fn canonical_difference(&self) -> String {
+        self.inspection.canonical_difference.as_str().to_owned()
+    }
+    /// Dotted paths of input fields the re-encoding dropped (at most 32).
+    #[wasm_bindgen(getter)]
+    pub fn canonical_dropped_fields(&self) -> js_sys::Array {
+        self.inspection
+            .canonical_difference
+            .dropped_fields()
+            .iter()
+            .map(|path| JsValue::from_str(path))
+            .collect()
     }
 }
 

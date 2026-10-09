@@ -232,16 +232,23 @@ browser.
 - **Forward compatibility.** Additive unknown fields on the envelope and on
   payloads are ignored as `corpus-ipc` documents. Unknown `IpcMessage`
   variants fail as `unknown-variant`. The adapter re-encodes every accepted
-  envelope with `corpus-ipc` and reports whether it is byte-identical to the
-  input; additive fields make it differ because they are dropped.
+  envelope with `corpus-ipc` and reports only what a comparison establishes
+  (`canonical_difference`): `identical` bytes; `formatting` (both parse to
+  the same JSON value, so only whitespace, key order, or similar spelling
+  differs); `dropped-fields` (input object keys missing from the re-encoding,
+  listed as dotted paths, at most 32); or `differs` (for example an omitted
+  optional field written back as `null`, or an `f32` with extra digits).
 - **Boundary.** `inspectProtocolFixture(bytes, sha256, variant)` returns a
   `WasmProtocolInspection` whose `u64` fields (`batch_id`, `timestamp`,
   `metadata_processing_latency_ns`) are `bigint`, and whose rows are typed
   arrays. Failures throw a `ProtocolFixtureError` with a `code`.
   `protocolFixtureByteLimit()` exposes the limit so the page bounds its reads
   with the adapter's own constant. TypeScript (`src/protocol/`) moves bytes,
-  checks the output shape, and renders it. It never parses envelopes with
-  JavaScript JSON or re-describes the schema.
+  reads each allocating getter once, checks the output shape, copies it into
+  JS-owned values, and renders it. It never parses envelopes with JavaScript
+  JSON or re-describes the schema. `test/protocol-enhance.test.mjs` drives the
+  page enhancement through the real labs package on a small fake DOM
+  (`test/fake-dom.mjs`).
 - **Fixtures** (`public/protocol/fixtures/v1/`). One `Stimuli`, one `Spikes`,
   and one `EligibilityTraces` envelope, each from the first firing tick of a
   deterministic replay of the contract-5 golden
@@ -601,7 +608,7 @@ applies):
 | --- | ---: | ---: | ---: | ---: |
 | `default` (`neuromorphic-adapter/`) | 189,316 B | 67,177 B | 16,606 B | 3,152 B |
 | `labs`, `nir` only (#16, before `protocol`) | 670,382 B | 190,546 B | 21,858 B | 4,106 B |
-| `labs`, `nir` + `protocol` (`neuromorphic-adapter-labs/`) | 958,071 B | 254,381 B | 30,957 B | 5,286 B |
+| `labs`, `nir` + `protocol` (`neuromorphic-adapter-labs/`) | 966,603 B | 258,008 B | 31,745 B | 5,394 B |
 
 The `default` row is unchanged by the `protocol` feature: its `.js`/`.d.ts`
 are byte-identical to a fresh default build, and the committed `.wasm` is kept

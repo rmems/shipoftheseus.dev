@@ -221,6 +221,30 @@ export class WasmProtocolInspection {
         return ret >>> 0;
     }
     /**
+     * `identical`, `formatting`, `dropped-fields`, or `differs`.
+     * @returns {string}
+     */
+    get canonical_difference() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmprotocolinspection_canonical_difference(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Dotted paths of input fields the re-encoding dropped (at most 32).
+     * @returns {Array<any>}
+     */
+    get canonical_dropped_fields() {
+        const ret = wasm.wasmprotocolinspection_canonical_dropped_fields(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * @returns {string}
      */
     get canonical_json() {
