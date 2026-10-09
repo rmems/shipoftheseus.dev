@@ -273,6 +273,21 @@ test('display formatting keeps the shortest f32 decimal', () => {
   assert.equal(bridge.formatF32(Math.fround(0.80000013)), '0.80000013');
   assert.equal(bridge.formatF32(1), '1');
   assert.equal(bridge.formatF32(0), '0');
+  assert.equal(bridge.formatF32(-0), '-0');
+  assert.equal(bridge.formatF32(Math.fround(-0.5)), '-0.5');
+});
+
+test('negative zero keeps its sign from the recorded bytes to the rendered value', () => {
+  const text = '{"wire_version":1,"payload":{"Stimuli":{"session_id":null,"batch_id":1,"timestamp":0,"values":[-0.0,0.0],"valid_mask":null,"metadata":null}}}';
+  const inspection = signedInspect(text, 'Stimuli');
+  const [negative, positive] = inspection.stimuli.values;
+  assert.ok(Object.is(negative, -0), 'the adapter preserves the f32 sign bit');
+  assert.ok(Object.is(positive, 0));
+  assert.deepEqual([...inspection.stimuli.values].map(bridge.formatF32), ['-0', '0']);
+  // corpus-ipc re-encodes -0.0 verbatim, so the static byte view (exact
+  // recorded text) and the decoded view agree on the sign.
+  assert.equal(inspection.canonicalMatchesInput, true);
+  assert.ok(inspection.canonicalJson.includes('"values":[-0.0,0.0]'));
 });
 
 test('TypeScript constants mirror the Rust adapter rather than redefine it', () => {

@@ -296,8 +296,12 @@ export async function readBoundedBytes(response: Response, limit: number): Promi
   return bytes;
 }
 
-/** Shortest decimal that round-trips to the same `f32`, for display. */
+/**
+ * Shortest decimal that round-trips to the same `f32`, for display. Keeps
+ * the sign of `-0`, which `String(-0)` and `===` would both drop.
+ */
 export function formatF32(value: number): string {
+  if (Object.is(value, -0)) return '-0';
   if (!Number.isFinite(value)) return String(value);
   for (let digits = 1; digits <= 9; digits += 1) {
     const candidate = Number(value.toPrecision(digits));

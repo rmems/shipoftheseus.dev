@@ -64,6 +64,18 @@ fn u64_values_beyond_javascript_safe_integers_survive_exactly() {
 }
 
 #[test]
+fn negative_zero_keeps_its_sign_bit_and_canonical_bytes() {
+    let bytes = r#"{"wire_version":1,"payload":{"Stimuli":{"session_id":null,"batch_id":1,"timestamp":0,"values":[-0.0,0.0],"valid_mask":null,"metadata":null}}}"#;
+    let inspection = signed(bytes.as_bytes(), "Stimuli").expect("negative zero is finite");
+    let IpcMessage::Stimuli(batch) = &inspection.message else {
+        panic!("decoded as Stimuli");
+    };
+    assert_eq!(batch.values[0].to_bits(), (-0.0_f32).to_bits());
+    assert_eq!(batch.values[1].to_bits(), 0.0_f32.to_bits());
+    assert!(inspection.canonical_matches_input);
+}
+
+#[test]
 fn the_pre_parse_byte_limit_runs_before_hashing_and_parsing() {
     let mut oversize = STIMULI.as_bytes().to_vec();
     oversize.resize(MAX_PROTOCOL_FIXTURE_BYTES + 1, b' ');
