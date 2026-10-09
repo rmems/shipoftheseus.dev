@@ -367,6 +367,16 @@ test('the plasticity lab is static-first, keeps reward state apart from spike st
   assert.match(enhance, /pagehide/);
   assert.match(enhance, /session\?\.dispose\(\)/);
   assert.match(enhance, /executionOriginLabel\(originKind\)/);
+
+  // Every step, from Run or Step, consumes the one-slot reward input queue;
+  // nothing calls the session's step directly.
+  assert.equal(enhance.match(/stepWithRewardInput\(session, stimulus, rewardInput\)/g)?.length, 1);
+  assert.doesNotMatch(enhance, /session\.step\(/);
+  assert.match(enhance, /case 'step':\s*\n\s*if \(!stepOnce\(selectedStimulus\(\)\)\) return;/);
+  assert.match(enhance, /if \(stepOnce\(selectedStimulus\(\)\)\) \{\s*\n\s*scheduler\.request\(\);/);
+  assert.match(enhance, /case 'new-episode':[\s\S]*?rewardInput\.clear\(\);[\s\S]*?session\.newEpisode\(\);/);
+  assert.match(enhance, /const freshSession = \(\) => \{[\s\S]*?rewardInput\.clear\(\);/);
+  assert.match(page, /data-plasticity-field="queued"/);
 });
 
 test('the plasticity lab ships only in the labs package and never touches the homepage', () => {

@@ -11,6 +11,7 @@ import {
   createModulatorHistory,
   createPlasticityRaster,
   createPlasticitySession,
+  createRewardInputQueue,
   decodeEmbeddedGolden,
   formatModulator,
   formatSignedDelta,
@@ -21,13 +22,13 @@ import {
   plasticityErrorCode,
   recordPlasticitySpikes,
   replayGolden,
+  stepWithRewardInput,
   type ModulatorHistory,
   type PlasticityGolden,
   type PlasticityProbeView,
   type PlasticitySession,
   type PlasticityStepView,
   type PlasticityWasmModule,
-  type RewardEventName,
   type StimulusName,
 } from './plasticity-lab';
 
@@ -187,6 +188,7 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
     weightChange: field('weight-change'),
     probeCaption: field('probe-caption'),
     goldenCheck: field('golden-check'),
+    queued: field('queued'),
   };
   const modulatorItems = MODULATOR_NAMES.map((name) => {
     const item = required<HTMLElement>(root, `[data-modulator="${name}"]`);
@@ -214,7 +216,7 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
   let running = false;
   let inViewport = true;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let pendingEvent: RewardEventName = 'none';
+  const rewardInput = createRewardInputQueue();
   let observer: IntersectionObserver | null = null;
 
   const setState = (state: PlasticityLabState, message: string, reason?: string) => {
@@ -232,7 +234,14 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
     return checked && isStimulusName(checked.value) ? checked.value : 'quiet';
   };
 
+  const renderQueued = () => {
+    const queued = rewardInput.pending();
+    root.dataset.plasticityQueued = queued;
+    setText(fields.queued, queued === 'none' ? 'nothing queued' : `${REWARD_EVENT_LABELS[queued]}, applied to the next step`);
+  };
+
   const renderReward = () => {
+    renderQueued();
     const latest = history.latest();
     setText(fields.lastStep, latest ? `${latest.step} (episode ${latest.episode}, ${STIMULUS_LABELS[latest.stimulus]})` : '—');
     setText(fields.lastEvent, latest ? (latest.event === 'none' ? 'none' : REWARD_EVENT_LABELS[latest.event]) : '—');
@@ -333,20 +342,22 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
     timer = setTimeout(() => {
       timer = null;
       if (!canTick()) return;
-      const event = pendingEvent;
-      pendingEvent = 'none';
-      if (advance(selectedStimulus(), event)) {
+      if (stepOnce(selectedStimulus())) {
         scheduler.request();
         schedule();
       }
     }, 1000 / runHz());
   }
 
-  /** One step through Rust/WASM; false (and static fallback) on failure. */
-  function advance(stimulus: StimulusName, event: RewardEventName): boolean {
+  /**
+   * One step through Rust/WASM with the queued reward input, which it
+   * consumes; false (and static fallback) on failure. Run and Step both
+   * advance only through here.
+   */
+  function stepOnce(stimulus: StimulusName): boolean {
     if (!session) return false;
     try {
-      const view = session.step(stimulus, event);
+      const view = stepWithRewardInput(session, stimulus, rewardInput);
       lastStep = view;
       history.record(view);
       recordPlasticitySpikes(raster, view, session.channels, session.neurons);
@@ -364,13 +375,14 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
     initialWeights = session.state().weights;
     lastStep = null;
     probe = null;
-    pendingEvent = 'none';
+    rewardInput.clear();
     history = createModulatorHistory();
     raster = createPlasticityRaster();
   };
 
   function fallBack(error: unknown) {
     setRunning(false);
+    rewardInput.clear();
     scheduler.cancel();
     session?.dispose();
     session = null;
@@ -410,20 +422,25 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
     try {
       switch (action) {
         case 'step':
-          if (!advance(selectedStimulus(), 'none')) return;
+          if (!stepOnce(selectedStimulus())) return;
           break;
         case 'run':
           setRunning(!running);
           return;
         case 'reward':
         case 'penalty':
+          // Queued for exactly the next step: the next Run tick while
+          // running, or this click's own step while paused.
+          rewardInput.queue(action);
           if (running) {
-            pendingEvent = action;
+            renderQueued();
             return;
           }
-          if (!advance(selectedStimulus(), action)) return;
+          if (!stepOnce(selectedStimulus())) return;
           break;
         case 'new-episode':
+          // The step a queued input was meant for belongs to the old episode.
+          rewardInput.clear();
           session.newEpisode();
           break;
         case 'reset':

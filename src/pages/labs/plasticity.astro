@@ -123,6 +123,7 @@ const channelPattern = (channel: number) => (channel < 2 ? 'A' : 'B');
           <div><dt>Last step</dt><dd data-plasticity-field="last-step">—</dd></div>
           <div><dt>Reward input</dt><dd data-plasticity-field="last-event">—</dd></div>
           <div><dt>Critic observation</dt><dd data-plasticity-field="observation">—</dd></div>
+          <div><dt>Queued</dt><dd data-plasticity-field="queued" aria-live="polite">nothing queued</dd></div>
         </dl>
         <ul class="plasticity-modulators" aria-label="Modulator vector">
           {MODULATOR_NAMES.map((name) => (

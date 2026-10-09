@@ -192,6 +192,38 @@ test('the provenance the page shows matches the locked crates', () => {
   assert.equal(lab.PLASTICITY_WASM_MODULE_URL, '/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js');
 });
 
+test('a queued reward applies to exactly the next step, whichever control takes it', async () => {
+  const queue = lab.createRewardInputQueue();
+  const session = await freshSession();
+  try {
+    // Reward clicked while running, then a manual Step before the next tick:
+    // the Step carries the reward, and the following tick carries nothing.
+    queue.queue('reward');
+    assert.equal(queue.pending(), 'reward');
+    const manual = lab.stepWithRewardInput(session, 'A', queue);
+    assert.equal(manual.event, 'reward');
+    assert.deepEqual(Array.from(manual.modulators), [1, 0, 0, 0]);
+    assert.equal(queue.pending(), 'none');
+    const tick = lab.stepWithRewardInput(session, 'A', queue);
+    assert.equal(tick.event, 'none');
+    assert.deepEqual(Array.from(tick.modulators), [0, 0, 0, 0]);
+
+    // A later click before the step replaces the queued one.
+    queue.queue('reward');
+    queue.queue('penalty');
+    assert.equal(lab.stepWithRewardInput(session, 'quiet', queue).event, 'penalty');
+    assert.equal(lab.stepWithRewardInput(session, 'quiet', queue).event, 'none');
+
+    // Cleared input (Reset, New episode, scripted session) never lands.
+    queue.queue('reward');
+    queue.clear();
+    assert.equal(lab.stepWithRewardInput(session, 'quiet', queue).event, 'none');
+    assert.throws(() => queue.queue('bonus'), RangeError);
+  } finally {
+    session.dispose();
+  }
+});
+
 test('modulator history and the spike raster are separate, bounded rings', async () => {
   const history = lab.createModulatorHistory(4, 2);
   const raster = lab.createPlasticityRaster();

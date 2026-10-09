@@ -436,6 +436,55 @@ export interface PlasticitySession {
   dispose: () => void;
 }
 
+/**
+ * The reward input waiting for the next step. There is one slot: a reward or
+ * penalty clicked while the lab runs applies to exactly the next step,
+ * whether Run or Step advances it, and a later click replaces it. The view
+ * clears it on Reset, New episode, and the scripted session, because the step
+ * it was meant for no longer comes.
+ */
+export interface RewardInputQueue {
+  /** Queue `event` for the next step, replacing anything already queued. */
+  queue: (event: RewardEventName) => void;
+  /** The queued event, or `none` (does not consume it). */
+  pending: () => RewardEventName;
+  /** Consume the queued event for the step about to run (`none` if empty). */
+  take: () => RewardEventName;
+  clear: () => void;
+}
+
+export function createRewardInputQueue(): RewardInputQueue {
+  let queued: RewardEventName = 'none';
+  return {
+    queue(event) {
+      if (!isRewardEventName(event)) throw new RangeError(`unknown reward input ${String(event)}`);
+      queued = event;
+    },
+    pending: () => queued,
+    take() {
+      const event = queued;
+      queued = 'none';
+      return event;
+    },
+    clear() {
+      queued = 'none';
+    },
+  };
+}
+
+/**
+ * Advance `session` by one step of `stimulus`, consuming the queued reward
+ * input. Every step the lab takes goes through here, so a queued event can
+ * neither be skipped by a manual Step nor land on a later step.
+ */
+export function stepWithRewardInput(
+  session: PlasticitySession,
+  stimulus: StimulusName,
+  rewardInput: RewardInputQueue,
+): PlasticityStepView {
+  return session.step(stimulus, rewardInput.take());
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   // wasm-bindgen surfaces Rust errors as thrown JavaScript strings.

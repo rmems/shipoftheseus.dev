@@ -781,6 +781,14 @@ Reward / Penalty button → LabObservation (limbic_critic::Environment)
   `prefers-reduced-motion`, including when the preference changes), never
   auto-starts, and pauses while the tab is hidden or the lab is off-screen.
   `pagehide` and `astro:before-swap` free the WASM session.
+- **Reward input timing.** Reward and Penalty fill a one-slot queue
+  (`createRewardInputQueue` in `src/runtime/plasticity-lab.ts`) that applies
+  to exactly the next step. While paused, the click takes that step at once.
+  While running, the next Run tick or a manual Step takes it, whichever comes
+  first, and a later click replaces it. Every step goes through
+  `stepWithRewardInput`, which consumes the slot. Reset, New episode, and the
+  scripted session clear it, because the step it was meant for no longer
+  comes. The reward panel shows what is queued.
 - **Why a git revision.** crates.io `plasticity-lab 0.2.1` requires
   `neuromod ^0.6`, which cannot share a graph with the adapter's
   `neuromod =0.7.0`. `Limen-Neural/plasticity-lab` `main` at
