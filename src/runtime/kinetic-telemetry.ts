@@ -66,6 +66,9 @@ export function createPointerTelemetry(
   // with zero pressure) before any tick sampled it.
   let next: Float32Array | null = null;
   let dirty = false;
+  // The pointer whose packets are latched. Only it can end pointer input, so a
+  // mouse leaving the island on a touchscreen laptop cannot cancel a touch.
+  let activePointerId: number | null = null;
   let lastActiveSequence: bigint | null = null;
   let leftBeforeSample = false;
   let lastKind: TelemetrySourceKind = 'scripted';
@@ -86,6 +89,7 @@ export function createPointerTelemetry(
     // Mouse hover reports pressure 0; pressed buttons and touch report > 0.
     const pressure = Number.isFinite(event.pressure) ? event.pressure : 0;
     const packet = new Float32Array([x, y, pressure]);
+    activePointerId = typeof event.pointerId === 'number' ? event.pointerId : null;
     if (next) {
       // A press is already queued ahead of this packet; keep only the newest.
       next = packet;
@@ -103,14 +107,20 @@ export function createPointerTelemetry(
   const release = () => {
     latest = null;
     next = null;
+    activePointerId = null;
     dirty = false;
     lastActiveSequence = null;
     leftBeforeSample = false;
   };
   // A tap can start and leave between two ticks (touch fires pointerleave
   // right after pointerup); deliver its unsampled packet once before release.
+  const isOtherPointer = (event: PointerEvent | undefined) =>
+    !isPrimaryPointer(event) ||
+    (activePointerId !== null &&
+      typeof event?.pointerId === 'number' &&
+      event.pointerId !== activePointerId);
   const onLeave = (event?: PointerEvent) => {
-    if (!isPrimaryPointer(event)) {
+    if (isOtherPointer(event)) {
       return;
     }
     if (dirty) leftBeforeSample = true;
@@ -120,7 +130,7 @@ export function createPointerTelemetry(
   // scrolling). Its pending packet was never a completed interaction, so drop
   // it now and let the next tick use the scripted source.
   const onCancel = (event?: PointerEvent) => {
-    if (isPrimaryPointer(event)) {
+    if (!isOtherPointer(event)) {
       release();
     }
   };

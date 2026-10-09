@@ -172,6 +172,26 @@ test('only the primary pointer drives telemetry when several touches are down', 
   source.dispose();
 });
 
+test('only the pointer being followed can end input (touch plus mouse on one device)', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  // The primary touch (id 2) drives the island; the primary mouse (id 1) leaves.
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5, isPrimary: true, pointerId: 2 });
+  target.emit('pointerleave', { isPrimary: true, pointerId: 1 });
+  target.emit('pointercancel', { isPrimary: true, pointerId: 1 });
+  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0.5], 'the touch keeps driving input');
+  // Moving the mouse over the island hands input to it (latest primary wins).
+  target.emit('pointermove', { clientX: 300, clientY: 150, pressure: 0, isPrimary: true, pointerId: 1 });
+  assert.deepEqual([...source.sample(2n)], [0.5, 0.5, 0]);
+  // The touch canceling no longer ends the mouse's input...
+  target.emit('pointercancel', { isPrimary: true, pointerId: 2 });
+  assert.deepEqual([...source.sample(3n)], [0.5, 0.5, 0]);
+  // ...but the followed pointer leaving does.
+  target.emit('pointerleave', { isPrimary: true, pointerId: 1 });
+  assert.deepEqual(source.sample(4n), stimulus.scriptedTelemetry(4n));
+  source.dispose();
+});
+
 test('a cancel drops a queued quick-tap release as well', () => {
   const target = fakePointerTarget();
   const source = telemetry.createPointerTelemetry(target);
@@ -244,6 +264,60 @@ test('the session feeds telemetry packets to the adapter and records a replayabl
       { op: 'step' },
     ]),
   );
+});
+
+test('a throwing frame observer does not fail the live session', async () => {
+  const channel = channelModule.createSimulationChannel();
+  const adapter = fakeAdapter();
+  let calls = 0;
+  const seam = wasmModule.createWasmSeam({
+    channel,
+    mainThreadAdapter: () => Promise.resolve(adapter),
+    telemetry: () => telemetry.createScriptedTelemetry(),
+    onFrame: () => {
+      calls += 1;
+      throw new Error('observer bug');
+    },
+  });
+  const reported = [];
+  const previousReportError = globalThis.reportError;
+  globalThis.reportError = (error) => reported.push(error);
+  try {
+    const session = await seam.init({
+      useWorker: false,
+      signal: new AbortController().signal,
+      onWorkerFailure: () => assert.fail('an observer error is not a worker failure'),
+    });
+    session.resume();
+    await sleep(180);
+    session.dispose();
+  } finally {
+    globalThis.reportError = previousReportError;
+  }
+  assert.ok(calls >= 2, 'ticks keep running after the observer throws');
+  assert.ok(adapter.calls.step >= 2);
+  assert.equal(reported.length, calls, 'every observer error is still reported');
+  assert.ok(reported.every((error) => error.message === 'observer bug'));
+});
+
+test('a throwing telemetry factory disposes the initialized engine', async () => {
+  const channel = channelModule.createSimulationChannel();
+  const adapter = fakeAdapter();
+  const seam = wasmModule.createWasmSeam({
+    channel,
+    mainThreadAdapter: () => Promise.resolve(adapter),
+    telemetry: () => {
+      throw new Error('no telemetry');
+    },
+  });
+  await assert.rejects(
+    seam.init({
+      useWorker: false,
+      signal: new AbortController().signal,
+      onWorkerFailure: () => {},
+    }),
+  );
+  assert.equal(adapter.calls.dispose, 1, 'the adapter is not leaked');
 });
 
 test('failed ticks are not recorded, and exported recordings replay without expected values', async () => {

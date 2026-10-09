@@ -77,6 +77,16 @@ interface DriverOptions {
  * replayed from `init`. rAF only controls presentation; the tick owns
  * simulation time.
  */
+/** Surface an observer error without failing the caller (browser `reportError`). */
+function reportObserverError(error: unknown): void {
+  const report = (globalThis as { reportError?: (error: unknown) => void }).reportError;
+  if (typeof report === 'function') {
+    report(error);
+  } else {
+    console.error(error);
+  }
+}
+
 function createDriver(
   engine: Engine,
   channel: SimulationChannel,
@@ -89,6 +99,19 @@ function createDriver(
   let disposed = false;
   const recorder = createTelemetryRecorder(DEMO_SEED, LIVE_ADAPTER_CONFIG);
   const trace = () => recorder.trace();
+  // Frame observers (dev inspector, telemetry) are optional consumers. A
+  // throwing observer must not be mistaken for a simulation failure, so its
+  // error is reported and the session keeps running.
+  const notifyFrame = (frame: TelemetryFrame) => {
+    if (!onFrame) {
+      return;
+    }
+    try {
+      onFrame(frame);
+    } catch (error) {
+      reportObserverError(error);
+    }
+  };
 
   const tick = async () => {
     if (disposed || inFlight) {
@@ -106,7 +129,7 @@ function createDriver(
       // published snapshot and replays without phantom steps.
       recorder.record(sequence, recorded);
       channel.publish(state);
-      onFrame?.({ sequence, source: telemetry.kind(), state, trace });
+      notifyFrame({ sequence, source: telemetry.kind(), state, trace });
     } catch {
       if (!disposed) {
         onFailure();
@@ -305,11 +328,20 @@ export function createWasmSeam(options: WasmSeamOptions): WasmSeam {
   return {
     async init(initOptions: WasmInitOptions): Promise<WasmSession> {
       const reportFailure = () => initOptions.onWorkerFailure('after-init');
-      const driver = (engine: Engine) =>
-        createDriver(engine, options.channel, reportFailure, {
-          telemetry: (options.telemetry ?? createScriptedTelemetry)(),
+      const driver = (engine: Engine) => {
+        let telemetry: TelemetrySource;
+        try {
+          telemetry = (options.telemetry ?? createScriptedTelemetry)();
+        } catch (error) {
+          // The engine is already initialized; do not leak its worker/WASM.
+          engine.dispose();
+          throw error;
+        }
+        return createDriver(engine, options.channel, reportFailure, {
+          telemetry,
           onFrame: options.onFrame,
         });
+      };
 
       if (initOptions.useWorker) {
         if (initOptions.signal.aborted) {
