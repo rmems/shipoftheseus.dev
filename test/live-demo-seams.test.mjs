@@ -131,6 +131,25 @@ test('a tap that leaves between ticks still reaches exactly one tick', () => {
   source.dispose();
 });
 
+test('a canceled gesture drops its pending packet instead of reporting pointer input', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
+  target.emit('pointermove', { clientX: 220, clientY: 110, pressure: 0.5 });
+  // The browser takes over for scrolling before the next tick samples.
+  target.emit('pointercancel');
+  assert.deepEqual(source.sample(1n), stimulus.scriptedTelemetry(1n));
+  assert.equal(source.kind(), 'scripted');
+  // A cancel arriving after the packet was sampled also ends pointer input.
+  target.emit('pointermove', { clientX: 300, clientY: 100, pressure: 0.5 });
+  assert.deepEqual([...source.sample(2n)], [0.5, 0.25, 0.5]);
+  target.emit('pointercancel');
+  assert.deepEqual(source.sample(3n), stimulus.scriptedTelemetry(3n));
+  assert.equal(source.kind(), 'scripted');
+  source.dispose();
+  assert.equal(target.listeners.size, 0);
+});
+
 test('the session feeds telemetry packets to the adapter and records a replayable trace', async () => {
   const channel = channelModule.createSimulationChannel();
   const received = [];

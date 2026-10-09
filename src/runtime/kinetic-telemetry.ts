@@ -85,11 +85,15 @@ export function createPointerTelemetry(
     if (dirty) leftBeforeSample = true;
     else release();
   };
+  // A cancel means the browser took over the gesture (usually touch
+  // scrolling). Its pending packet was never a completed interaction, so drop
+  // it now and let the next tick use the scripted source.
+  const onCancel = () => release();
 
   const moveEvents = ['pointermove', 'pointerdown', 'pointerup'] as const;
-  const leaveEvents = ['pointerleave', 'pointercancel'] as const;
   for (const type of moveEvents) target.addEventListener(type, onMove);
-  for (const type of leaveEvents) target.addEventListener(type, onLeave);
+  target.addEventListener('pointerleave', onLeave);
+  target.addEventListener('pointercancel', onCancel);
 
   return {
     sample(sequence) {
@@ -109,7 +113,8 @@ export function createPointerTelemetry(
     kind: () => lastKind,
     dispose() {
       for (const type of moveEvents) target.removeEventListener(type, onMove);
-      for (const type of leaveEvents) target.removeEventListener(type, onLeave);
+      target.removeEventListener('pointerleave', onLeave);
+      target.removeEventListener('pointercancel', onCancel);
       fallback.dispose();
     },
   };
