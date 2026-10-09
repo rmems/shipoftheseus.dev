@@ -23,6 +23,7 @@ import type {
 } from './demo-runtime';
 import type { SimulationChannel } from './simulation-channel';
 import type { WorkerRequest, WorkerResponse } from './neuromorphic-worker';
+import type { PerfProbe } from './perf-probe';
 
 export const WASM_MODULE_URL = '/wasm/neuromorphic-adapter/neuromorphic_adapter.js';
 
@@ -68,6 +69,8 @@ interface Engine {
 interface DriverOptions {
   telemetry: TelemetrySource;
   onFrame?: (frame: TelemetryFrame) => void;
+  /** Opt-in timing (see `perf-probe.ts`); `null` in normal production visits. */
+  probe?: PerfProbe | null;
 }
 
 /**
@@ -91,7 +94,7 @@ function createDriver(
   engine: Engine,
   channel: SimulationChannel,
   onFailure: () => void,
-  { telemetry, onFrame }: DriverOptions,
+  { telemetry, onFrame, probe = null }: DriverOptions,
 ): WasmSession {
   let timer: ReturnType<typeof setInterval> | null = null;
   let sequence = 0n;
@@ -115,21 +118,35 @@ function createDriver(
 
   const tick = async () => {
     if (disposed || inFlight) {
+      // A tick still in flight makes the simulation slip in wall-clock time
+      // only; the sequence does not advance, so no step is skipped.
+      if (inFlight) probe?.increment('tick-overrun');
       return;
     }
     inFlight = true;
+    const started = probe ? probe.now() : 0;
     try {
       sequence += 1n;
       const packet = telemetry.sample(sequence);
       // Copy before input: the worker path transfers (detaches) the buffer.
       const recorded = Array.from(packet);
+      let stageStart = probe ? probe.now() : 0;
       await engine.input(sequence, packet);
+      if (probe) stageStart = lap(probe, 'tick-input', stageStart);
       const state = await engine.step();
+      if (probe) stageStart = lap(probe, 'tick-step', stageStart);
       // Only completed ticks enter the recording, so it always ends at a
       // published snapshot and replays without phantom steps.
       recorder.record(sequence, recorded);
       channel.publish(state);
+      if (probe) stageStart = lap(probe, 'publish', stageStart);
       notifyFrame({ sequence, source: telemetry.kind(), state, trace });
+      if (probe) {
+        lap(probe, 'telemetry', stageStart);
+        lap(probe, 'tick', started);
+        probe.increment('ticks');
+        probe.mark('first-snapshot');
+      }
     } catch {
       if (!disposed) {
         onFailure();
@@ -167,6 +184,13 @@ function createDriver(
       engine.dispose();
     },
   };
+}
+
+/** Record `now - since` into `stage` and return `now`. */
+function lap(probe: PerfProbe, stage: Parameters<PerfProbe['record']>[0], since: number): number {
+  const now = probe.now();
+  probe.record(stage, now - since);
+  return now;
 }
 
 function moduleUrl(): string {
@@ -316,6 +340,8 @@ export interface WasmSeamOptions {
   /** Telemetry source per session; defaults to the scripted path. */
   telemetry?: () => TelemetrySource;
   onFrame?: (frame: TelemetryFrame) => void;
+  /** Opt-in timing probe; never consulted by the simulation itself. */
+  probe?: PerfProbe | null;
 }
 
 /**
@@ -340,6 +366,7 @@ export function createWasmSeam(options: WasmSeamOptions): WasmSeam {
         return createDriver(engine, options.channel, reportFailure, {
           telemetry,
           onFrame: options.onFrame,
+          probe: options.probe,
         });
       };
 
