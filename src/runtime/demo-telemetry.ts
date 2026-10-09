@@ -729,6 +729,8 @@ export interface TelemetryPanelPort {
   /** Observe `data-mode`; the controller subscribes only while sampling. */
   onDemoModeChange: (listener: () => void) => () => void;
   prefersReducedMotion: () => boolean;
+  /** Observe `prefers-reduced-motion`; the controller subscribes only while sampling. */
+  onReducedMotionChange: (listener: () => void) => () => void;
 }
 
 export interface TelemetryControllerOptions {
@@ -798,6 +800,7 @@ export function createTelemetryController(options: TelemetryControllerOptions): 
   let samples = 0;
   let unsubscribeBatches: (() => void) | null = null;
   let unsubscribeMode: (() => void) | null = null;
+  let unsubscribeMotion: (() => void) | null = null;
 
   const effectiveHz = () =>
     reducedMotion ? Math.min(requestedHz, REDUCED_MOTION_TELEMETRY_HZ) : requestedHz;
@@ -885,8 +888,14 @@ export function createTelemetryController(options: TelemetryControllerOptions): 
       nodeIds,
       selectedNeuron: selected,
       neuron: selected === null ? null : inspectNeuron(latest, raster, selected),
-      encoder: inspectEncoder(latest, sources.inputSource()),
+      encoder: inspectEncoder(latest, inputSourceAt(latest.completedStep)),
     };
+  };
+
+  /** The site input source of `step`, or `null` if the latest source is another step's. */
+  const inputSourceAt = (step: bigint): TelemetrySourceKind | null => {
+    const sample = sources?.inputSource() ?? null;
+    return sample !== null && sample.step === step ? sample.source : null;
   };
 
   const flush = () => {
@@ -923,6 +932,12 @@ export function createTelemetryController(options: TelemetryControllerOptions): 
     latest = sources.channel.latest();
     unsubscribeBatches = sources.spikeEvents.subscribe(onBatch);
     unsubscribeMode = panel.onDemoModeChange(() => scheduler.request());
+    // The motion preference can change while the panel stays open.
+    unsubscribeMotion = panel.onReducedMotionChange(() => {
+      reducedMotion = panel.prefersReducedMotion();
+      scheduler.setCadenceHz(effectiveHz());
+      scheduler.request();
+    });
   };
 
   const stopSampling = () => {
@@ -931,6 +946,8 @@ export function createTelemetryController(options: TelemetryControllerOptions): 
     unsubscribeBatches = null;
     unsubscribeMode?.();
     unsubscribeMode = null;
+    unsubscribeMotion?.();
+    unsubscribeMotion = null;
     scheduler.cancel();
     raster.reset();
     latest = null;

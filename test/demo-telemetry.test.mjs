@@ -68,12 +68,14 @@ function fakeClock() {
 function fakePanel({ open = false, mode = 'live', reducedMotion = false } = {}) {
   const toggles = new Set();
   const modeListeners = new Set();
+  const motionListeners = new Set();
   const panel = {
     open,
     mode,
     reducedMotion,
     toggleListeners: () => toggles.size,
     modeListeners: () => modeListeners.size,
+    motionListeners: () => motionListeners.size,
     port: {
       isOpen: () => panel.open,
       onToggle(listener) {
@@ -86,6 +88,10 @@ function fakePanel({ open = false, mode = 'live', reducedMotion = false } = {}) 
         return () => modeListeners.delete(listener);
       },
       prefersReducedMotion: () => panel.reducedMotion,
+      onReducedMotionChange(listener) {
+        motionListeners.add(listener);
+        return () => motionListeners.delete(listener);
+      },
     },
     setOpen(value) {
       panel.open = value;
@@ -95,8 +101,20 @@ function fakePanel({ open = false, mode = 'live', reducedMotion = false } = {}) 
       panel.mode = value;
       for (const listener of [...modeListeners]) listener();
     },
+    setReducedMotion(value) {
+      panel.reducedMotion = value;
+      for (const listener of [...motionListeners]) listener();
+    },
   };
   return panel;
+}
+
+/** The live seams' input source: the latest step's source, tagged with that step. */
+function pairedSource(channel, source) {
+  return () => {
+    const state = channel.latest();
+    return state ? { step: state.completedStep, source } : null;
+  };
 }
 
 /** Wrap a spike-event buffer so the test can count live subscriptions. */
@@ -309,7 +327,7 @@ test('the controller samples per step but renders only at its cadence', async ()
   const panel = fakePanel({ open: true });
   const renders = [];
   const controller = telemetry.createTelemetryController({
-    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: () => 'scripted' },
+    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: pairedSource(rig.channel, 'scripted') },
     panel: panel.port,
     render: (model) => renders.push(model),
     clock,
@@ -354,6 +372,39 @@ test('reduced motion caps the telemetry refresh rate', () => {
   assert.equal(controller.effectiveCadenceHz(), telemetry.REDUCED_MOTION_TELEMETRY_HZ);
   controller.setCadenceHz(0.5);
   assert.equal(controller.effectiveCadenceHz(), 0.5, 'a lower budget still wins');
+  controller.dispose();
+});
+
+test('a reduced-motion change while the panel is open applies the cap immediately', () => {
+  const clock = fakeClock();
+  const buffer = spikes.createSpikeEventBuffer({ provenance: 'live-wasm' });
+  const channel = channelModule.createSimulationChannel();
+  const panel = fakePanel({ open: false, reducedMotion: false });
+  const controller = telemetry.createTelemetryController({
+    sources: { spikeEvents: buffer, channel, inputSource: () => null },
+    panel: panel.port,
+    render() {},
+    clock,
+  });
+  assert.equal(panel.motionListeners(), 0, 'closed: no motion listener');
+  panel.setOpen(true);
+  assert.equal(panel.motionListeners(), 1);
+  assert.equal(controller.effectiveCadenceHz(), 4);
+
+  panel.setReducedMotion(true);
+  assert.equal(controller.effectiveCadenceHz(), telemetry.REDUCED_MOTION_TELEMETRY_HZ, 'the cap applies without reopening');
+  const flushedAt = [];
+  const scheduler = telemetry.createFlushScheduler(() => flushedAt.push(clock.now()), { clock, cadenceHz: controller.effectiveCadenceHz() });
+  for (let tick = 0; tick < 40; tick += 1) {
+    scheduler.request();
+    clock.advance(50);
+  }
+  assert.equal(flushedAt.length, 3, 'one refresh per second at the capped rate');
+
+  panel.setReducedMotion(false);
+  assert.equal(controller.effectiveCadenceHz(), 4, 'and lifts when the preference is cleared');
+  panel.setOpen(false);
+  assert.equal(panel.motionListeners(), 0, 'closing removes the motion listener');
   controller.dispose();
 });
 
@@ -419,7 +470,7 @@ test('the simulation produces identical state with telemetry open, closed, or fa
       variant === 'none'
         ? null
         : telemetry.createTelemetryController({
-            sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: () => 'scripted' },
+            sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: pairedSource(rig.channel, 'scripted') },
             panel: panel.port,
             render() {
               if (variant === 'throwing') throw new Error('telemetry view failed');
@@ -563,6 +614,25 @@ test('encoder inspection shows the active axon-encoder mode and the exported kin
     assert.equal(encoder.encodedSpikeTotal, state.encodedSpikeTotal);
     assert.equal(encoder.inputSource, 'scripted');
     assert.deepEqual(encoder.features.map((feature) => feature.value), Array.from(state.encoderFeatures));
+
+    // The controller shows a source only for the step it produced.
+    const renders = [];
+    let sourceStep = state.completedStep - 1n;
+    const controller = telemetry.createTelemetryController({
+      sources: {
+        spikeEvents: rig.buffer,
+        channel: rig.channel,
+        inputSource: () => ({ step: sourceStep, source: 'pointer' }),
+      },
+      panel: fakePanel({ open: true }).port,
+      render: (model) => renders.push(model),
+      clock: fakeClock(),
+    });
+    assert.equal(renders.at(-1).encoder.inputSource, null, "the previous step's source is not attributed to this snapshot");
+    sourceStep = state.completedStep;
+    controller.select(0);
+    assert.equal(renders.at(-1).encoder.inputSource, 'pointer');
+    controller.dispose();
     assert.deepEqual(encoder.features.map((feature) => feature.label), telemetry.KINETIC_FEATURE_LABELS);
   } finally {
     rig.dispose();
@@ -617,7 +687,7 @@ test('only live-wasm data is labeled as the live Rust/WASM runtime', async () =>
   const renders = [];
   const panel = fakePanel({ open: true });
   const fixtureController = telemetry.createTelemetryController({
-    sources: { spikeEvents: fixtureBuffer, channel: fixtureChannel, inputSource: () => 'scripted' },
+    sources: { spikeEvents: fixtureBuffer, channel: fixtureChannel, inputSource: pairedSource(fixtureChannel, 'scripted') },
     panel: panel.port,
     render: (model) => renders.push(model),
     clock: fakeClock(),
@@ -632,7 +702,7 @@ test('only live-wasm data is labeled as the live Rust/WASM runtime', async () =>
   const livePanel = fakePanel({ open: true });
   const clock = fakeClock();
   const liveController = telemetry.createTelemetryController({
-    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: () => 'pointer' },
+    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: pairedSource(rig.channel, 'pointer') },
     panel: livePanel.port,
     render: (model) => liveRenders.push(model),
     clock,
@@ -697,7 +767,7 @@ test('the committed WASM package drives the raster and inspector through the rea
   const panel = fakePanel({ open: false });
   const renders = [];
   const controller = telemetry.createTelemetryController({
-    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: () => 'scripted' },
+    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: pairedSource(rig.channel, 'scripted') },
     panel: panel.port,
     render: (model) => renders.push(model),
     clock,
@@ -796,6 +866,8 @@ test('the telemetry panel is collapsible, closed by default, and static-first', 
   assert.match(component, /does not export a firing threshold/);
   assert.match(component, /role="img"/);
   assert.match(component, /<legend>/);
+  assert.match(component, /<div class="demo-telemetry-chips" data-telemetry-chips><\/div>\s*<\/fieldset>/, 'chips sit in their own grid under the legend');
+  assert.match(component, /except the input source/, 'the site-side input source is not claimed as runtime data');
   assert.match(component, /import '\.\.\/styles\/telemetry\.css'/);
   assert.match(enhance, /const telemetry = bindDemoTelemetryPanel\(root\)/);
   assert.match(enhance, /telemetry\?\.dispose\(\)/);

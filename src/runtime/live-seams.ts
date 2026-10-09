@@ -112,7 +112,8 @@ export function createLiveDemoSeams(island?: HTMLElement): DemoSeams {
     registerLiveTelemetrySources(island, {
       spikeEvents,
       channel,
-      inputSource: () => latestFrame?.source ?? null,
+      inputSource: () =>
+        latestFrame ? { step: latestFrame.state.completedStep, source: latestFrame.source } : null,
     });
   }
 

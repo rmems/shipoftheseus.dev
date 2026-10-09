@@ -17,8 +17,18 @@ export interface LiveTelemetrySources {
   readonly spikeEvents: Pick<SpikeEventBuffer, 'provenance' | 'subscribe' | 'stats'>;
   /** The island's simulation channel; telemetry only reads `latest()`. */
   readonly channel: Pick<SimulationChannel, 'latest'>;
-  /** Where the latest telemetry packet came from (site DOM input). */
-  readonly inputSource: () => TelemetrySourceKind | null;
+  /**
+   * Where the latest telemetry packet came from (site DOM input), paired with
+   * the `completed_step` it produced, so the panel never labels one step's
+   * snapshot with another step's source.
+   */
+  readonly inputSource: () => InputSourceSample | null;
+}
+
+/** The site input source of one completed step. */
+export interface InputSourceSample {
+  readonly step: bigint;
+  readonly source: TelemetrySourceKind;
 }
 
 const liveSources = new WeakMap<object, LiveTelemetrySources>();

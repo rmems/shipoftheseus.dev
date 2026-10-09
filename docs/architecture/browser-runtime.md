@@ -412,8 +412,10 @@ raster ring + latest snapshot ─ throttled flush (default 4 Hz) ─→ canvas +
   the panel records the batch's `neuromod` spikes and the matching snapshot's
   `encoded_spike_count` (skipping a batch whose snapshot is not the same step).
   Membrane potentials, topology, encoder mode and diagnostics, and
-  `encoder_features` are read from that snapshot. Nothing is computed or
-  synthesized for display.
+  `encoder_features` are read from that snapshot. The input source
+  (`pointer`/`scripted`) is the one value from the site rather than the
+  runtime; it is reported with the step it produced and shown only for that
+  step. Nothing is computed or synthesized for display.
 - **Only exported fields.** A selected neuron shows its upstream `NeuronId`,
   `neuromod` membrane potential, whether it spiked at the shown step, its
   sampled spike steps, and its outgoing and incoming canonical edges with real
@@ -427,7 +429,8 @@ raster ring + latest snapshot ─ throttled flush (default 4 Hz) ─→ canvas +
   ring (`DEFAULT_RASTER_STEPS` = 120 steps × neurons); DOM work happens only in
   flushes coalesced to the requested cadence (default 4 Hz, capped at one per
   step) and only after new data or a demo-mode change. Reduced motion caps the
-  cadence at 1 Hz. `getDemoTelemetry(island)` (in `telemetry-entry.ts`)
+  cadence at 1 Hz, including when the preference changes while the panel is
+  open. `getDemoTelemetry(island)` (in `telemetry-entry.ts`)
   returns the controller once the panel has been opened; its `setCadenceHz(hz)`
   and `setEnabled(false)` let a performance budget lower or stop telemetry
   without touching the simulation or the renderer.

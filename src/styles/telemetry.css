@@ -128,13 +128,16 @@
 }
 
 .demo-telemetry-neurons {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(2.6rem, 1fr));
-  gap: 0.35rem;
   min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.demo-telemetry-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(2.6rem, 1fr));
+  gap: 0.35rem;
 }
 
 .demo-telemetry-neurons legend {

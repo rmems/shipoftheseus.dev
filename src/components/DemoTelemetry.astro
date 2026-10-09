@@ -37,6 +37,7 @@ const origin = 'unavailable-wasm';
         <h3 id="demo-telemetry-neuron-title">Neuron inspector</h3>
         <fieldset class="demo-telemetry-neurons" data-telemetry-neurons>
           <legend>Select a NeuronId (shared by <span class="demo-telemetry-layer">neuromod</span> and <span class="demo-telemetry-layer">synaptic-wiring</span>)</legend>
+          <div class="demo-telemetry-chips" data-telemetry-chips></div>
         </fieldset>
         <dl class="demo-telemetry-facts">
           <div><dt>Neuron</dt><dd data-telemetry-field="neuron">—</dd></div>
@@ -84,7 +85,7 @@ const origin = 'unavailable-wasm';
         <p class="demo-telemetry-caption" data-telemetry-features-missing hidden>This contract does not export encoder input features.</p>
       </section>
 
-      <p class="demo-telemetry-note">Every value here is read from the live Rust/WASM runtime, from the same snapshots that drive the network view. Contract 5 routes <span class="demo-telemetry-layer">axon-encoder</span> spikes through <span class="demo-telemetry-layer">synaptic-wiring</span> into <span class="demo-telemetry-layer">neuromod</span>. The raster shows neuromod's output spikes, which are not fed back into the mesh, so a synapse listed here is the route the topology defines, not proof that its target received current. The runtime does not export a firing threshold or neuron-model parameters, so none are shown.</p>
+      <p class="demo-telemetry-note">Every value here except the input source is read from the live Rust/WASM runtime, from the same snapshots that drive the network view. The input source is the site's own DOM input tracker, which records whether the step's packet came from your pointer or the scripted path. Contract 5 routes <span class="demo-telemetry-layer">axon-encoder</span> spikes through <span class="demo-telemetry-layer">synaptic-wiring</span> into <span class="demo-telemetry-layer">neuromod</span>. The raster shows neuromod's output spikes, which are not fed back into the mesh, so a synapse listed here is the route the topology defines, not proof that its target received current. The runtime does not export a firing threshold or neuron-model parameters, so none are shown.</p>
     </div>
   </div>
 </details>

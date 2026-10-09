@@ -58,6 +58,7 @@ interface PanelElements {
   rasterSummary: HTMLElement;
   propagation: HTMLElement;
   neurons: HTMLFieldSetElement;
+  chips: HTMLElement;
   neuronTitle: HTMLElement;
   membrane: HTMLElement;
   spiked: HTMLElement;
@@ -87,6 +88,7 @@ function collectElements(panel: HTMLDetailsElement): PanelElements | null {
     rasterSummary: one<HTMLElement>('[data-telemetry-raster-summary]'),
     propagation: one<HTMLElement>('[data-telemetry-propagation]'),
     neurons: one<HTMLFieldSetElement>('fieldset[data-telemetry-neurons]'),
+    chips: one<HTMLElement>('[data-telemetry-chips]'),
     neuronTitle: field('neuron'),
     membrane: field('membrane'),
     spiked: field('spiked'),
@@ -298,7 +300,7 @@ export function bindDemoTelemetry(island: HTMLElement, options: DemoTelemetryOpt
       const text = document.createElement('span');
       text.textContent = String(id);
       label.append(input, text);
-      elements.neurons.append(label);
+      elements.chips.append(label);
       chips.set(id, label);
     }
   };
@@ -415,6 +417,13 @@ export function bindDemoTelemetry(island: HTMLElement, options: DemoTelemetryOpt
         return () => observer.disconnect();
       },
       prefersReducedMotion: () => Boolean(motionQuery?.matches),
+      onReducedMotionChange(listener) {
+        if (typeof motionQuery?.addEventListener !== 'function') {
+          return () => {};
+        }
+        motionQuery.addEventListener('change', listener);
+        return () => motionQuery.removeEventListener('change', listener);
+      },
     },
     render,
     cadenceHz: options.cadenceHz,
