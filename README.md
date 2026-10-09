@@ -39,6 +39,7 @@ Codecov/Qlty setup, and fork-PR behavior.
 - Markdown notes: `src/content/notes/`
 - Publishing checklist: `CONTENT.md`
 - Browser renderer, Rust/WASM boundary, compatibility policy, and crate audit: `docs/architecture/browser-runtime.md`
+- Labs index entries: `src/data/labs.ts`; NIR example assets (`public/nir/`) and their regeneration: the NIR section of `docs/architecture/browser-runtime.md`
 - Native CUDA/FPGA evidence schema and ingest: `docs/architecture/native-evidence.md`
 - Favicon: `public/favicon.svg`
 - Social-card placeholder: `public/assets/social-card.png`
