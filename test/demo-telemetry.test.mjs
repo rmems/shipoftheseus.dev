@@ -109,14 +109,6 @@ function fakePanel({ open = false, mode = 'live', reducedMotion = false } = {}) 
   return panel;
 }
 
-/** The live seams' input source: the latest step's source, tagged with that step. */
-function pairedSource(channel, source) {
-  return () => {
-    const state = channel.latest();
-    return state ? { step: state.completedStep, source } : null;
-  };
-}
-
 /** Wrap a spike-event buffer so the test can count live subscriptions. */
 function countingSource(buffer) {
   let subscriptions = 0;
@@ -157,26 +149,32 @@ async function liveAdapter() {
 
 /**
  * The live island's wiring without the DOM: one channel, the single
- * `live-wasm` buffer fed from it, and the scripted input path.
+ * `live-wasm` buffer fed from it, the scripted input path, and the per-step
+ * input-source history. Like the WASM seam, a tick publishes its snapshot and
+ * only then reports its frame (here: records the step's source).
  */
-async function liveRig() {
+async function liveRig({ source = () => 'scripted' } = {}) {
   const adapter = await liveAdapter();
   const channel = channelModule.createSimulationChannel();
   const buffer = spikes.createSpikeEventBuffer({ provenance: spikes.LIVE_SPIKE_EVENT_PROVENANCE });
   const errors = [];
   const feed = spikes.feedSpikeEvents(channel, buffer, (error) => errors.push(error));
   feed.setActive(true);
+  const history = entry.createInputSourceHistory();
   let sequence = 0n;
   return {
     adapter,
     channel,
     buffer,
     errors,
+    feed,
+    inputSource: (step) => history.at(step),
     step() {
       sequence += 1n;
       adapter.input(sequence, stimulus.scriptedTelemetry(sequence));
       const state = adapter.step();
       channel.publish(state);
+      history.record(state.completedStep, source(state.completedStep));
       return state;
     },
     dispose() {
@@ -327,7 +325,7 @@ test('the controller samples per step but renders only at its cadence', async ()
   const panel = fakePanel({ open: true });
   const renders = [];
   const controller = telemetry.createTelemetryController({
-    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: pairedSource(rig.channel, 'scripted') },
+    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: rig.inputSource },
     panel: panel.port,
     render: (model) => renders.push(model),
     clock,
@@ -470,7 +468,7 @@ test('the simulation produces identical state with telemetry open, closed, or fa
       variant === 'none'
         ? null
         : telemetry.createTelemetryController({
-            sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: pairedSource(rig.channel, 'scripted') },
+            sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: rig.inputSource },
             panel: panel.port,
             render() {
               if (variant === 'throwing') throw new Error('telemetry view failed');
@@ -615,21 +613,18 @@ test('encoder inspection shows the active axon-encoder mode and the exported kin
     assert.equal(encoder.inputSource, 'scripted');
     assert.deepEqual(encoder.features.map((feature) => feature.value), Array.from(state.encoderFeatures));
 
-    // The controller shows a source only for the step it produced.
+    // The controller shows the source recorded for the displayed step only.
     const renders = [];
-    let sourceStep = state.completedStep - 1n;
+    const history = entry.createInputSourceHistory();
+    history.record(state.completedStep - 1n, 'pointer');
     const controller = telemetry.createTelemetryController({
-      sources: {
-        spikeEvents: rig.buffer,
-        channel: rig.channel,
-        inputSource: () => ({ step: sourceStep, source: 'pointer' }),
-      },
+      sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: (step) => history.at(step) },
       panel: fakePanel({ open: true }).port,
       render: (model) => renders.push(model),
       clock: fakeClock(),
     });
-    assert.equal(renders.at(-1).encoder.inputSource, null, "the previous step's source is not attributed to this snapshot");
-    sourceStep = state.completedStep;
+    assert.equal(renders.at(-1).encoder.inputSource, null, "another step's source is not attributed to this snapshot");
+    history.record(state.completedStep, 'pointer');
     controller.select(0);
     assert.equal(renders.at(-1).encoder.inputSource, 'pointer');
     controller.dispose();
@@ -657,6 +652,74 @@ test('encoder inspection shows the active axon-encoder mode and the exported kin
     null,
     'contract 3 carries bridge defaults, not runtime diagnostics',
   );
+});
+
+test('the input-source history is a bounded ring keyed by step', () => {
+  const history = entry.createInputSourceHistory(4);
+  assert.equal(history.at(1n), null, 'nothing recorded yet');
+  history.record(1n, 'scripted');
+  history.record(2n, 'pointer');
+  assert.equal(history.at(1n), 'scripted');
+  assert.equal(history.at(2n), 'pointer');
+  assert.equal(history.at(3n), null);
+  for (let step = 3n; step <= 6n; step += 1n) history.record(step, 'scripted');
+  assert.equal(history.at(1n), null, 'old steps are overwritten, never misattributed');
+  assert.equal(history.at(2n), null);
+  assert.equal(history.at(6n), 'scripted');
+  assert.equal(history.at(-1n), null);
+  assert.equal(entry.INPUT_SOURCE_HISTORY_STEPS >= telemetry.DEFAULT_RASTER_STEPS, true, 'the history covers the raster window');
+  assert.throws(() => entry.createInputSourceHistory(0), RangeError);
+});
+
+test('a pause during an in-flight tick keeps the displayed step and its own input source', async () => {
+  // Step N comes from the pointer; the tick in flight at pause, N + 1, from the script.
+  let pointerStep = -1n;
+  const rig = await liveRig({ source: (step) => (step === pointerStep ? 'pointer' : 'scripted') });
+  const clock = fakeClock();
+  const panel = fakePanel({ open: true });
+  const renders = [];
+  const controller = telemetry.createTelemetryController({
+    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: rig.inputSource },
+    panel: panel.port,
+    render: (model) => renders.push(model),
+    clock,
+  });
+  try {
+    for (let tick = 0; tick < 20; tick += 1) {
+      rig.step();
+      clock.advance(50);
+    }
+    pointerStep = rig.channel.latest().completedStep + 1n;
+    const shown = rig.step();
+    assert.equal(shown.completedStep, pointerStep);
+    clock.advance(250);
+    assert.equal(renders.at(-1).encoder.inputSource, 'pointer');
+
+    // The user pauses: the renderer stops feeding spike events, but the tick
+    // already in flight still completes, publishes N + 1, and reports its frame.
+    rig.feed.setActive(false);
+    const inFlight = rig.step();
+    assert.equal(inFlight.completedStep, shown.completedStep + 1n);
+    assert.equal(rig.inputSource(inFlight.completedStep), 'scripted');
+    panel.setMode('awaiting-play');
+    clock.advance(250);
+
+    const paused = renders.at(-1);
+    assert.equal(paused.state, 'paused');
+    assert.equal(paused.snapshot.step, shown.completedStep, 'the panel keeps the last sampled step');
+    assert.equal(paused.encoder.step, shown.completedStep);
+    assert.equal(paused.encoder.inputSource, 'pointer', "the displayed step's own source, not the in-flight step's");
+    controller.select(3);
+    assert.equal(renders.at(-1).encoder.inputSource, 'pointer', 'and it stays while the paused step is inspected');
+
+    panel.setMode('frozen');
+    clock.advance(250);
+    assert.equal(renders.at(-1).state, 'frozen');
+    assert.equal(renders.at(-1).encoder.inputSource, 'pointer');
+  } finally {
+    controller.dispose();
+    rig.dispose();
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -687,7 +750,7 @@ test('only live-wasm data is labeled as the live Rust/WASM runtime', async () =>
   const renders = [];
   const panel = fakePanel({ open: true });
   const fixtureController = telemetry.createTelemetryController({
-    sources: { spikeEvents: fixtureBuffer, channel: fixtureChannel, inputSource: pairedSource(fixtureChannel, 'scripted') },
+    sources: { spikeEvents: fixtureBuffer, channel: fixtureChannel, inputSource: () => 'scripted' },
     panel: panel.port,
     render: (model) => renders.push(model),
     clock: fakeClock(),
@@ -697,12 +760,12 @@ test('only live-wasm data is labeled as the live Rust/WASM runtime', async () =>
   fixtureController.dispose();
 
   // The live rig is labeled live once it has data, and names its crate layers.
-  const rig = await liveRig();
+  const rig = await liveRig({ source: () => 'pointer' });
   const liveRenders = [];
   const livePanel = fakePanel({ open: true });
   const clock = fakeClock();
   const liveController = telemetry.createTelemetryController({
-    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: pairedSource(rig.channel, 'pointer') },
+    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: rig.inputSource },
     panel: livePanel.port,
     render: (model) => liveRenders.push(model),
     clock,
@@ -767,7 +830,7 @@ test('the committed WASM package drives the raster and inspector through the rea
   const panel = fakePanel({ open: false });
   const renders = [];
   const controller = telemetry.createTelemetryController({
-    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: pairedSource(rig.channel, 'scripted') },
+    sources: { spikeEvents: rig.buffer, channel: rig.channel, inputSource: rig.inputSource },
     panel: panel.port,
     render: (model) => renders.push(model),
     clock,

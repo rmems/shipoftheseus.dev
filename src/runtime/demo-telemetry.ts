@@ -892,11 +892,8 @@ export function createTelemetryController(options: TelemetryControllerOptions): 
     };
   };
 
-  /** The site input source of `step`, or `null` if the latest source is another step's. */
-  const inputSourceAt = (step: bigint): TelemetrySourceKind | null => {
-    const sample = sources?.inputSource() ?? null;
-    return sample !== null && sample.step === step ? sample.source : null;
-  };
+  /** The site input source of the displayed `step`, looked up by step (never "the latest"). */
+  const inputSourceAt = (step: bigint): TelemetrySourceKind | null => sources?.inputSource(step) ?? null;
 
   const flush = () => {
     if (!disposed && panel.isOpen()) {

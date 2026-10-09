@@ -414,8 +414,10 @@ raster ring + latest snapshot ─ throttled flush (default 4 Hz) ─→ canvas +
   Membrane potentials, topology, encoder mode and diagnostics, and
   `encoder_features` are read from that snapshot. The input source
   (`pointer`/`scripted`) is the one value from the site rather than the
-  runtime; it is reported with the step it produced and shown only for that
-  step. Nothing is computed or synthesized for display.
+  runtime. The live seams keep a fixed ring of the last 128 steps' sources,
+  and the panel looks up the step it displays, so a pause during an in-flight
+  tick still shows the right source. Nothing is computed or synthesized for
+  display.
 - **Only exported fields.** A selected neuron shows its upstream `NeuronId`,
   `neuromod` membrane potential, whether it spiked at the shown step, its
   sampled spike steps, and its outgoing and incoming canonical edges with real

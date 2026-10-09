@@ -18,17 +18,53 @@ export interface LiveTelemetrySources {
   /** The island's simulation channel; telemetry only reads `latest()`. */
   readonly channel: Pick<SimulationChannel, 'latest'>;
   /**
-   * Where the latest telemetry packet came from (site DOM input), paired with
-   * the `completed_step` it produced, so the panel never labels one step's
-   * snapshot with another step's source.
+   * The site input source (`pointer`/`scripted`) of the packet that produced
+   * `step`, or `null` once that step has left the recent history. Keyed by
+   * step, so a paused or frozen panel still finds the source of the snapshot
+   * it shows after a tick that was in flight has published a newer one.
    */
-  readonly inputSource: () => InputSourceSample | null;
+  readonly inputSource: (step: bigint) => TelemetrySourceKind | null;
 }
 
-/** The site input source of one completed step. */
-export interface InputSourceSample {
-  readonly step: bigint;
-  readonly source: TelemetrySourceKind;
+/** Completed steps whose input source the live seams remember. */
+export const INPUT_SOURCE_HISTORY_STEPS = 128;
+
+const SOURCE_CODES: Record<TelemetrySourceKind, number> = { pointer: 1, scripted: 2 };
+const SOURCE_KINDS: readonly (TelemetrySourceKind | null)[] = [null, 'pointer', 'scripted'];
+
+export interface InputSourceHistory {
+  /** Remember the source of a completed step. O(1); allocates nothing. */
+  record: (step: bigint, source: TelemetrySourceKind) => void;
+  /** The source of `step`, or `null` if it was never recorded or was overwritten. */
+  at: (step: bigint) => TelemetrySourceKind | null;
+}
+
+/**
+ * A fixed ring of the most recent completed steps' input sources, indexed by
+ * step. The live seams write one slot per tick; the panel reads it only when
+ * it renders.
+ */
+export function createInputSourceHistory(capacity: number = INPUT_SOURCE_HISTORY_STEPS): InputSourceHistory {
+  if (!Number.isInteger(capacity) || capacity < 1) {
+    throw new RangeError('input source history capacity must be a positive integer');
+  }
+  const size = BigInt(capacity);
+  const steps = new BigUint64Array(capacity);
+  const kinds = new Uint8Array(capacity);
+  return {
+    record(step, source) {
+      const slot = Number(step % size);
+      steps[slot] = step;
+      kinds[slot] = SOURCE_CODES[source] ?? 0;
+    },
+    at(step) {
+      if (typeof step !== 'bigint' || step < 0n) {
+        return null;
+      }
+      const slot = Number(step % size);
+      return steps[slot] === step ? (SOURCE_KINDS[kinds[slot]] ?? null) : null;
+    },
+  };
 }
 
 const liveSources = new WeakMap<object, LiveTelemetrySources>();
