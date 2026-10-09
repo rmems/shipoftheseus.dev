@@ -9,7 +9,8 @@
     ".astro/**",
     "public/**",
     "test/**",
-    "coverage/**"
+    "coverage/**",
+    "scripts/perf/**"
   ],
   "reporter": ["lcov", "text-summary"],
   "reports-dir": "coverage"
