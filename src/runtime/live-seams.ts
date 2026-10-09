@@ -63,14 +63,21 @@ function serializeEvent(event: SpikePropagationEvent): Record<string, string | n
   };
 }
 
-function spikeInspectorFor(buffer: SpikeEventBuffer, renderer: TopologyRendererSeam): SpikeEventInspector {
+/** Build the development spike-event inspector (exported for tests). */
+export function createSpikeEventInspector(
+  buffer: SpikeEventBuffer,
+  renderer: Pick<TopologyRendererSeam, 'inspect'>,
+): SpikeEventInspector {
   return {
     stats() {
       const stats = buffer.stats();
       return { ...stats, latestStep: stats.latestStep?.toString() ?? null };
     },
     recent(limit = 16) {
-      return buffer.events().slice(-limit).map(serializeEvent);
+      const events = buffer.events();
+      // 0, negative, and NaN return none; anything above the size returns all.
+      const count = Number.isNaN(limit) ? 0 : Math.max(0, Math.min(Math.floor(limit), events.length));
+      return events.slice(events.length - count).map(serializeEvent);
     },
     renderer: () => renderer.inspect(),
   };
@@ -102,7 +109,7 @@ export function createLiveDemoSeams(island?: HTMLElement): DemoSeams {
     (globalThis as { __neuromorphicTelemetry?: TelemetryInspector }).__neuromorphicTelemetry =
       inspectorFor(() => latestFrame);
     (globalThis as { __neuromorphicSpikeEvents?: SpikeEventInspector }).__neuromorphicSpikeEvents =
-      spikeInspectorFor(spikeEvents, renderer);
+      createSpikeEventInspector(spikeEvents, renderer);
   }
 
   return {

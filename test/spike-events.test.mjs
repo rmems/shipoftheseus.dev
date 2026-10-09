@@ -10,6 +10,7 @@ const channelModule = await loadTsModule('../src/runtime/simulation-channel.ts')
 const stimulus = await loadTsModule('../src/runtime/demo-stimulus.ts');
 const wasmSession = await loadTsModule('../src/runtime/wasm-session.ts');
 const liveSeams = await loadTsModule('../src/runtime/live-seams.ts');
+const rendererModule = await loadTsModule('../src/runtime/topology-renderer.ts');
 
 // ---------------------------------------------------------------------------
 // Explicit test fixtures. These are hand-built topologies and spike lists for
@@ -590,6 +591,68 @@ test('the renderer frame path reuses its span and visitor instead of allocating 
   assert.match(framePath, /spikeEvents\.forEach\(visitPulse\)/);
   assert.doesNotMatch(framePath, /propagationSpan\(/, 'the allocating span helper stays out of frames');
   assert.doesNotMatch(framePath, /new [A-Z]|\.clone\(|forEach\(\(|\[\.\.\.|\.map\(/, 'no per-frame allocation');
+});
+
+test('subscribing or unsubscribing during delivery only affects later batches', () => {
+  const topology = denseFixture(4, 2, 3);
+  const buffer = fixtureBuffer();
+  const seen = { a: [], b: [], c: [] };
+  const c = (batch) => seen.c.push(batch.step);
+  let unsubscribeB = () => {};
+  buffer.subscribe((batch) => {
+    seen.a.push(batch.step);
+    if (batch.step === 1n) {
+      unsubscribeB();
+      buffer.subscribe(c);
+      buffer.subscribe(c);
+    }
+  });
+  unsubscribeB = buffer.subscribe((batch) => seen.b.push(batch.step));
+
+  buffer.ingest(fixtureStep(topology, 1, [0]));
+  buffer.ingest(fixtureStep(topology, 2, [0]));
+
+  assert.deepEqual(seen.a, [1n, 2n]);
+  assert.deepEqual(seen.b, [1n], 'an unsubscribed listener still finishes the batch in flight');
+  assert.deepEqual(seen.c, [2n], 'a new listener starts with the next batch, registered once');
+});
+
+test('the dev inspector clamps recent(limit) to the buffered events', () => {
+  const buffer = fixtureBuffer();
+  const topology = fixtureTopology({ spikeNeurons: new Uint32Array([0, 2]) });
+  buffer.ingest(topology);
+  const inspector = liveSeams.createSpikeEventInspector(buffer, { inspect: () => null });
+
+  assert.equal(inspector.recent().length, 4, 'the default 16 covers all four events');
+  assert.deepEqual(inspector.recent(0), [], 'zero returns none');
+  assert.deepEqual(inspector.recent(-3), []);
+  assert.deepEqual(inspector.recent(Number.NaN), []);
+  assert.deepEqual(inspector.recent(2).map((event) => event.edgeIndex), [2, 3], 'the newest events, oldest first');
+  assert.deepEqual(inspector.recent(2.9).map((event) => event.edgeIndex), [2, 3]);
+  assert.equal(inspector.recent(99).length, 4);
+  assert.equal(inspector.recent(Number.POSITIVE_INFINITY).length, 4);
+  assert.deepEqual(inspector.recent(1)[0], {
+    provenance: 'fixture',
+    emittedStep: '10',
+    arrivalStep: '11',
+    sourceNeuron: 2,
+    targetNeuron: 3,
+    edgeIndex: 3,
+    delaySteps: 1,
+    polarity: 1,
+  });
+  assert.equal(inspector.stats().latestStep, '10');
+  assert.equal(inspector.renderer(), null);
+});
+
+test('pulses are layered between the edges and the neuron markers', () => {
+  const renderer = rendererModule;
+  assert.ok(renderer.EDGE_RENDER_ORDER < renderer.PULSE_RENDER_ORDER);
+  assert.ok(renderer.PULSE_RENDER_ORDER < renderer.NODE_RENDER_ORDER);
+  const source = readSource('../src/runtime/topology-renderer.ts');
+  assert.match(source, /pulseMesh\.renderOrder = PULSE_RENDER_ORDER/);
+  assert.match(source, /pointsObject\.renderOrder = NODE_RENDER_ORDER/);
+  assert.match(source, /edgeObject\.renderOrder = EDGE_RENDER_ORDER/);
 });
 
 test('live seams share one live-wasm buffer with an inspectable renderer seam', () => {

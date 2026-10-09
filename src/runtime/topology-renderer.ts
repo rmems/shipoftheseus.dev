@@ -20,6 +20,11 @@ import {
 /** Drawn pulse width at its head, in CSS pixels. */
 const PULSE_WIDTH_PX = 3;
 
+/** Draw order, back to front: edges, then pulses, then the neuron markers. */
+export const EDGE_RENDER_ORDER = 0;
+export const PULSE_RENDER_ORDER = 1;
+export const NODE_RENDER_ORDER = 2;
+
 class RendererSeamError extends Error {
   code: ReasonCode;
 
@@ -203,7 +208,12 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       disposables.push(pulseGeometry);
       const pulseMesh = new THREE.Mesh(pulseGeometry, pulseMaterial);
       pulseMesh.frustumCulled = false;
-      pulseMesh.renderOrder = 1;
+      // Layering, back to front: edges (z −0.01, order 0), pulses (z −0.005,
+      // order 1), nodes (z 0, order 2). The opaque nodes write depth, and
+      // pulses are depth-tested against them, so pulses pass under the
+      // neuron markers. The explicit orders keep that true if nodes ever
+      // become transparent.
+      pulseMesh.renderOrder = PULSE_RENDER_ORDER;
       world.add(pulseMesh);
 
       let nodeGeometry: import('three').BufferGeometry | null = null;
@@ -274,6 +284,7 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         nodeGeometry.setAttribute('color', new THREE.BufferAttribute(pointColors, 3));
         disposables.push(nodeGeometry);
         pointsObject = new THREE.Points(nodeGeometry, nodeMaterial);
+        pointsObject.renderOrder = NODE_RENDER_ORDER;
         world.add(pointsObject);
 
         edgeGeometry = new THREE.BufferGeometry();
@@ -298,6 +309,7 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         edgeGeometry.setAttribute('color', new THREE.BufferAttribute(lineColors, 3));
         disposables.push(edgeGeometry);
         edgeObject = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+        edgeObject.renderOrder = EDGE_RENDER_ORDER;
         world.add(edgeObject);
       }
 

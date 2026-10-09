@@ -286,7 +286,10 @@ synaptic-wiring projection (same snapshot) ──┴→ mapSpikesThroughTopology
 - **Rendering and reduced motion.** Each in-flight event is one tapered quad,
   3 CSS px wide at the head and fading to clear at the tail, drawn in
   `--signal` for excitatory synapses and `--ink` for inhibitory ones. Pulses
-  sit above the softer edge lines and under the nodes. Pulse buffers are
+  sit above the softer edge lines and under the nodes. Depth enforces this:
+  nodes are opaque at z 0, pulses are depth-tested at z −0.005, and edges sit
+  at z −0.01. Explicit render orders (edges 0, pulses 1, nodes 2) back it up.
+  Pulse buffers are
   preallocated to the ring capacity, and only the drawn range is uploaded.
   The site's per-frame code allocates nothing (three.js internals aside): one
   span object, one visitor, and one scratch color are reused for every event

@@ -252,7 +252,7 @@ export function delayStepsToMs(delaySteps: number, stepMs: number = SPIKE_EVENT_
 }
 
 function clamp01(value: number): number {
-  return value <= 0 ? 0 : value >= 1 ? 1 : value;
+  return Math.min(1, Math.max(0, value));
 }
 
 function edgePosition(delaySteps: number, elapsedSteps: number): number {
@@ -260,6 +260,17 @@ function edgePosition(delaySteps: number, elapsedSteps: number): number {
     return elapsedSteps >= 0 ? 1 : 0;
   }
   return clamp01(elapsedSteps / delaySteps);
+}
+
+/**
+ * Tail position. On a zero-delay edge the pulse spans the whole edge until
+ * `tailSteps` have passed; otherwise the tail trails the head by `tailSteps`.
+ */
+function tailPosition(delaySteps: number, elapsedSteps: number, tailSteps: number): number {
+  if (delaySteps <= 0) {
+    return elapsedSteps >= tailSteps ? 1 : 0;
+  }
+  return edgePosition(delaySteps, elapsedSteps - tailSteps);
 }
 
 /** A pulse's extent along its edge, as fractions from source (0) to target (1). */
@@ -279,12 +290,11 @@ export function propagationSpanInto(
   elapsedSteps: number,
   tailSteps: number = PULSE_TAIL_STEPS,
 ): boolean {
-  if (!(elapsedSteps >= 0) || !Number.isFinite(elapsedSteps)) {
+  // `isFinite` also rejects NaN, which `elapsedSteps < 0` alone would let through.
+  if (!Number.isFinite(elapsedSteps) || elapsedSteps < 0) {
     return false;
   }
-  const tail = delaySteps <= 0
-    ? (elapsedSteps >= tailSteps ? 1 : 0)
-    : edgePosition(delaySteps, elapsedSteps - tailSteps);
+  const tail = tailPosition(delaySteps, elapsedSteps, tailSteps);
   if (tail >= 1) {
     return false;
   }
@@ -342,7 +352,9 @@ export function createSpikeEventBuffer(options: SpikeEventBufferOptions): SpikeE
   const retain = BigInt(retainSteps);
 
   const slots: (SpikePropagationEvent | undefined)[] = new Array(capacity);
-  const listeners = new Set<(batch: SpikeStepBatch) => void>();
+  // Copy-on-write: (un)subscribing replaces the array, so a delivery loop
+  // keeps iterating the snapshot it started with.
+  let listeners: readonly ((batch: SpikeStepBatch) => void)[] = [];
   let head = 0;
   let size = 0;
   let version = 0;
@@ -405,7 +417,7 @@ export function createSpikeEventBuffer(options: SpikeEventBufferOptions): SpikeE
     delivering = true;
     try {
       for (let next = outbox.shift(); next && !disposed; next = outbox.shift()) {
-        for (const listener of [...listeners]) {
+        for (const listener of listeners) {
           if (disposed) {
             break;
           }
@@ -498,9 +510,12 @@ export function createSpikeEventBuffer(options: SpikeEventBufferOptions): SpikeE
       if (disposed) {
         return () => {};
       }
-      listeners.add(listener);
+      // Set semantics: subscribing the same listener twice registers it once.
+      if (!listeners.includes(listener)) {
+        listeners = [...listeners, listener];
+      }
       return () => {
-        listeners.delete(listener);
+        listeners = listeners.filter((registered) => registered !== listener);
       };
     },
     clear() {
@@ -516,7 +531,7 @@ export function createSpikeEventBuffer(options: SpikeEventBufferOptions): SpikeE
       emptySlots();
       latestStep = null;
       digest = null;
-      listeners.clear();
+      listeners = [];
       disposed = true;
     },
   };
