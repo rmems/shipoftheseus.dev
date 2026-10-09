@@ -51,17 +51,22 @@ const homepageAdapter = ['neuromorphic-adapter', { features: ['default'], deps: 
 const labsAdapter = [
   'neuromorphic-adapter',
   {
-    features: ['default', 'nir', 'protocol'],
-    deps: ['corpus-ipc', 'nir-rs', 'serde', 'serde_json', 'sha2'],
+    features: ['default', 'nir', 'plasticity', 'protocol'],
+    deps: ['corpus-ipc', 'limbic-critic', 'nir-rs', 'plasticity-lab', 'serde', 'serde_json', 'sha2'],
     devDeps: ['serde_json'],
   },
 ];
+
+/** Crates only the labs features bring into the graph. */
+const LABS_ONLY_CRATES = new Set(['nir-rs', 'indexmap', 'plasticity-lab', 'limbic-critic']);
 
 const browserBaseline = [
   ['neuromorphic-adapter'],
   ['corpus-ipc'],
   ['nir-rs', { features: ['serde'] }],
   ['indexmap', { features: ['default', 'serde', 'std'] }],
+  ['plasticity-lab', { features: ['critic', 'wasm-js'] }],
+  ['limbic-critic'],
   ['js-sys', { features: ['default', 'std'] }],
   ['wasm-bindgen-shared', { links: 'wasm_bindgen' }],
 ];
@@ -135,32 +140,61 @@ test('the corpus-ipc browser surface never enables server or zmq', () => {
   ]);
 });
 
-test('build profiles keep nir-rs in the labs package and out of the homepage package', () => {
+test('build profiles keep nir-rs and plasticity-lab in the labs package and out of the homepage package', () => {
   assert.deepEqual(WASM_PROFILES.map(({ name, features, outputDirectory }) => [name, [...features], outputDirectory]), [
     ['default', [], 'public/wasm/neuromorphic-adapter'],
-    ['labs', ['nir', 'protocol'], 'public/wasm/neuromorphic-adapter-labs'],
+    ['labs', ['nir', 'protocol', 'plasticity'], 'public/wasm/neuromorphic-adapter-labs'],
   ]);
   assert.notEqual(profile('default').targetDirectory, profile('labs').targetDirectory);
   assert.deepEqual(profileFeatureArgs(profile('default')), []);
-  assert.deepEqual(profileFeatureArgs(profile('labs')), ['--features', 'nir,protocol']);
+  assert.deepEqual(profileFeatureArgs(profile('labs')), ['--features', 'nir,protocol,plasticity']);
 
   const shared = browserBaseline.filter(([name]) => name !== 'neuromorphic-adapter');
-  const homepageGraph = [homepageAdapter, ...shared.filter(([name]) => name !== 'nir-rs' && name !== 'indexmap')];
+  const homepageGraph = [homepageAdapter, ...shared.filter(([name]) => !LABS_ONLY_CRATES.has(name))];
   const labsGraph = [labsAdapter, ...shared];
   assert.deepEqual(browserDependencyViolations(metadata(homepageGraph), profile('default')), []);
   assert.deepEqual(browserDependencyViolations(metadata(labsGraph), profile('labs')), []);
 
   assert.deepEqual(browserDependencyViolations(metadata([homepageAdapter, ...shared]), profile('default')), [
+    "limbic-critic: must stay out of this profile's graph",
     "nir-rs: must stay out of this profile's graph",
+    "plasticity-lab: must stay out of this profile's graph",
   ]);
-  assert.ok(
-    browserDependencyViolations(metadata(homepageGraph), profile('labs')).includes(
-      'nir-rs: required by this profile but missing from its graph',
-    ),
-  );
+  const labsMissing = browserDependencyViolations(metadata(homepageGraph), profile('labs'));
+  for (const name of ['nir-rs', 'plasticity-lab', 'limbic-critic']) {
+    assert.ok(labsMissing.includes(`${name}: required by this profile but missing from its graph`), name);
+  }
   assert.deepEqual(browserDependencyViolations(metadata([labsAdapter]), profile('labs')), [
     'corpus-ipc: required by this profile but missing from its graph',
+    'limbic-critic: required by this profile but missing from its graph',
     'nir-rs: required by this profile but missing from its graph',
+    'plasticity-lab: required by this profile but missing from its graph',
+  ]);
+});
+
+test('the plasticity lab stays out of the homepage adapter and links only browser features', () => {
+  const homepageWithPlasticity = [
+    [
+      'neuromorphic-adapter',
+      { features: ['default', 'plasticity'], deps: ['corpus-ipc', 'limbic-critic', 'plasticity-lab'] },
+    ],
+    ['corpus-ipc'],
+    ['plasticity-lab', { features: ['critic', 'wasm-js'] }],
+    ['limbic-critic'],
+  ];
+  assert.deepEqual(browserDependencyViolations(metadata(homepageWithPlasticity), profile('default')), [
+    'limbic-critic: must not be a direct neuromorphic-adapter dependency in this profile',
+    "limbic-critic: must stay out of this profile's graph",
+    'neuromorphic-adapter: enables features [plasticity], profile expects []',
+    'plasticity-lab: must not be a direct neuromorphic-adapter dependency in this profile',
+    "plasticity-lab: must stay out of this profile's graph",
+  ]);
+
+  const labsWithDefaultPlasticity = browserBaseline.map((entry) => (entry[0] === 'plasticity-lab'
+    ? ['plasticity-lab', { features: ['critic', 'default', 'wasm-js'] }]
+    : entry));
+  assert.deepEqual(browserDependencyViolations(metadata([labsAdapter, ...labsWithDefaultPlasticity.slice(1)]), profile('labs')), [
+    'plasticity-lab: browser features must stay within critic and wasm-js: default',
   ]);
 });
 
@@ -189,11 +223,17 @@ test('protocol decode dependencies stay out of the homepage adapter', () => {
   );
 
   const labsWithoutProtocol = [
-    ['neuromorphic-adapter', { features: ['default', 'nir'], deps: ['corpus-ipc', 'nir-rs', 'serde', 'serde_json'] }],
+    [
+      'neuromorphic-adapter',
+      {
+        features: ['default', 'nir', 'plasticity'],
+        deps: ['corpus-ipc', 'limbic-critic', 'nir-rs', 'plasticity-lab', 'serde', 'serde_json'],
+      },
+    ],
     ...browserBaseline.filter(([name]) => name !== 'neuromorphic-adapter'),
   ];
   assert.deepEqual(browserDependencyViolations(metadata(labsWithoutProtocol), profile('labs')), [
-    'neuromorphic-adapter: enables features [nir], profile expects [nir, protocol]',
+    'neuromorphic-adapter: enables features [nir, plasticity], profile expects [nir, plasticity, protocol]',
     'sha2: this profile needs it as a direct neuromorphic-adapter dependency',
   ]);
 });

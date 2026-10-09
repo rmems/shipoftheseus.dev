@@ -48,6 +48,80 @@ export class WasmNirInspection {
 }
 
 /**
+ * The lab session exported to JavaScript (labs package only).
+ */
+export class WasmPlasticityLab {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * A fresh session seeded with `seed` (a JavaScript `bigint`).
+     */
+    static create(seed: bigint): WasmPlasticityLab;
+    newEpisode(): void;
+    probe(): WasmPlasticityProbe;
+    /**
+     * `stimulus`: 0 quiet, 1 pattern A, 2 pattern B. `event`: 0 none,
+     * 1 reward, 2 penalty. Errors are `"<code>: <message>"` strings.
+     */
+    step(stimulus: number, event: number): WasmPlasticityStep;
+    readonly channel_count: number;
+    readonly completed_steps: bigint;
+    readonly eligibility: Float32Array;
+    readonly engine_step: bigint;
+    readonly episode: number;
+    readonly lab_version: number;
+    readonly membrane_potentials: Float32Array;
+    /**
+     * Dopamine, serotonin, acetylcholine, norepinephrine.
+     */
+    readonly modulators: Float32Array;
+    readonly neuron_count: number;
+    readonly seed: bigint;
+    readonly thresholds: Float32Array;
+    readonly weights: Float32Array;
+}
+
+/**
+ * One frozen probe's per-neuron spike counts.
+ */
+export class WasmPlasticityProbe {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    readonly pattern_a_spikes: Uint32Array;
+    readonly pattern_b_spikes: Uint32Array;
+    readonly steps_per_pattern: number;
+}
+
+/**
+ * One step's result. Numeric rows are typed arrays copied out of Rust.
+ */
+export class WasmPlasticityStep {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    readonly episode: number;
+    readonly event: string;
+    readonly input_spikes: Uint32Array;
+    readonly membrane_potentials: Float32Array;
+    /**
+     * Dopamine, serotonin, acetylcholine, norepinephrine from `limbic-critic`.
+     */
+    readonly modulators: Float32Array;
+    readonly objective: number;
+    readonly output_spikes: Uint32Array;
+    readonly step: bigint;
+    readonly stimulus: string;
+    readonly stress: number;
+    readonly thresholds: Float32Array;
+    /**
+     * Flattened `[neuron, channel, before_bits, after_bits]` per changed weight.
+     */
+    readonly weight_changes: Uint32Array;
+}
+
+/**
  * Browser view of an accepted recorded envelope. Every `u64` crosses as a
  * `bigint`; numeric rows cross as JS-owned typed arrays.
  */
@@ -147,6 +221,68 @@ export interface InitOutput {
     readonly wasmnirinspection_node_count: (a: number) => number;
     readonly wasmnirinspection_node_json: (a: number, b: number, c: number) => [number, number, number, number];
     readonly wasmnirinspection_parse: (a: number, b: number) => [number, number, number];
+    readonly __wbg_wasmprotocolinspection_free: (a: number, b: number) => void;
+    readonly inspectProtocolFixture: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly protocolFixtureByteLimit: () => number;
+    readonly wasmprotocolinspection_batch_id: (a: number) => bigint;
+    readonly wasmprotocolinspection_byte_length: (a: number) => number;
+    readonly wasmprotocolinspection_canonical_difference: (a: number) => [number, number];
+    readonly wasmprotocolinspection_canonical_dropped_fields: (a: number) => any;
+    readonly wasmprotocolinspection_canonical_json: (a: number) => [number, number];
+    readonly wasmprotocolinspection_canonical_matches_input: (a: number) => number;
+    readonly wasmprotocolinspection_metadata_custom: (a: number) => any;
+    readonly wasmprotocolinspection_metadata_present: (a: number) => number;
+    readonly wasmprotocolinspection_metadata_processing_latency_ns: (a: number) => [number, bigint];
+    readonly wasmprotocolinspection_metadata_source: (a: number) => [number, number];
+    readonly wasmprotocolinspection_session_id: (a: number) => [number, number];
+    readonly wasmprotocolinspection_sha256: (a: number) => [number, number];
+    readonly wasmprotocolinspection_spike_channels: (a: number) => any;
+    readonly wasmprotocolinspection_spike_strengths: (a: number) => any;
+    readonly wasmprotocolinspection_spike_times: (a: number) => any;
+    readonly wasmprotocolinspection_stimulus_valid_mask: (a: number) => any;
+    readonly wasmprotocolinspection_stimulus_values: (a: number) => any;
+    readonly wasmprotocolinspection_timestamp: (a: number) => [number, bigint];
+    readonly wasmprotocolinspection_trace_channel_ids: (a: number) => any;
+    readonly wasmprotocolinspection_trace_last_spike_times: (a: number) => any;
+    readonly wasmprotocolinspection_trace_values: (a: number) => any;
+    readonly wasmprotocolinspection_variant: (a: number) => [number, number];
+    readonly wasmprotocolinspection_wire_current: (a: number) => number;
+    readonly wasmprotocolinspection_wire_version: (a: number) => number;
+    readonly wasmprotocolinspection_wire_min_supported: (a: number) => number;
+    readonly __wbg_wasmplasticitylab_free: (a: number, b: number) => void;
+    readonly __wbg_wasmplasticityprobe_free: (a: number, b: number) => void;
+    readonly __wbg_wasmplasticitystep_free: (a: number, b: number) => void;
+    readonly wasmplasticitylab_channel_count: (a: number) => number;
+    readonly wasmplasticitylab_completed_steps: (a: number) => bigint;
+    readonly wasmplasticitylab_create: (a: bigint) => number;
+    readonly wasmplasticitylab_eligibility: (a: number) => any;
+    readonly wasmplasticitylab_engine_step: (a: number) => bigint;
+    readonly wasmplasticitylab_episode: (a: number) => number;
+    readonly wasmplasticitylab_lab_version: (a: number) => number;
+    readonly wasmplasticitylab_membrane_potentials: (a: number) => any;
+    readonly wasmplasticitylab_modulators: (a: number) => any;
+    readonly wasmplasticitylab_neuron_count: (a: number) => number;
+    readonly wasmplasticitylab_newEpisode: (a: number) => void;
+    readonly wasmplasticitylab_probe: (a: number) => [number, number, number];
+    readonly wasmplasticitylab_seed: (a: number) => bigint;
+    readonly wasmplasticitylab_step: (a: number, b: number, c: number) => [number, number, number];
+    readonly wasmplasticitylab_thresholds: (a: number) => any;
+    readonly wasmplasticitylab_weights: (a: number) => any;
+    readonly wasmplasticityprobe_pattern_a_spikes: (a: number) => any;
+    readonly wasmplasticityprobe_pattern_b_spikes: (a: number) => any;
+    readonly wasmplasticityprobe_steps_per_pattern: (a: number) => number;
+    readonly wasmplasticitystep_episode: (a: number) => number;
+    readonly wasmplasticitystep_event: (a: number) => [number, number];
+    readonly wasmplasticitystep_input_spikes: (a: number) => any;
+    readonly wasmplasticitystep_membrane_potentials: (a: number) => any;
+    readonly wasmplasticitystep_modulators: (a: number) => any;
+    readonly wasmplasticitystep_objective: (a: number) => number;
+    readonly wasmplasticitystep_output_spikes: (a: number) => any;
+    readonly wasmplasticitystep_step: (a: number) => bigint;
+    readonly wasmplasticitystep_stimulus: (a: number) => [number, number];
+    readonly wasmplasticitystep_stress: (a: number) => number;
+    readonly wasmplasticitystep_thresholds: (a: number) => any;
+    readonly wasmplasticitystep_weight_changes: (a: number) => any;
     readonly __wbg_wasmadapter_free: (a: number, b: number) => void;
     readonly __wbg_wasmstate_free: (a: number, b: number) => void;
     readonly wasmadapter_dispose: (a: number) => void;
@@ -181,34 +317,6 @@ export interface InitOutput {
     readonly wasmstate_topology_targets: (a: number) => any;
     readonly wasmstate_topology_weight_bits: (a: number) => any;
     readonly wasmstate_topology_weights: (a: number) => any;
-    readonly __wbg_wasmprotocolinspection_free: (a: number, b: number) => void;
-    readonly inspectProtocolFixture: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
-    readonly protocolFixtureByteLimit: () => number;
-    readonly wasmprotocolinspection_batch_id: (a: number) => bigint;
-    readonly wasmprotocolinspection_byte_length: (a: number) => number;
-    readonly wasmprotocolinspection_canonical_difference: (a: number) => [number, number];
-    readonly wasmprotocolinspection_canonical_dropped_fields: (a: number) => any;
-    readonly wasmprotocolinspection_canonical_json: (a: number) => [number, number];
-    readonly wasmprotocolinspection_canonical_matches_input: (a: number) => number;
-    readonly wasmprotocolinspection_metadata_custom: (a: number) => any;
-    readonly wasmprotocolinspection_metadata_present: (a: number) => number;
-    readonly wasmprotocolinspection_metadata_processing_latency_ns: (a: number) => [number, bigint];
-    readonly wasmprotocolinspection_metadata_source: (a: number) => [number, number];
-    readonly wasmprotocolinspection_session_id: (a: number) => [number, number];
-    readonly wasmprotocolinspection_sha256: (a: number) => [number, number];
-    readonly wasmprotocolinspection_spike_channels: (a: number) => any;
-    readonly wasmprotocolinspection_spike_strengths: (a: number) => any;
-    readonly wasmprotocolinspection_spike_times: (a: number) => any;
-    readonly wasmprotocolinspection_stimulus_valid_mask: (a: number) => any;
-    readonly wasmprotocolinspection_stimulus_values: (a: number) => any;
-    readonly wasmprotocolinspection_timestamp: (a: number) => [number, bigint];
-    readonly wasmprotocolinspection_trace_channel_ids: (a: number) => any;
-    readonly wasmprotocolinspection_trace_last_spike_times: (a: number) => any;
-    readonly wasmprotocolinspection_trace_values: (a: number) => any;
-    readonly wasmprotocolinspection_variant: (a: number) => [number, number];
-    readonly wasmprotocolinspection_wire_current: (a: number) => number;
-    readonly wasmprotocolinspection_wire_version: (a: number) => number;
-    readonly wasmprotocolinspection_wire_min_supported: (a: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

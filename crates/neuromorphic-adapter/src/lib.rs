@@ -15,6 +15,12 @@ pub mod kinetic;
 /// does not compile it.
 #[cfg(feature = "nir")]
 pub mod nir;
+/// Reward-modulated learning lab for `/labs/plasticity/` (`limbic-critic`,
+/// `plasticity-lab`, `neuromod`), exported as `WasmPlasticityLab` only from the
+/// labs build (`--features plasticity`); the default homepage build does not
+/// compile it.
+#[cfg(feature = "plasticity")]
+pub mod plasticity;
 /// Recorded `corpus-ipc` envelope inspection for `/protocol/`, exported as
 /// `inspectProtocolFixture` only from the labs build (`--features protocol`);
 /// the default homepage build does not compile it.

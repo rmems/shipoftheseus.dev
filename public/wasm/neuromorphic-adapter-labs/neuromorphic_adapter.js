@@ -186,6 +186,319 @@ export class WasmNirInspection {
 if (Symbol.dispose) WasmNirInspection.prototype[Symbol.dispose] = WasmNirInspection.prototype.free;
 
 /**
+ * The lab session exported to JavaScript (labs package only).
+ */
+export class WasmPlasticityLab {
+    static __wrap(ptr) {
+        const obj = Object.create(WasmPlasticityLab.prototype);
+        obj.__wbg_ptr = ptr;
+        WasmPlasticityLabFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        WasmPlasticityLabFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_wasmplasticitylab_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    get channel_count() {
+        const ret = wasm.wasmplasticitylab_channel_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {bigint}
+     */
+    get completed_steps() {
+        const ret = wasm.wasmplasticitylab_completed_steps(this.__wbg_ptr);
+        return BigInt.asUintN(64, ret);
+    }
+    /**
+     * A fresh session seeded with `seed` (a JavaScript `bigint`).
+     * @param {bigint} seed
+     * @returns {WasmPlasticityLab}
+     */
+    static create(seed) {
+        const ret = wasm.wasmplasticitylab_create(seed);
+        return WasmPlasticityLab.__wrap(ret);
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get eligibility() {
+        const ret = wasm.wasmplasticitylab_eligibility(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {bigint}
+     */
+    get engine_step() {
+        const ret = wasm.wasmplasticitylab_engine_step(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get episode() {
+        const ret = wasm.wasmplasticitylab_episode(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get lab_version() {
+        const ret = wasm.wasmplasticitylab_lab_version(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get membrane_potentials() {
+        const ret = wasm.wasmplasticitylab_membrane_potentials(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Dopamine, serotonin, acetylcholine, norepinephrine.
+     * @returns {Float32Array}
+     */
+    get modulators() {
+        const ret = wasm.wasmplasticitylab_modulators(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get neuron_count() {
+        const ret = wasm.wasmplasticitylab_neuron_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    newEpisode() {
+        wasm.wasmplasticitylab_newEpisode(this.__wbg_ptr);
+    }
+    /**
+     * @returns {WasmPlasticityProbe}
+     */
+    probe() {
+        const ret = wasm.wasmplasticitylab_probe(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return WasmPlasticityProbe.__wrap(ret[0]);
+    }
+    /**
+     * @returns {bigint}
+     */
+    get seed() {
+        const ret = wasm.wasmplasticitylab_seed(this.__wbg_ptr);
+        return BigInt.asUintN(64, ret);
+    }
+    /**
+     * `stimulus`: 0 quiet, 1 pattern A, 2 pattern B. `event`: 0 none,
+     * 1 reward, 2 penalty. Errors are `"<code>: <message>"` strings.
+     * @param {number} stimulus
+     * @param {number} event
+     * @returns {WasmPlasticityStep}
+     */
+    step(stimulus, event) {
+        const ret = wasm.wasmplasticitylab_step(this.__wbg_ptr, stimulus, event);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return WasmPlasticityStep.__wrap(ret[0]);
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get thresholds() {
+        const ret = wasm.wasmplasticitylab_thresholds(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get weights() {
+        const ret = wasm.wasmplasticitylab_weights(this.__wbg_ptr);
+        return ret;
+    }
+}
+if (Symbol.dispose) WasmPlasticityLab.prototype[Symbol.dispose] = WasmPlasticityLab.prototype.free;
+
+/**
+ * One frozen probe's per-neuron spike counts.
+ */
+export class WasmPlasticityProbe {
+    static __wrap(ptr) {
+        const obj = Object.create(WasmPlasticityProbe.prototype);
+        obj.__wbg_ptr = ptr;
+        WasmPlasticityProbeFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        WasmPlasticityProbeFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_wasmplasticityprobe_free(ptr, 0);
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get pattern_a_spikes() {
+        const ret = wasm.wasmplasticityprobe_pattern_a_spikes(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get pattern_b_spikes() {
+        const ret = wasm.wasmplasticityprobe_pattern_b_spikes(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get steps_per_pattern() {
+        const ret = wasm.wasmplasticityprobe_steps_per_pattern(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) WasmPlasticityProbe.prototype[Symbol.dispose] = WasmPlasticityProbe.prototype.free;
+
+/**
+ * One step's result. Numeric rows are typed arrays copied out of Rust.
+ */
+export class WasmPlasticityStep {
+    static __wrap(ptr) {
+        const obj = Object.create(WasmPlasticityStep.prototype);
+        obj.__wbg_ptr = ptr;
+        WasmPlasticityStepFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        WasmPlasticityStepFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_wasmplasticitystep_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    get episode() {
+        const ret = wasm.wasmplasticitystep_episode(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {string}
+     */
+    get event() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmplasticitystep_event(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get input_spikes() {
+        const ret = wasm.wasmplasticitystep_input_spikes(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get membrane_potentials() {
+        const ret = wasm.wasmplasticitystep_membrane_potentials(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Dopamine, serotonin, acetylcholine, norepinephrine from `limbic-critic`.
+     * @returns {Float32Array}
+     */
+    get modulators() {
+        const ret = wasm.wasmplasticitystep_modulators(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get objective() {
+        const ret = wasm.wasmplasticitystep_objective(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get output_spikes() {
+        const ret = wasm.wasmplasticitystep_output_spikes(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {bigint}
+     */
+    get step() {
+        const ret = wasm.wasmplasticitystep_step(this.__wbg_ptr);
+        return BigInt.asUintN(64, ret);
+    }
+    /**
+     * @returns {string}
+     */
+    get stimulus() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmplasticitystep_stimulus(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    get stress() {
+        const ret = wasm.wasmplasticitystep_stress(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get thresholds() {
+        const ret = wasm.wasmplasticitystep_thresholds(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Flattened `[neuron, channel, before_bits, after_bits]` per changed weight.
+     * @returns {Uint32Array}
+     */
+    get weight_changes() {
+        const ret = wasm.wasmplasticitystep_weight_changes(this.__wbg_ptr);
+        return ret;
+    }
+}
+if (Symbol.dispose) WasmPlasticityStep.prototype[Symbol.dispose] = WasmPlasticityStep.prototype.free;
+
+/**
  * Browser view of an accepted recorded envelope. Every `u64` crosses as a
  * `bigint`; numeric rows cross as JS-owned typed arrays.
  */
@@ -769,6 +1082,15 @@ const WasmAdapterFinalization = (typeof FinalizationRegistry === 'undefined')
 const WasmNirInspectionFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmnirinspection_free(ptr, 1));
+const WasmPlasticityLabFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_wasmplasticitylab_free(ptr, 1));
+const WasmPlasticityProbeFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_wasmplasticityprobe_free(ptr, 1));
+const WasmPlasticityStepFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_wasmplasticitystep_free(ptr, 1));
 const WasmProtocolInspectionFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmprotocolinspection_free(ptr, 1));

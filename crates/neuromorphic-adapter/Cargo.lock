@@ -194,6 +194,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
+name = "limbic-critic"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0afb84406e35b755770254f4418c4b7b92b79c089f10e5c671b9ae2016a79329"
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -218,8 +224,10 @@ dependencies = [
  "corpus-ipc",
  "js-sys",
  "kinetic-signals",
+ "limbic-critic",
  "neuromod",
  "nir-rs",
+ "plasticity-lab",
  "serde",
  "serde_json",
  "sha2",
@@ -249,6 +257,18 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "plasticity-lab"
+version = "0.2.1"
+source = "git+https://github.com/Limen-Neural/plasticity-lab.git?rev=c80fac2eb96a140df9cfd999278bce414a329a56#c80fac2eb96a140df9cfd999278bce414a329a56"
+dependencies = [
+ "limbic-critic",
+ "neuromod",
+ "rand",
+ "serde",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "proc-macro2"

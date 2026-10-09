@@ -44,6 +44,11 @@ export const JS_BINDING_SYS_PACKAGES = new Set(['js-sys', 'web-sys']);
 export const NON_NATIVE_LINKS = new Map([['wasm-bindgen-shared', 'wasm_bindgen']]);
 /** Cargo features that link native libraries when enabled on any package. */
 export const NATIVE_FEATURES = new Set(['hdf5']);
+/**
+ * The only `plasticity-lab` features a browser graph may enable: the
+ * `limbic-critic` bridge and the forwarded `neuromod/wasm-js` entropy backend.
+ */
+export const PLASTICITY_LAB_BROWSER_FEATURES = new Set(['critic', 'wasm-js']);
 
 function nativeReason(pkg) {
   if (FORBIDDEN_PACKAGES.has(pkg.name)) return 'native-only package';
@@ -122,6 +127,13 @@ function corpusIpcViolations(resolved) {
   return [`corpus-ipc: browser features must not enable server or zmq: ${corpusIpc.features.join(', ')}`];
 }
 
+function plasticityLabViolations(resolved) {
+  const plasticityLab = resolved.find((pkg) => pkg.name === 'plasticity-lab');
+  const extra = (plasticityLab?.features ?? []).filter((feature) => !PLASTICITY_LAB_BROWSER_FEATURES.has(feature));
+  if (extra.length === 0) return [];
+  return [`plasticity-lab: browser features must stay within critic and wasm-js: ${extra.join(', ')}`];
+}
+
 /**
  * Pure policy over `cargo metadata --format-version 1` output resolved for
  * `wasm32-unknown-unknown`. The native rules apply to every profile;
@@ -148,6 +160,7 @@ export function browserDependencyViolations(
     ...crateViolations(resolved, requiredCrates, excludedCrates),
     ...adapterViolations(adapter, { features, requiredDirectDependencies, excludedDirectDependencies }),
     ...corpusIpcViolations(resolved),
+    ...plasticityLabViolations(resolved),
   ].sort(byName);
 }
 
