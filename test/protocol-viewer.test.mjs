@@ -9,11 +9,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadTsModule, readSource } from './load-ts-module.mjs';
 
-// Every case here crosses the real JS boundary: the committed
-// `public/wasm/neuromorphic-adapter` package, loaded in Node, behind the
-// TypeScript bridge the `/protocol/` page uses.
+// Every case here crosses the real JS boundary: the committed labs package
+// `public/wasm/neuromorphic-adapter-labs` (`--features nir,protocol`), loaded
+// in Node, behind the TypeScript bridge the `/protocol/` page uses.
 const repository = fileURLToPath(new URL('..', import.meta.url));
-const packageDir = join(repository, 'public/wasm/neuromorphic-adapter');
+const packageDir = join(repository, 'public/wasm/neuromorphic-adapter-labs');
+const homepagePackageDir = join(repository, 'public/wasm/neuromorphic-adapter');
 const fixtureDir = join(repository, 'public/protocol/fixtures/v1');
 const manifest = JSON.parse(readFileSync(join(fixtureDir, 'manifest.json'), 'utf8'));
 
@@ -303,10 +304,23 @@ test('TypeScript constants mirror the Rust adapter rather than redefine it', () 
   assert.match(rust, /message\.validate\(\)/);
   assert.doesNotMatch(rust, /decode_ipc_message_json\(/, 'legacy-tolerant ingress is not used');
 
-  assert.match(
-    readSource('../src/runtime/wasm-session.ts'),
-    new RegExp(`WASM_MODULE_URL = '${provenance.PROTOCOL_WASM_MODULE_URL.replaceAll('/', '\\/')}'`),
-  );
+  assert.equal(provenance.PROTOCOL_WASM_MODULE_URL, '/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js');
+  assert.match(readSource('../src/runtime/nir-inspection.ts'), /NIR_WASM_MODULE_URL = '\/wasm\/neuromorphic-adapter-labs\/neuromorphic_adapter\.js'/);
+});
+
+test('the protocol decode path ships only in the labs package', () => {
+  const labsTypes = readFileSync(join(packageDir, 'neuromorphic_adapter.d.ts'), 'utf8');
+  assert.match(labsTypes, /export function inspectProtocolFixture\(/);
+  assert.match(labsTypes, /export function protocolFixtureByteLimit\(/);
+  assert.match(labsTypes, /export class WasmProtocolInspection/);
+  for (const file of ['neuromorphic_adapter.js', 'neuromorphic_adapter.d.ts']) {
+    const homepage = readFileSync(join(homepagePackageDir, file), 'utf8');
+    assert.doesNotMatch(homepage, /inspectProtocolFixture|protocolFixtureByteLimit|WasmProtocolInspection/, file);
+    // The default build keeps only the lightweight corpus-ipc wire-version getter.
+    assert.match(homepage, /protocol_wire_version/, file);
+  }
+  assert.match(readSource('../src/runtime/wasm-session.ts'), /WASM_MODULE_URL = '\/wasm\/neuromorphic-adapter\/neuromorphic_adapter\.js'/);
+  assert.match(readSource('../crates/neuromorphic-adapter/src/lib.rs'), /#\[cfg\(feature = "protocol"\)\]\s*\npub mod protocol;/);
 });
 
 test('recorded provenance matches the locked crate pin and lockfile', () => {

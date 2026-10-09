@@ -192,8 +192,11 @@ pointer/touch/demo telemetry → kinetic-signals → axon-encoder → neuromod �
 ### Recorded `corpus-ipc` protocol viewer (GitHub #21 / Linear RM-1657)
 
 `/protocol/` replays checked-in `corpus-ipc` wire-v1 envelopes through the
-same adapter package. It is a recorded, offline view: ZeroMQ, the Axum IPC
-service, proxying, and streaming never run in the browser.
+adapter crate's `protocol` cargo feature, which only the `labs` build profile
+enables (`public/wasm/neuromorphic-adapter-labs/`; see
+[Browser build profiles](#browser-build-profiles)). It is a recorded, offline
+view: ZeroMQ, the Axum IPC service, proxying, and streaming never run in the
+browser.
 
 - **Locked surface.** `corpus-ipc = { version = "=0.1.0", default-features =
   false }` in `crates/neuromorphic-adapter/Cargo.toml`. Source
@@ -201,12 +204,17 @@ service, proxying, and streaming never run in the browser.
   recorded in the published crate's `.cargo_vcs_info.json`); crates.io archive
   SHA-256 `eec6624caf88783f1c35109fe1c27615fc85c986249d480c8efabb72d5f92081`,
   which is the `corpus-ipc` checksum in `crates/neuromorphic-adapter/Cargo.lock`.
-  No features are selected, so `zmq` and `server` are off;
-  `scripts/browser-dependency-policy.mjs` fails the build if `zmq`, `zmq-sys`,
-  `axum`, `tokio`, `hyper`, `tower`, `mio`, `cc`, or any package that links a
-  native library other than `wasm_bindgen` enters the wasm32 graph, or if
-  `corpus-ipc` gains `server`/`zmq`. The only new direct dependencies are
-  `serde_json =1.0.151` and `sha2 =0.10.9`, both already in the locked graph.
+  No `corpus-ipc` features are selected, so `zmq` and `server` are off.
+  `scripts/verify-browser-dependencies.mjs` fails, in every profile, if
+  `zmq`, `zeromq`, `axum`, `axum-core`, `tokio`, `tokio-macros`, `hyper`,
+  `tower`, `mio`, `socket2`, a native `-sys` crate, C/C++ build tooling, or a
+  package that links a native library other than `wasm_bindgen` enters the
+  wasm32 graph, or if `corpus-ipc` gains `server`/`zmq`. The `protocol`
+  feature adds two optional direct dependencies, `serde_json =1.0.151` and
+  `sha2 =0.10.9`. Both are already in the locked graph through `corpus-ipc`
+  and `synaptic-wiring`, so the policy pins the adapter itself: in the
+  `default` profile it must not enable `protocol` or depend directly on
+  `serde_json`/`sha2`.
 - **Ingress order** (`crates/neuromorphic-adapter/src/protocol.rs`). Every
   step fails closed with a stable reason code and nothing later runs:
   declared variant and out-of-band digest are well formed; the 64 KiB
@@ -247,17 +255,19 @@ service, proxying, and streaming never run in the browser.
   `corpus-ipc` itself encodes the bytes. `manifest.json` carries each file's
   size and SHA-256 out of band. `tests/protocol_fixtures.rs` fails on any drift;
   regenerate with
-  `cargo test --locked --test protocol_fixtures regenerate_protocol_fixtures -- --ignored --exact`.
+  `cargo test --locked --features protocol --test protocol_fixtures regenerate_protocol_fixtures -- --ignored --exact`.
+  Both protocol test files declare `required-features = ["protocol"]`.
 - **Static first.** The page is rendered at build time from the manifest and
   the exact bytes. The build fails if a digest or size does not match. Without
   JavaScript or WASM, the bytes, digests, and provenance stay readable. The
   enhancement only adds the decoded view. The page carries the
   `RECORDED · corpus-ipc wire v1` origin label, which is distinct from
   `LIVE · Rust/WASM` and `RECORDED · CUDA/FPGA`.
-- **Bundle cost.** Linking the `serde_json` decode path for every
-  `IpcMessage` variant grows the shared adapter package from about 189 KB to
-  about 569 KB uncompressed (about 67 KB to about 169 KB with gzip -9). The
-  homepage demo loads the same file.
+- **Bundle cost.** The `serde_json` decode path for every `IpcMessage`
+  variant would roughly triple the homepage package (189 KB to 569 KB, about
+  67 KB to 169 KB with gzip -9), so it lives only in the labs package. The
+  homepage keeps the lean default build; its only `corpus-ipc` use is the
+  `WireCompatibility::CURRENT` constant behind `protocol_wire_version`.
 
 ### Topology projection handoff
 
@@ -568,37 +578,52 @@ The adapter is one crate and one boundary, compiled once per profile listed in
 | Profile | Cargo features | Package | Loaded by |
 | --- | --- | --- | --- |
 | `default` | none | `public/wasm/neuromorphic-adapter/` | the homepage live demo (`src/runtime/wasm-session.ts`) |
-| `labs` | `nir` | `public/wasm/neuromorphic-adapter-labs/` | off-homepage interactive surfaces; today `/labs/nir/` (`src/runtime/nir-inspection.ts`) |
+| `labs` | `nir`, `protocol` | `public/wasm/neuromorphic-adapter-labs/` | off-homepage interactive surfaces: `/labs/nir/` (`src/runtime/nir-inspection.ts`) and `/protocol/` (`src/protocol/provenance.ts`) |
 
 **Why the split exists.** Off-homepage surfaces need crates the landing page
 never uses. Linking `nir-rs` and its Serde decoder into one shared package
 made the homepage download 3.5× the WASM for a lab it does not show. The
 `labs` package now carries every off-homepage feature, and the `default`
-package stays byte-identical to the pre-NIR build. A later surface (for
-example a `protocol` decode path or `plasticity`) adds its feature to
-`labs.features` and its crates to `labs.requiredCrates`, and lists those
-crates in `default.excludedCrates`. The homepage package never grows with it.
+package stays byte-identical to the pre-NIR build. A later surface adds its
+feature to `labs.features` and its crates to `labs.requiredCrates`, and lists
+those crates in `default.excludedCrates`. When its crates already sit in the
+default graph transitively (the `protocol` feature's `sha2` and `serde_json`),
+it lists them in `default.excludedDirectDependencies` and
+`labs.requiredDirectDependencies` instead: the policy then checks the
+adapter's own enabled features and direct dependencies per profile. The
+homepage package never grows with it.
 
 Measured on 2026-10-09 (Rust 1.98.1, wasm-bindgen 0.2.126, release build;
-gzip is `gzip -9` of the file, before any HTTP compression the host applies):
+gzip is GNU gzip 1.14 `-9` of the file, before any HTTP compression the host
+applies):
 
 | Package | `.wasm` raw | `.wasm` gzip | `.js` glue raw | `.js` glue gzip |
 | --- | ---: | ---: | ---: | ---: |
-| `default` (`neuromorphic-adapter/`) | 189,316 B | 67,148 B | 16,606 B | 3,164 B |
-| `labs` (`neuromorphic-adapter-labs/`) | 670,382 B | 190,533 B | 21,858 B | 4,095 B |
+| `default` (`neuromorphic-adapter/`) | 189,316 B | 67,177 B | 16,606 B | 3,152 B |
+| `labs`, `nir` only (#16, before `protocol`) | 670,382 B | 190,546 B | 21,858 B | 4,106 B |
+| `labs`, `nir` + `protocol` (`neuromorphic-adapter-labs/`) | 958,071 B | 254,381 B | 30,957 B | 5,286 B |
+
+The `default` row is unchanged by the `protocol` feature: its `.js`/`.d.ts`
+are byte-identical to a fresh default build, and the committed `.wasm` is kept
+because a rebuild differs only in embedded source paths.
 
 - `npm run build:wasm-web` builds every profile. Each profile has its own cargo
   target directory (`target/`, `target/labs/`), so the outputs never overwrite
   each other. `npm run test:wasm-web-pkg` regenerates every profile and fails
   on drift in the deterministic `.js`/`.d.ts` files.
 - `npm run validate:rust` runs clippy, `cargo test`, and the wasm32
-  `cargo check` for both the default build and `--features nir`.
+  `cargo check` twice: for the default build and with `--all-features` (the
+  labs configuration, `nir` + `protocol`).
 - `scripts/verify-browser-dependencies.mjs` resolves each profile's graph
   separately: the native-dependency rules apply to both, `nir-rs` is required
-  in `labs`, and it must be absent from `default`.
+  in `labs` and absent from `default`, and the adapter's enabled features and
+  direct dependencies must match the profile (`default` enables none and has
+  no direct `nir-rs`, `serde`, `serde_json`, or `sha2`).
 - The `nir` integration tests (`tests/nir_example.rs`, `tests/nir_inspection.rs`)
-  declare `required-features = ["nir"]`, so they run only with
-  `--features nir`.
+  declare `required-features = ["nir"]` and the protocol tests
+  (`tests/protocol_fixtures.rs`, `tests/protocol_ingress.rs`) declare
+  `required-features = ["protocol"]`, so they run in the `--all-features`
+  pass.
 
 ## Read-only `wasm32-unknown-unknown` audit
 

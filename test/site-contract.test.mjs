@@ -223,17 +223,27 @@ test('the protocol route replays recorded corpus-ipc fixtures static-first and l
 
 test('the browser adapter keeps corpus-ipc on its no-default surface without ZeroMQ or the server', () => {
   const cargoToml = read('crates/neuromorphic-adapter/Cargo.toml');
-  const policy = read('scripts/browser-dependency-policy.mjs');
+  const policy = read('scripts/verify-browser-dependencies.mjs');
+  const profiles = read('scripts/wasm-profiles.mjs');
   const packageJson = read('package.json');
 
   assert.match(cargoToml, /^corpus-ipc = \{ version = "=0\.1\.0", default-features = false \}$/m);
   assert.doesNotMatch(cargoToml, /corpus-ipc[^\n]*features = \[/);
-  for (const name of ['zmq', 'zmq-sys', 'axum', 'tokio', 'hyper', 'tower', 'cc']) {
+  for (const name of ['zmq', 'zeromq', 'axum', 'axum-core', 'tokio', 'tokio-macros', 'hyper', 'tower', 'mio', 'socket2']) {
     assert.match(policy, new RegExp(`'${name}',`), `${name} must stay forbidden in the browser graph`);
   }
-  assert.match(policy, /FORBIDDEN_CORPUS_IPC_FEATURES = Object\.freeze\(\['server', 'zmq'\]\)/);
-  assert.match(policy, /ALLOWED_NATIVE_LINKS = Object\.freeze\(\['wasm_bindgen'\]\)/);
+  assert.match(policy, /NATIVE_BUILD_PACKAGES = new Set\(\['bindgen', 'cc', 'cmake', 'pkg-config', 'vcpkg'\]\)/);
+  assert.match(policy, /feature === 'server' \|\| feature === 'zmq'/);
   assert.match(packageJson, /node scripts\/verify-browser-dependencies\.mjs/);
+
+  // The protocol decode path is a labs-only cargo feature.
+  assert.match(cargoToml, /^protocol = \["dep:serde_json", "dep:sha2"\]$/m);
+  assert.match(cargoToml, /^sha2 = \{ version = "=0\.10\.9", default-features = false, optional = true \}$/m);
+  assert.match(profiles, /features: Object\.freeze\(\['nir', 'protocol'\]\)/);
+  assert.match(profiles, /excludedDirectDependencies: Object\.freeze\(\['nir-rs', 'serde', 'serde_json', 'sha2'\]\)/);
+  assert.match(read('src/protocol/provenance.ts'), /'\/wasm\/neuromorphic-adapter-labs\/neuromorphic_adapter\.js'/);
+  assert.doesNotMatch(read('public/wasm/neuromorphic-adapter/neuromorphic_adapter.js'), /inspectProtocolFixture/);
+  assert.match(read('public/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js'), /inspectProtocolFixture/);
 });
 
 test('page metadata includes canonical and complete social sharing basics', () => {
@@ -358,8 +368,9 @@ test('NIR inspection ships only in the labs package, never in the homepage packa
   assert.match(lib, /#\[cfg\(feature = "nir"\)\]\s*\npub mod nir;/);
   for (const command of ['clippy', 'test', 'check']) {
     const runs = rust.split(' && ').filter((step) => step.includes(` ${command} `));
-    assert.equal(runs.length, 2, `${command} must run for the default and nir builds`);
-    assert.equal(runs.filter((step) => step.includes('--features nir')).length, 1, command);
+    assert.equal(runs.length, 2, `${command} must run for the default build and with every labs feature`);
+    assert.equal(runs.filter((step) => step.includes('--all-features')).length, 1, command);
+    assert.equal(runs.filter((step) => step.includes('--features')).length, 0, `${command} uses --all-features, not a partial list`);
   }
   assert.match(rust, /node scripts\/verify-browser-dependencies\.mjs$/);
   assert.match(read('src/runtime/nir-inspection.ts'), /'\/wasm\/neuromorphic-adapter-labs\/neuromorphic_adapter\.js'/);

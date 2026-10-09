@@ -15,6 +15,7 @@ import {
   PROTOCOL_ERROR_CODES,
   PROTOCOL_FIXTURE_BYTE_LIMIT,
   PROTOCOL_TRANSPORT,
+  PROTOCOL_WASM_MODULE_URL,
 } from '../protocol/provenance';
 import { executionOriginLabel } from '../native-evidence/view';
 import '../styles/protocol.css';
@@ -26,7 +27,7 @@ const catalog = loadProtocolFixtureCatalog();
     <p class="eyebrow">Recorded protocol</p>
     <ExecutionOrigin origin="recorded-protocol" />
     <h1 id="protocol-page-title">IPC provenance you can check byte for byte.</h1>
-    <p>These are recorded <code>corpus-ipc</code> wire-v1 envelopes, replayed offline from checked-in files. ZeroMQ, the Axum IPC service, and any live transport stay out of the browser. With JavaScript, the page decodes each envelope through the same Rust/WASM adapter as the homepage demo.</p>
+    <p>These are recorded <code>corpus-ipc</code> wire-v1 envelopes, replayed offline from checked-in files. ZeroMQ, the Axum IPC service, and any live transport stay out of the browser. With JavaScript, the page decodes each envelope through the Rust/WASM adapter crate behind the homepage demo, in its labs build.</p>
   </section>
 
   <div class="protocol-viewer" data-protocol-viewer data-protocol-state="static">
@@ -63,6 +64,10 @@ const catalog = loadProtocolFixtureCatalog();
         <div>
           <dt>Decode</dt>
           <dd><code>{PROTOCOL_DECODE_PATH}</code></dd>
+        </div>
+        <div>
+          <dt>Package</dt>
+          <dd>Labs build of <code>neuromorphic-adapter</code> (<code>--features nir,protocol</code>), <code>{PROTOCOL_WASM_MODULE_URL}</code>. The homepage package does not include this decode path.</dd>
         </div>
         <div>
           <dt>Byte limit</dt>

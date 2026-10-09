@@ -1,6 +1,10 @@
 //! Recorded `corpus-ipc` protocol replay for the portfolio's `/protocol/`
 //! viewer (GitHub #21 / Linear RM-1657).
 //!
+//! Compiled only with the `protocol` cargo feature, which the `labs` build
+//! profile enables (`public/wasm/neuromorphic-adapter-labs/`). The default
+//! homepage package keeps only `WireCompatibility::CURRENT` from `corpus-ipc`.
+//!
 //! The adapter never re-describes the IPC schema. `corpus-ipc =0.1.0`
 //! (`default-features = false`: no `zmq`, no `server`) owns the envelope,
 //! wire-version window, payload types, limits, and validation. This module

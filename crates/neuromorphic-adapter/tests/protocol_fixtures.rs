@@ -10,7 +10,7 @@
 //! Never hand-edit the fixtures or the manifest. Regenerate them with:
 //!
 //! ```text
-//! cargo test --locked --test protocol_fixtures regenerate_protocol_fixtures -- --ignored --exact
+//! cargo test --locked --features protocol --test protocol_fixtures regenerate_protocol_fixtures -- --ignored --exact
 //! ```
 
 use std::collections::HashMap;

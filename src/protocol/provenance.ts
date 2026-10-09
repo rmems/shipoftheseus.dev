@@ -26,7 +26,12 @@ export const PROTOCOL_FIXTURE_DIR = 'public/protocol/fixtures/v1';
 export const PROTOCOL_FIXTURE_URL_BASE = '/protocol/fixtures/v1/';
 export const PROTOCOL_MANIFEST_FILE = 'manifest.json';
 export const PROTOCOL_FIXTURE_GENERATOR = 'crates/neuromorphic-adapter/tests/protocol_fixtures.rs';
-export const PROTOCOL_WASM_MODULE_URL = '/wasm/neuromorphic-adapter/neuromorphic_adapter.js';
+/**
+ * The labs build of the adapter (`--features nir,protocol`). The homepage loads
+ * the lean default package at `/wasm/neuromorphic-adapter/`, which does not
+ * contain `inspectProtocolFixture`.
+ */
+export const PROTOCOL_WASM_MODULE_URL = '/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js';
 
 export const PROTOCOL_VARIANTS = ['Stimuli', 'Spikes', 'EligibilityTraces'] as const;
 export type ProtocolVariant = (typeof PROTOCOL_VARIANTS)[number];
