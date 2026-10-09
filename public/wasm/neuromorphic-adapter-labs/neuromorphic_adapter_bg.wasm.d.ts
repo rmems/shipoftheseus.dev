@@ -1,6 +1,13 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_wasmnirinspection_free: (a: number, b: number) => void;
+export const wasmnirinspection_edge_count: (a: number) => number;
+export const wasmnirinspection_inspection_json: (a: number) => [number, number];
+export const wasmnirinspection_nir_rs_version: (a: number) => [number, number];
+export const wasmnirinspection_node_count: (a: number) => number;
+export const wasmnirinspection_node_json: (a: number, b: number, c: number) => [number, number, number, number];
+export const wasmnirinspection_parse: (a: number, b: number) => [number, number, number];
 export const __wbg_wasmadapter_free: (a: number, b: number) => void;
 export const __wbg_wasmstate_free: (a: number, b: number) => void;
 export const wasmadapter_dispose: (a: number) => void;
@@ -39,4 +46,5 @@ export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __externref_table_dealloc: (a: number) => void;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_start: () => void;

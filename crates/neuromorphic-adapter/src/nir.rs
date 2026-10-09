@@ -357,44 +357,53 @@ fn sort_keys(value: Value) -> Value {
     }
 }
 
-/// `(layer, row)` per node in insertion order. Layers are longest-path depth
-/// from nodes without incoming edges; nodes left on a cycle (NIR allows them)
-/// share one trailing layer. Presentation only — not NIR semantics.
+/// `(layer, row)` per node in insertion order. NIR allows cycles, so each
+/// strongly connected component is collapsed first; a component's layer is
+/// its longest-path depth in the resulting DAG, and every member shares it.
+/// Operators downstream of a cycle therefore still land on later layers.
+/// Presentation only — not NIR semantics.
 fn layer_layout(graph: &NirGraph) -> Vec<(u32, u32)> {
     let count = graph.nodes.len();
     let index_of = |name: &str| graph.nodes.get_index_of(name);
     let mut successors: Vec<Vec<usize>> = vec![Vec::new(); count];
-    let mut indegree = vec![0_usize; count];
     for (source, target) in &graph.edges {
         // Endpoints are guaranteed by `validate_structure`.
         if let (Some(source), Some(target)) = (index_of(source), index_of(target)) {
             successors[source].push(target);
-            indegree[target] += 1;
         }
     }
 
-    let mut layer: Vec<Option<u32>> = vec![None; count];
-    let mut depth = vec![0_u32; count];
-    let mut queue: VecDeque<usize> = (0..count).filter(|node| indegree[*node] == 0).collect();
-    while let Some(node) = queue.pop_front() {
-        layer[node] = Some(depth[node]);
-        for &next in &successors[node] {
-            depth[next] = depth[next].max(depth[node] + 1);
+    let component = strongly_connected_components(&successors);
+    let component_count = component.iter().max().map_or(0, |max| max + 1);
+    let mut condensed: Vec<Vec<usize>> = vec![Vec::new(); component_count];
+    let mut indegree = vec![0_usize; component_count];
+    for (source, targets) in successors.iter().enumerate() {
+        for &target in targets {
+            let (from, to) = (component[source], component[target]);
+            if from != to {
+                condensed[from].push(to);
+                indegree[to] += 1;
+            }
+        }
+    }
+    let mut depth = vec![0_u32; component_count];
+    let mut queue: VecDeque<usize> = (0..component_count)
+        .filter(|component| indegree[*component] == 0)
+        .collect();
+    while let Some(current) = queue.pop_front() {
+        for &next in &condensed[current] {
+            depth[next] = depth[next].max(depth[current] + 1);
             indegree[next] -= 1;
             if indegree[next] == 0 {
                 queue.push_back(next);
             }
         }
     }
-    let cycle_layer = layer.iter().flatten().max().map_or(0, |max| max + 1);
-    let layer: Vec<u32> = layer
-        .into_iter()
-        .map(|assigned| assigned.unwrap_or(cycle_layer))
-        .collect();
 
     let mut rows: HashMap<u32, u32> = HashMap::new();
-    layer
+    component
         .into_iter()
+        .map(|component| depth[component])
         .map(|layer| {
             let row = rows.entry(layer).or_insert(0);
             let assigned = (layer, *row);
@@ -402,6 +411,71 @@ fn layer_layout(graph: &NirGraph) -> Vec<(u32, u32)> {
             assigned
         })
         .collect()
+}
+
+/// Tarjan's algorithm: a component id per node. Recursion depth is bounded by
+/// [`MAX_NODES`], which `from_envelope` enforces before layout.
+fn strongly_connected_components(successors: &[Vec<usize>]) -> Vec<usize> {
+    struct Tarjan<'a> {
+        successors: &'a [Vec<usize>],
+        index: Vec<Option<usize>>,
+        low: Vec<usize>,
+        on_stack: Vec<bool>,
+        stack: Vec<usize>,
+        next_index: usize,
+        component: Vec<usize>,
+        components: usize,
+    }
+
+    impl Tarjan<'_> {
+        fn visit(&mut self, node: usize) {
+            self.index[node] = Some(self.next_index);
+            self.low[node] = self.next_index;
+            self.next_index += 1;
+            self.stack.push(node);
+            self.on_stack[node] = true;
+            for &next in &self.successors[node] {
+                match self.index[next] {
+                    None => {
+                        self.visit(next);
+                        self.low[node] = self.low[node].min(self.low[next]);
+                    }
+                    Some(index) if self.on_stack[next] => {
+                        self.low[node] = self.low[node].min(index);
+                    }
+                    Some(_) => {}
+                }
+            }
+            if Some(self.low[node]) == self.index[node] {
+                while let Some(member) = self.stack.pop() {
+                    self.on_stack[member] = false;
+                    self.component[member] = self.components;
+                    if member == node {
+                        break;
+                    }
+                }
+                self.components += 1;
+            }
+        }
+    }
+
+    let count = successors.len();
+    let mut tarjan = Tarjan {
+        successors,
+        index: vec![None; count],
+        low: vec![0; count],
+        on_stack: vec![false; count],
+        stack: Vec::with_capacity(count),
+        next_index: 0,
+        component: vec![0; count],
+        components: 0,
+    };
+    for node in 0..count {
+        if tarjan.index[node].is_none() {
+            tarjan.visit(node);
+        }
+    }
+    tarjan.component
 }
 
 fn node_metadata(node: &NirNode) -> &nir_rs::MetadataMap {

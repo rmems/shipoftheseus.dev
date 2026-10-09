@@ -7,8 +7,12 @@
  * displays the Rust-formatted values verbatim.
  */
 
-/** The generated adapter package that also hosts the live demo runtime. */
-export const NIR_WASM_MODULE_URL = '/wasm/neuromorphic-adapter/neuromorphic_adapter.js';
+/**
+ * The labs build of the adapter (`--features nir`). The homepage loads the
+ * lean default package at `/wasm/neuromorphic-adapter/` instead, which does
+ * not contain `WasmNirInspection`.
+ */
+export const NIR_WASM_MODULE_URL = '/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js';
 export const NIR_INSPECTION_FORMAT = 'shipoftheseus.nir-inspection';
 export const NIR_INSPECTION_VERSION = 1;
 
@@ -276,7 +280,16 @@ export async function openNirInspection(options: OpenNirInspectionOptions): Prom
       if (disposed) {
         throw new NirInspectionUnavailableError('disposed', 'The NIR inspection has been disposed.');
       }
-      return JSON.parse(handle.node_json(name)) as NirNodeView;
+      let view: unknown;
+      try {
+        view = JSON.parse(handle.node_json(name));
+      } catch (error) {
+        throw new NirInspectionUnavailableError('invalid-node', errorMessage(error));
+      }
+      if (!isNirNodeView(view) || view.name !== name) {
+        throw new NirInspectionUnavailableError('invalid-node', `The Rust/WASM view of ${name} is malformed.`);
+      }
+      return view;
     },
     dispose() {
       if (!disposed) {
@@ -288,5 +301,65 @@ export async function openNirInspection(options: OpenNirInspectionOptions): Prom
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) return error.message;
+  // wasm-bindgen surfaces Rust errors as thrown JavaScript strings.
+  if (typeof error === 'string') return error;
+  return 'unexpected non-error exception';
+}
+
+const isString = (value: unknown): value is string => typeof value === 'string';
+const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString);
+const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
+
+function isNirFieldView(value: unknown): value is NirFieldView {
+  if (typeof value !== 'object' || value === null) return false;
+  const field = value as Record<string, unknown>;
+  return (
+    isString(field.name) &&
+    isString(field.kind) &&
+    (field.dtype === null || isString(field.dtype)) &&
+    Array.isArray(field.shape) &&
+    field.shape.every(isCount) &&
+    isCount(field.value_count) &&
+    isStringArray(field.values)
+  );
+}
+
+/** Cheap structural check before a node view reaches the DOM. */
+export function isNirNodeView(value: unknown): value is NirNodeView {
+  if (typeof value !== 'object' || value === null) return false;
+  const node = value as Record<string, unknown>;
+  return (
+    isString(node.name) &&
+    isString(node.operator) &&
+    isCount(node.layer) &&
+    isCount(node.row) &&
+    isStringArray(node.inputs) &&
+    isStringArray(node.outputs) &&
+    Array.isArray(node.parameters) &&
+    node.parameters.every(isNirFieldView) &&
+    Array.isArray(node.metadata) &&
+    node.metadata.every(isNirFieldView)
+  );
+}
+
+/**
+ * Decode the projection text the page embedded as a JSON string literal.
+ * `JSON.parse` only decodes data; the result must be a string, which is then
+ * compared byte for byte with the Rust/WASM output and never rendered itself.
+ */
+export function decodeStaticProjection(embedded: string | null): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(embedded ?? '');
+  } catch (error) {
+    throw new NirInspectionUnavailableError('invalid-static-projection', errorMessage(error));
+  }
+  if (!isString(value) || !value.startsWith('{')) {
+    throw new NirInspectionUnavailableError(
+      'invalid-static-projection',
+      'The embedded projection is not a JSON document string.',
+    );
+  }
+  return value;
 }

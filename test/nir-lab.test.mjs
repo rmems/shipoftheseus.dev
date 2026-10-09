@@ -8,8 +8,8 @@ const root = new URL('../', import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), 'utf8');
 const ENVELOPE_PATH = 'public/nir/lif-readout-example.v1.json';
 const PROJECTION_PATH = 'src/data/nir/lif-readout-example.v1.inspection.json';
-const WASM_GLUE = new URL('public/wasm/neuromorphic-adapter/neuromorphic_adapter.js', root);
-const WASM_BINARY = new URL('public/wasm/neuromorphic-adapter/neuromorphic_adapter_bg.wasm', root);
+const WASM_GLUE = new URL('public/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js', root);
+const WASM_BINARY = new URL('public/wasm/neuromorphic-adapter-labs/neuromorphic_adapter_bg.wasm', root);
 
 const envelope = read(ENVELOPE_PATH);
 const projection = read(PROJECTION_PATH);
@@ -64,7 +64,7 @@ test('the bundled example is versioned, labelled hand-authored, and free of trai
   assert.equal(parsed.asset.origin, 'hand-authored-example');
   assert.match(ENVELOPE_PATH, new RegExp(`${parsed.asset.id}\\.v${parsed.format_version}\\.json$`));
   assert.match(parsed.asset.summary, /nothing is trained or measured/);
-  assert.match(parsed.asset.regenerate, /--test nir_example regenerate_nir_example -- --ignored --exact/);
+  assert.match(parsed.asset.regenerate, /--features nir --test nir_example regenerate_nir_example -- --ignored --exact/);
   assert.ok(readFileSync(new URL(parsed.asset.generator, root)));
 });
 
@@ -144,6 +144,69 @@ test('field formatting shows Rust-formatted values verbatim and marks truncation
   assert.equal(inspection.formatNirFieldValues({ kind: 'absent', values: [], value_count: 0 }), 'absent');
   assert.equal(inspection.nirNodeAnchorId('lif1'), 'nir-node-lif1');
   assert.equal(inspection.nirNodeAnchorId('a/b c'), 'nir-node-a-2f-b-20-c');
+});
+
+test('only the labs package carries NIR inspection; the homepage package stays lean', () => {
+  const homepage = read('public/wasm/neuromorphic-adapter/neuromorphic_adapter.d.ts');
+  const labs = read('public/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.d.ts');
+
+  assert.doesNotMatch(homepage, /WasmNirInspection/);
+  assert.match(labs, /export class WasmNirInspection/);
+  assert.match(labs, /export class WasmAdapter/);
+  assert.equal(inspection.NIR_WASM_MODULE_URL, '/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js');
+  assert.match(read('src/runtime/wasm-session.ts'), /WASM_MODULE_URL = '\/wasm\/neuromorphic-adapter\/neuromorphic_adapter\.js'/);
+});
+
+test('the embedded projection must decode to a JSON document string', () => {
+  assert.equal(inspection.decodeStaticProjection(JSON.stringify(projection)), projection);
+  for (const embedded of [null, '', 'not json', '{"nodes": []}', '42', JSON.stringify('plain text')]) {
+    assert.throws(() => inspection.decodeStaticProjection(embedded), { code: 'invalid-static-projection' });
+  }
+});
+
+test('node views are structurally checked before they reach the DOM', async () => {
+  const parsed = JSON.parse(projection);
+  for (const node of parsed.nodes) {
+    assert.equal(inspection.isNirNodeView(node), true, node.name);
+  }
+  const lif = parsed.nodes.find((node) => node.name === 'lif1');
+  for (const broken of [
+    null,
+    'lif1',
+    { ...lif, name: 7 },
+    { ...lif, inputs: 'fc1' },
+    { ...lif, layer: -1 },
+    { ...lif, parameters: [{ ...lif.parameters[0], values: [1] }] },
+    { ...lif, metadata: [{ name: 'x' }] },
+  ]) {
+    assert.equal(inspection.isNirNodeView(broken), false);
+  }
+
+  const wasm = await committedWasm();
+  const malformed = {
+    ...wasm,
+    WasmNirInspection: {
+      parse(text) {
+        const handle = wasm.WasmNirInspection.parse(text);
+        return {
+          node_count: handle.node_count,
+          edge_count: handle.edge_count,
+          nir_rs_version: handle.nir_rs_version,
+          inspection_json: () => handle.inspection_json(),
+          node_json: () => '{"name": "lif1"}',
+          free: () => handle.free(),
+        };
+      },
+    },
+  };
+  const session = await inspection.openNirInspection({
+    loadModule: async () => malformed,
+    initModule: async () => undefined,
+    loadEnvelope: async () => envelope,
+    staticProjection: projection,
+  });
+  assert.throws(() => session.node('lif1'), { code: 'invalid-node' });
+  session.dispose();
 });
 
 test('imported NIR structure has its own execution-origin label', async () => {

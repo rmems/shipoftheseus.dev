@@ -1,6 +1,7 @@
 import {
   NIR_WASM_MODULE_URL,
   NirInspectionUnavailableError,
+  decodeStaticProjection,
   formatNirFieldValues,
   formatNirShape,
   openNirInspection,
@@ -138,9 +139,36 @@ export function bindNirLab(root: HTMLElement, options: BindNirLabOptions = {}): 
     status.textContent = message;
   };
 
+  const clearSelection = () => {
+    for (const anchor of anchors) {
+      anchor.removeAttribute('data-selected');
+      anchor.removeAttribute('aria-current');
+    }
+    for (const edge of edges) edge.removeAttribute('data-active');
+  };
+
+  /** Return to the complete static page and release the WASM session. */
+  const fallBack = (error: unknown) => {
+    for (const anchor of anchors) anchor.removeEventListener('click', onNodeClick);
+    session?.dispose();
+    session = null;
+    clearSelection();
+    inspector.hidden = true;
+    inspectorBody.replaceChildren();
+    selection.textContent = '';
+    const reason = error instanceof NirInspectionUnavailableError ? error.code : 'enhancement-failed';
+    setState('unavailable', NIR_UNAVAILABLE_STATUS, reason);
+  };
+
   const select = (name: string) => {
     if (!session) return;
-    const node = session.node(name);
+    let node: NirNodeView;
+    try {
+      node = session.node(name);
+    } catch (error) {
+      fallBack(error);
+      return;
+    }
     for (const anchor of anchors) {
       const selected = anchor.dataset.nirNode === name;
       anchor.toggleAttribute('data-selected', selected);
@@ -157,12 +185,12 @@ export function bindNirLab(root: HTMLElement, options: BindNirLabOptions = {}): 
     selection.textContent = `Showing ${node.name} (${node.operator}).`;
   };
 
-  const onNodeClick = (event: Event) => {
+  function onNodeClick(event: Event) {
     const name = (event.currentTarget as SVGAElement | null)?.dataset.nirNode;
     if (!session || !name) return;
     event.preventDefault();
     select(name);
-  };
+  }
 
   const dispose = () => {
     if (disposed) return;
@@ -195,7 +223,9 @@ export function bindNirLab(root: HTMLElement, options: BindNirLabOptions = {}): 
           options.loadModule ??
           (() => import(/* @vite-ignore */ NIR_WASM_MODULE_URL) as Promise<NirWasmModule>),
         loadEnvelope: () => load(envelopeUrl),
-        staticProjection: JSON.parse(projectionScript.textContent ?? '') as string,
+        // Build-emitted JSON string literal of the committed projection; only
+        // compared byte for byte with the WASM output, never rendered.
+        staticProjection: decodeStaticProjection(projectionScript.textContent),
       });
       if (disposed) {
         opened.dispose();
@@ -208,9 +238,7 @@ export function bindNirLab(root: HTMLElement, options: BindNirLabOptions = {}): 
       const first = anchors[0]?.dataset.nirNode;
       if (first) select(first);
     } catch (error) {
-      if (disposed) return;
-      const reason = error instanceof NirInspectionUnavailableError ? error.code : 'enhancement-failed';
-      setState('unavailable', NIR_UNAVAILABLE_STATUS, reason);
+      if (!disposed) fallBack(error);
     }
   })();
 

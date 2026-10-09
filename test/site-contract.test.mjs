@@ -286,10 +286,33 @@ test('the NIR browser path never ships native HDF5', () => {
   const manifest = read('crates/neuromorphic-adapter/Cargo.toml');
   const policy = read('scripts/verify-browser-dependencies.mjs');
 
-  assert.match(manifest, /nir-rs = \{ version = "=0\.4\.5", default-features = false, features = \["serde"\] \}/);
+  assert.match(manifest, /nir-rs = \{ version = "=0\.4\.5", default-features = false, features = \["serde"\], optional = true \}/);
+  assert.match(manifest, /\[features\]\s*\ndefault = \[\]/);
+  assert.match(manifest, /nir = \["dep:nir-rs", "dep:serde", "dep:serde_json"\]/);
   assert.doesNotMatch(manifest, /hdf5/);
   assert.match(policy, /\/hdf5\/i\.test\(pkg\.name\)/);
   assert.match(policy, /NATIVE_FEATURES = new Set\(\['hdf5'\]\)/);
   assert.equal(existsSync(new URL('../public/nir/lif-readout-example.v1.json', import.meta.url)), true);
   assert.doesNotMatch(read('public/nir/lif-readout-example.v1.json'), /\.nir"|hdf5/i);
+});
+
+test('NIR inspection ships only in the labs package, never in the homepage package', () => {
+  const lib = read('crates/neuromorphic-adapter/src/lib.rs');
+  const packageJson = JSON.parse(read('package.json'));
+  const rust = packageJson.scripts['validate:rust'];
+
+  assert.match(lib, /#\[cfg\(feature = "nir"\)\]\s*\npub mod nir;/);
+  for (const command of ['clippy', 'test', 'check']) {
+    const runs = rust.split(' && ').filter((step) => step.includes(` ${command} `));
+    assert.equal(runs.length, 2, `${command} must run for the default and nir builds`);
+    assert.equal(runs.filter((step) => step.includes('--features nir')).length, 1, command);
+  }
+  assert.match(rust, /node scripts\/verify-browser-dependencies\.mjs$/);
+  assert.match(read('src/runtime/nir-inspection.ts'), /'\/wasm\/neuromorphic-adapter-labs\/neuromorphic_adapter\.js'/);
+  assert.match(read('src/runtime/wasm-session.ts'), /'\/wasm\/neuromorphic-adapter\/neuromorphic_adapter\.js'/);
+  assert.match(read('scripts/wasm-profiles.mjs'), /outputDirectory: 'public\/wasm\/neuromorphic-adapter-labs'/);
+  for (const file of ['neuromorphic_adapter.js', 'neuromorphic_adapter.d.ts', 'neuromorphic_adapter_bg.wasm']) {
+    assert.equal(existsSync(new URL(`../public/wasm/neuromorphic-adapter-labs/${file}`, import.meta.url)), true, file);
+  }
+  assert.doesNotMatch(read('public/wasm/neuromorphic-adapter/neuromorphic_adapter.js'), /WasmNirInspection/);
 });

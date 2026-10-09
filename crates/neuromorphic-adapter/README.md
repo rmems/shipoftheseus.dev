@@ -69,7 +69,9 @@ Custom topology payloads are deliberately not accepted here. The later
 
 ## NIR inspection
 
-`src/nir.rs` exports `WasmNirInspection` for `/labs/nir/`. It parses a
+`src/nir.rs` is compiled only with the `nir` cargo feature (off by default),
+which the labs package build enables; the default homepage package never
+contains it. It exports `WasmNirInspection` for `/labs/nir/`, which parses a
 versioned `shipoftheseus.nir-graph` envelope with `nir-rs` (`serde` feature
 only, never `hdf5`) and returns a read-only projection. The bundled example
 (`public/nir/lif-readout-example.v1.json`) and its committed projection
@@ -77,7 +79,7 @@ only, never `hdf5`) and returns a read-only projection. The bundled example
 `tests/nir_example.rs`. Regenerate both with:
 
 ```text
-cargo test --locked --test nir_example regenerate_nir_example -- --ignored --exact
+cargo test --locked --features nir --test nir_example regenerate_nir_example -- --ignored --exact
 ```
 
 See the NIR section of `docs/architecture/browser-runtime.md` for the

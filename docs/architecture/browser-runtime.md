@@ -418,16 +418,20 @@ network owned by `synaptic-wiring` and `neuromod`.
   shapes/dtypes, and `validate_structure` / `validate_parameters`. The adapter
   module `crates/neuromorphic-adapter/src/nir.rs` only wraps the graph in a
   versioned envelope and projects it for display (nodes in layer order, edges,
-  Rust-formatted field values, and a presentation-only `layer`/`row` layout).
-  It is exported through the same WASM package as `WasmNirInspection`
-  (`parse(envelopeJson)`, `inspection_json()`, `node_json(name)`); errors are
-  stable `"<code>: <message>"` strings (`nir-envelope-invalid`,
+  Rust-formatted field values, and a presentation-only `layer`/`row` layout:
+  strongly connected components are collapsed first, so cycle members share a
+  layer and operators after a cycle still land on later layers). The module
+  is compiled only with the adapter's `nir` cargo feature and is exported as
+  `WasmNirInspection` (`parse(envelopeJson)`, `inspection_json()`,
+  `node_json(name)`) from the **labs** package only; see
+  [Browser build profiles](#browser-build-profiles). Errors are stable
+  `"<code>: <message>"` strings (`nir-envelope-invalid`,
   `nir-rs-version-mismatch`, `nir-graph-invalid-structure`, …).
 - **No HDF5 in the browser.** The `hdf5` feature (which links native libhdf5
   through `hdf5-metno`/`hdf5-metno-sys`) is not enabled anywhere in the
   adapter, so none of those crates enters `Cargo.lock`.
-  `scripts/verify-browser-dependencies.mjs` fails the browser graph on any
-  package whose name contains `hdf5`, any package with the `hdf5` feature
+  `scripts/verify-browser-dependencies.mjs` fails either profile's graph on
+  any package whose name contains `hdf5`, any package with the `hdf5` feature
   enabled, any non-JavaScript `-sys` crate, any undeclared native `links`
   key, and native C build tooling (`cc`, `cmake`, `pkg-config`, `bindgen`,
   `vcpkg`). The earlier exact-name `hdf5` check would not have caught
@@ -452,20 +456,24 @@ network owned by `synaptic-wiring` and `neuromod`.
   `asset.revision` and the file names if the graph changes) with:
 
   ```text
-  cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --test nir_example regenerate_nir_example -- --ignored --exact
+  cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --features nir --test nir_example regenerate_nir_example -- --ignored --exact
   ```
 
   `.gitattributes` keeps both files LF on every checkout because they are
   compared byte for byte.
 - **Static first.** The page imports the committed projection at build time
   and renders the SVG diagram, a per-operator parameter table, and the
-  provenance without JavaScript. Enhancement loads the adapter package,
+  provenance without JavaScript. Enhancement loads the labs adapter package,
   fetches the envelope, parses and validates it with `nir-rs` in Rust/WASM,
   and enables node selection only if the WASM projection is byte-identical to
-  the one embedded in the page (`projection-mismatch` otherwise). Any failure
-  keeps the complete static page and reports `data-nir-state="unavailable"`.
+  the one embedded in the page (`projection-mismatch` otherwise). The page
+  embeds that projection as a build-emitted JSON string literal; the browser
+  only decodes it with `JSON.parse` (which executes nothing), requires a
+  string, and compares it. Node views returned by WASM pass a structural check
+  before they are rendered, always through `textContent`. Any failure keeps the
+  complete static page and reports `data-nir-state="unavailable"`.
   `test/nir-lab.test.mjs` replays the same equality against the committed
-  WASM package under Node.
+  labs package under Node.
 - **Converting a `.nir` file (not shipped).** No HDF5 asset is bundled. A
   future `.nir` example must be converted natively, outside the browser and
   outside `npm run build`: a host-only tool reads it with
@@ -476,12 +484,51 @@ network owned by `synaptic-wiring` and `neuromod`.
   `nir_example.rs`. That tool must not be a dependency of the adapter crate.
 - **Scope.** Only bundled, versioned assets are inspected. Importing arbitrary
   user-supplied NIR files is not implemented.
-- **Size.** Deserializing the `nir-rs` graph model through Serde is the bulk
-  of the cost. The shared adapter `.wasm` grew from 189,316 to 668,088 bytes
-  (67,148 to about 189,000 bytes gzip -9), and the homepage demo loads the same
-  package. The projection structs declare fields alphabetically so the WASM
-  path serializes directly instead of through `serde_json::Value`, which saved
-  about 70 KB.
+- **Size.** Deserializing the `nir-rs` graph model through Serde is most of
+  the labs package's extra weight, which is why NIR lives behind the `nir`
+  feature and outside the homepage package (sizes below). The projection
+  structs declare fields alphabetically so the WASM path serializes directly
+  instead of through `serde_json::Value`, which saved about 70 KB.
+
+## Browser build profiles
+
+The adapter is one crate and one boundary, compiled once per profile listed in
+`scripts/wasm-profiles.mjs` (name → cargo features → output directory):
+
+| Profile | Cargo features | Package | Loaded by |
+| --- | --- | --- | --- |
+| `default` | none | `public/wasm/neuromorphic-adapter/` | the homepage live demo (`src/runtime/wasm-session.ts`) |
+| `labs` | `nir` | `public/wasm/neuromorphic-adapter-labs/` | off-homepage interactive surfaces; today `/labs/nir/` (`src/runtime/nir-inspection.ts`) |
+
+**Why the split exists.** Off-homepage surfaces need crates the landing page
+never uses. Linking `nir-rs` and its Serde decoder into one shared package
+made the homepage download 3.5× the WASM for a lab it does not show. The
+`labs` package now carries every off-homepage feature, and the `default`
+package stays byte-identical to the pre-NIR build. A later surface (for
+example a `protocol` decode path or `plasticity`) adds its feature to
+`labs.features` and its crates to `labs.requiredCrates`, and lists those
+crates in `default.excludedCrates`. The homepage package never grows with it.
+
+Measured on 2026-10-09 (Rust 1.98.1, wasm-bindgen 0.2.126, release build;
+gzip is `gzip -9` of the file, before any HTTP compression the host applies):
+
+| Package | `.wasm` raw | `.wasm` gzip | `.js` glue raw | `.js` glue gzip |
+| --- | ---: | ---: | ---: | ---: |
+| `default` (`neuromorphic-adapter/`) | 189,316 B | 67,148 B | 16,606 B | 3,164 B |
+| `labs` (`neuromorphic-adapter-labs/`) | 670,382 B | 190,533 B | 21,858 B | 4,095 B |
+
+- `npm run build:wasm-web` builds every profile. Each profile has its own cargo
+  target directory (`target/`, `target/labs/`), so the outputs never overwrite
+  each other. `npm run test:wasm-web-pkg` regenerates every profile and fails
+  on drift in the deterministic `.js`/`.d.ts` files.
+- `npm run validate:rust` runs clippy, `cargo test`, and the wasm32
+  `cargo check` for both the default build and `--features nir`.
+- `scripts/verify-browser-dependencies.mjs` resolves each profile's graph
+  separately: the native-dependency rules apply to both, `nir-rs` is required
+  in `labs`, and it must be absent from `default`.
+- The `nir` integration tests (`tests/nir_example.rs`, `tests/nir_inspection.rs`)
+  declare `required-features = ["nir"]`, so they run only with
+  `--features nir`.
 
 ## Read-only `wasm32-unknown-unknown` audit
 
@@ -499,7 +546,7 @@ decision above places it outside the browser.
 | `neuromod` | `Limen-Neural/neuromod` (crates.io) | =0.7.0 | `a897cc9` (v0.7.0 tag) | `--no-default-features --features wasm-js` | **Pass**. The opt-in `wasm-js` feature enables the supported `getrandom` browser backend; the default-only graph remains intentionally unsupported. |
 | `synaptic-wiring` | `Limen-Neural/synaptic-wiring` | `=0.3.0` | crates.io checksum `311aed9804c027f786ed5385883bd22469f8cb87fe804b88f77162466b9137b2`; audited source/main `5f70762b4ef09346d0689a65a1a8b20531cfbdab` | `--no-default-features` | **Pass** |
 | `nir-rs` | `Limen-Neural/nir-rs` | 0.4.3 | `1043cbf7bc6acbece250c769b9c2c8f7c58ce681` | `--no-default-features --features serde` (`hdf5` excluded) | **Pass** |
-| `nir-rs` | `Limen-Neural/nir-rs` | `=0.4.5` | crates.io checksum `cd21419b28aac9b71ec7abc63ec9c596e578f8fa7ce87019c255b93f84d09e00`; audited source/tag `f2d61779b261661a2c8eca14d79bde1e48c39969` (`v0.4.5`) | `default-features = false, features = ["serde"]` (`hdf5` excluded) | **Pass** on 2026-10-09 inside the adapter crate with `--locked`; approved for the browser adapter as the NIR graph model for `/labs/nir/` (see [NIR network inspection](#nir-network-inspection-github-16--linear-rm-1653)). |
+| `nir-rs` | `Limen-Neural/nir-rs` | `=0.4.5` | crates.io checksum `cd21419b28aac9b71ec7abc63ec9c596e578f8fa7ce87019c255b93f84d09e00`; audited source/tag `f2d61779b261661a2c8eca14d79bde1e48c39969` (`v0.4.5`) | `default-features = false, features = ["serde"]` (`hdf5` excluded) | **Pass** on 2026-10-09 inside the adapter crate with `--locked --features nir`; approved as the NIR graph model behind the adapter's `nir` feature, linked only into the labs package (see [NIR network inspection](#nir-network-inspection-github-16--linear-rm-1653)). |
 | `limbic-critic` | `Limen-Neural/limbic-critic` | 0.3.0 | `9bf0c79f5a47fac9c5b921dd9011b013d1ae52bb` | `--no-default-features` | **Pass** |
 | `plasticity-lab` | `Limen-Neural/plasticity-lab` | 0.1.0 | `d47ae33914b6a3044d0539b851cd83621b7f1f4b` | `--no-default-features --features critic` | **Blocked:** its `neuromod 0.6.0` git dependency reaches `getrandom 0.4.3`, which emits the missing-`wasm_js` compile error. |
 | `myelin-accelerator` | `Limen-Neural/myelin-accelerator` | 0.2.0 | `26651ca0edf96b080cd5ef89045543c453bd786c` | `--no-default-features` (`cuda` excluded) | **Pass**, using the crate's non-CUDA stub PTX build path; still excluded from the browser dependency graph. |

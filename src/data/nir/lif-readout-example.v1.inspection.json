@@ -3,7 +3,7 @@
     "generator": "crates/neuromorphic-adapter/tests/nir_example.rs",
     "id": "lif-readout-example",
     "origin": "hand-authored-example",
-    "regenerate": "cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --test nir_example regenerate_nir_example -- --ignored --exact",
+    "regenerate": "cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --features nir --test nir_example regenerate_nir_example -- --ignored --exact",
     "revision": 1,
     "summary": "Hand-authored example: three inputs, an affine projection into four LIF neurons, and a linear readout into two leaky integrators. Parameters are illustrative constants; nothing is trained or measured.",
     "title": "LIF layer with a leaky-integrator readout"

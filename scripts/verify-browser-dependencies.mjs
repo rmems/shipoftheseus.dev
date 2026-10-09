@@ -4,6 +4,8 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { WASM_PROFILES, profileFeatureArgs } from './wasm-profiles.mjs';
+
 const repository = resolve(import.meta.dirname, '..');
 const manifest = join(repository, 'crates/neuromorphic-adapter/Cargo.toml');
 
@@ -34,12 +36,14 @@ function nativeReason(pkg) {
 
 /**
  * Pure policy over `cargo metadata --format-version 1` output resolved for
- * `wasm32-unknown-unknown`. Returns one message per violation; an empty list
- * means the browser adapter graph is policy-clean.
+ * `wasm32-unknown-unknown`. The native rules apply to every profile;
+ * `requiredCrates` / `excludedCrates` come from the profile (see
+ * scripts/wasm-profiles.mjs). Returns sorted messages; empty means clean.
  */
-export function browserDependencyViolations(metadata) {
+export function browserDependencyViolations(metadata, { requiredCrates = [], excludedCrates = [] } = {}) {
   const packagesById = new Map(metadata.packages.map((pkg) => [pkg.id, pkg]));
   const resolved = metadata.resolve.nodes.map((node) => ({ ...packagesById.get(node.id), features: node.features }));
+  const has = (name) => resolved.some((pkg) => pkg.name === name);
   const violations = [];
 
   for (const pkg of resolved) {
@@ -47,19 +51,19 @@ export function browserDependencyViolations(metadata) {
     if (reason) violations.push(`${pkg.name}: ${reason}`);
   }
 
+  for (const name of requiredCrates) {
+    if (!has(name)) violations.push(`${name}: required by this profile but missing from its graph`);
+  }
+  for (const name of excludedCrates) {
+    if (has(name)) violations.push(`${name}: must stay out of this profile's graph`);
+  }
+
   const corpusIpc = resolved.find((pkg) => pkg.name === 'corpus-ipc');
-  if (!corpusIpc) {
-    violations.push('corpus-ipc: browser adapter graph must include the recorded corpus-ipc schema surface');
-  } else if (corpusIpc.features.some((feature) => feature === 'server' || feature === 'zmq')) {
+  if (corpusIpc?.features.some((feature) => feature === 'server' || feature === 'zmq')) {
     violations.push(`corpus-ipc: browser features must not enable server or zmq: ${corpusIpc.features.join(', ')}`);
   }
 
-  const nirRs = resolved.find((pkg) => pkg.name === 'nir-rs');
-  if (!nirRs) {
-    violations.push('nir-rs: browser adapter graph must include the nir-rs graph model');
-  }
-
-  return violations.sort();
+  return violations.sort((left, right) => left.localeCompare(right));
 }
 
 async function main() {
@@ -69,21 +73,26 @@ async function main() {
   if (!cargoMetadata.isFile() || (cargoMetadata.mode & 0o111) === 0) {
     throw new Error(`expected an executable cargo binary at ${cargo}`);
   }
-  const result = spawnSync(cargo, ['+1.98.1', 'metadata', '--manifest-path', manifest, '--locked', '--format-version', '1', '--filter-platform', 'wasm32-unknown-unknown'], {
-    cwd: repository,
-    encoding: 'utf8',
-  });
 
-  if (result.status !== 0) {
-    throw new Error(`cargo metadata failed:\n${result.stdout}\n${result.stderr}`);
+  const failures = [];
+  for (const profile of WASM_PROFILES) {
+    const result = spawnSync(cargo, ['+1.98.1', 'metadata', '--manifest-path', manifest, '--locked', '--format-version', '1', '--filter-platform', 'wasm32-unknown-unknown', ...profileFeatureArgs(profile)], {
+      cwd: repository,
+      encoding: 'utf8',
+    });
+    if (result.status !== 0) {
+      throw new Error(`cargo metadata failed for the ${profile.name} profile:\n${result.stdout}\n${result.stderr}`);
+    }
+    for (const violation of browserDependencyViolations(JSON.parse(result.stdout), profile)) {
+      failures.push(`[${profile.name}] ${violation}`);
+    }
   }
 
-  const violations = browserDependencyViolations(JSON.parse(result.stdout));
-  if (violations.length > 0) {
-    throw new Error(`browser adapter graph violates the native-dependency policy:\n${violations.join('\n')}`);
+  if (failures.length > 0) {
+    throw new Error(`browser adapter graph violates the native-dependency policy:\n${failures.join('\n')}`);
   }
 
-  process.stdout.write('Browser dependency policy passed.\n');
+  process.stdout.write(`Browser dependency policy passed for profiles: ${WASM_PROFILES.map((profile) => profile.name).join(', ')}.\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

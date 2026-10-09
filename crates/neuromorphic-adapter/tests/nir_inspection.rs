@@ -106,11 +106,63 @@ fn cycles_are_laid_out_without_hiding_any_node() {
     assert_eq!(input.layer, 0);
     let fc1 = inspection.node("fc1").expect("fc1");
     let lif1 = inspection.node("lif1").expect("lif1");
-    assert_eq!(
-        fc1.layer, lif1.layer,
-        "cycle members share the trailing layer"
-    );
+    assert_eq!(fc1.layer, lif1.layer, "cycle members share one layer");
+    assert_ne!(fc1.row, lif1.row, "cycle members get distinct rows");
     assert!(fc1.inputs.contains(&"lif1".to_owned()));
+
+    // Operators downstream of the cycle keep their forward order.
+    let layers: Vec<(&str, u32)> = inspection
+        .nodes
+        .iter()
+        .map(|node| (node.name.as_str(), node.layer))
+        .collect();
+    assert_eq!(
+        layers,
+        [
+            ("input", 0),
+            ("fc1", 1),
+            ("lif1", 1),
+            ("fc2", 2),
+            ("li1", 3),
+            ("output", 4),
+        ]
+    );
+    assert_eq!(inspection.layer_count, 5);
+    assert_eq!(inspection.max_rows, 2);
+}
+
+#[test]
+fn nodes_after_a_cycle_are_laid_out_after_it() {
+    // input -> a -> b -> a, with b -> readout -> output after the cycle.
+    let mut graph = envelope();
+    graph["graph"]["edges"] = json!([
+        ["input", "fc1"],
+        ["fc1", "lif1"],
+        ["lif1", "fc1"],
+        ["lif1", "fc2"],
+        ["fc2", "li1"],
+        ["li1", "output"],
+    ]);
+    let inspection = NirInspection::parse(&graph.to_string()).expect("NIR allows cycles");
+    let layer = |name: &str| inspection.node(name).expect(name).layer;
+    assert_eq!(layer("fc1"), layer("lif1"));
+    assert!(layer("fc2") > layer("lif1"));
+    assert!(layer("li1") > layer("fc2"));
+    assert!(layer("output") > layer("li1"));
+
+    // A self-loop and a two-node cycle with no source still lay out.
+    let mut loops = envelope();
+    loops["graph"]["edges"] = json!([
+        ["input", "input"],
+        ["fc1", "lif1"],
+        ["lif1", "fc1"],
+        ["lif1", "fc2"],
+    ]);
+    let inspection = NirInspection::parse(&loops.to_string()).expect("NIR allows cycles");
+    let layer = |name: &str| inspection.node(name).expect(name).layer;
+    assert_eq!(layer("input"), 0);
+    assert_eq!(layer("fc1"), layer("lif1"));
+    assert_eq!(layer("fc2"), layer("lif1") + 1);
 }
 
 #[test]

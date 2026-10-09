@@ -5,6 +5,9 @@ import process from 'node:process';
 import test from 'node:test';
 
 import { browserDependencyViolations } from '../scripts/verify-browser-dependencies.mjs';
+import { WASM_PROFILES, profileFeatureArgs } from '../scripts/wasm-profiles.mjs';
+
+const profile = (name) => WASM_PROFILES.find((candidate) => candidate.name === name);
 
 test('the resolved browser adapter graph excludes native-only execution paths', () => {
   const result = spawnSync(process.execPath, ['scripts/verify-browser-dependencies.mjs'], {
@@ -101,16 +104,66 @@ test('the wasm-bindgen links exemption is bound to its exact package and key', (
   assert.deepEqual(violations, ['wasm-bindgen-shared: links the native library "something_else"']);
 });
 
-test('the policy still requires the corpus-ipc schema surface and the nir-rs graph model', () => {
+test('the corpus-ipc browser surface never enables server or zmq', () => {
   const violations = browserDependencyViolations(metadata([
     ['neuromorphic-adapter'],
     ['corpus-ipc', { features: ['zmq'] }],
     ['zmq'],
-  ]));
+  ]), profile('default'));
 
   assert.deepEqual(violations, [
     'corpus-ipc: browser features must not enable server or zmq: zmq',
-    'nir-rs: browser adapter graph must include the nir-rs graph model',
     'zmq: native-only package',
   ]);
+});
+
+test('build profiles keep nir-rs in the labs package and out of the homepage package', () => {
+  assert.deepEqual(WASM_PROFILES.map(({ name, features, outputDirectory }) => [name, [...features], outputDirectory]), [
+    ['default', [], 'public/wasm/neuromorphic-adapter'],
+    ['labs', ['nir'], 'public/wasm/neuromorphic-adapter-labs'],
+  ]);
+  assert.notEqual(profile('default').targetDirectory, profile('labs').targetDirectory);
+  assert.deepEqual(profileFeatureArgs(profile('default')), []);
+  assert.deepEqual(profileFeatureArgs(profile('labs')), ['--features', 'nir']);
+
+  const homepageGraph = browserBaseline.filter(([name]) => name !== 'nir-rs' && name !== 'indexmap');
+  assert.deepEqual(browserDependencyViolations(metadata(homepageGraph), profile('default')), []);
+  assert.deepEqual(browserDependencyViolations(metadata(browserBaseline), profile('labs')), []);
+
+  assert.deepEqual(browserDependencyViolations(metadata(browserBaseline), profile('default')), [
+    "nir-rs: must stay out of this profile's graph",
+  ]);
+  assert.deepEqual(browserDependencyViolations(metadata(homepageGraph), profile('labs')), [
+    'nir-rs: required by this profile but missing from its graph',
+  ]);
+  assert.deepEqual(browserDependencyViolations(metadata([['neuromorphic-adapter']]), profile('labs')), [
+    'corpus-ipc: required by this profile but missing from its graph',
+    'nir-rs: required by this profile but missing from its graph',
+  ]);
+});
+
+test('the native rules apply to every profile', () => {
+  const graph = [...browserBaseline, ['hdf5-metno-sys', { links: 'hdf5' }], ['cc']];
+  for (const candidate of WASM_PROFILES) {
+    const violations = browserDependencyViolations(metadata(graph), candidate);
+    assert.ok(violations.includes('cc: native C/C++ build tooling'), candidate.name);
+    assert.ok(
+      violations.includes('hdf5-metno-sys: HDF5 is native-only (libhdf5) and must stay out of the browser bundle'),
+      candidate.name,
+    );
+  }
+});
+
+test('the policy script checks every profile and labels failures by profile', async () => {
+  const source = await readFile('scripts/verify-browser-dependencies.mjs', 'utf8');
+  const build = await readFile('scripts/build-neuromorphic-web.mjs', 'utf8');
+
+  assert.match(source, /for \(const profile of WASM_PROFILES\)/);
+  assert.match(source, /\.\.\.profileFeatureArgs\(profile\)/);
+  assert.match(source, /\[\$\{profile\.name\}\]/);
+  assert.match(build, /WASM_PROFILES\.map/);
+  assert.match(build, /'--target-dir',\s*pkg\.targetDirectory/);
+  assert.match(build, /executableFromEnvironment\('WASM_BINDGEN_BIN'\)/);
+  assert.match(build, /\(metadata\.mode & 0o022\) !== 0 \|\| \(metadata\.mode & 0o111\) === 0/);
+  assert.match(build, /'wasm-bindgen 0\.2\.126'/);
 });
