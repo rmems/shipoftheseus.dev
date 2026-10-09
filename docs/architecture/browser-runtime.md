@@ -2,7 +2,7 @@
 
 - **Status:** accepted for V1
 - **Decision date:** 2026-09-16
-- **Scope:** GitHub #4, #6, #8, #14, #15, and #21
+- **Scope:** GitHub #4, #6, #7, #8, #14, #15, and #21
 
 ## Decision
 
@@ -206,10 +206,90 @@ browser transport projection; it does not generate a replacement graph.
   `EdgeId`.
 - `topology_outgoing_edge_offsets` is a canonical CSR lookup from source
   `NeuronId` to its canonical outgoing-edge range. This is the sole handoff
-  needed by later spike propagation and rendering work.
+  needed by later spike propagation and rendering work (consumed by the spike
+  propagation events below).
 - The runtime seed is simulation provenance for `neuromod`; it does not select
   or alter `synaptic-wiring` topology. A topology changes only when the
   adapter configuration or locked upstream topology inputs change.
+
+### Spike propagation events (GitHub #7 / Linear RM-1643)
+
+The live view animates real spikes, not decorative particles.
+`src/runtime/spike-events.ts` is the seam. It reads only fields every snapshot
+already carries, so no contract change was needed: contracts 3 to 5 and their
+goldens are untouched.
+
+```text
+neuromod step ─ spike_neurons ───────────────┐
+synaptic-wiring projection (same snapshot) ──┴→ mapSpikesThroughTopology
+  → SpikeEventBuffer (fixed ring) → renderer frames, telemetry (#9), budgets (#10)
+```
+
+- **Mapping.** A spike at neuron `n` in a snapshot with `completed_step = N`
+  becomes one event per canonical edge in
+  `topology_outgoing_edge_offsets[n]..[n + 1]`. Each event carries that edge's
+  source, target, delay, polarity, signed weight, canonical index, and the
+  topology digest. `spike_neurons` index the `neuromod` LIF bank, which the
+  adapter sizes to the topology's `NeuronId` domain (the bridge rejects
+  snapshots where they differ). The mapping fails closed with a `RangeError`
+  on an inconsistent projection instead of guessing, and the renderer then
+  reports `renderer-error`.
+- **What an event means.** Contract 5 routes *encoder* spikes through
+  `mesh.propagate` before `neuromod` and does not feed `neuromod`'s output
+  spikes back into the mesh. A propagation event is the `synaptic-wiring`
+  routing of a `neuromod` spike, meaning the synapses and delays the topology
+  defines for its source neuron. It does not claim that the target received
+  that current inside the simulation. `crates/neuromorphic-adapter/tests/spike_propagation_handoff.rs`
+  checks that each projected outgoing range, read with these delays, is
+  exactly what upstream `SynapticMesh::propagate` delivers for a spike at that
+  neuron.
+- **Timing unit.** Delays are `synaptic-wiring` `DelayTicks`: a spike from `s`
+  on mesh tick `t` reaches its targets on tick `t + delay`. The adapter
+  advances the mesh once per `step`, so one tick is one logical step, and the
+  live demo steps every `DEMO_TICK_MS` = 50 ms. An event emitted at step `N`
+  on an edge with delay `d` arrives at step `N + d`, `d × 50 ms` later. The
+  live topology's delays are 1 to 4 steps (50 to 200 ms). Frames interpolate
+  within the current step as `(now − snapshot arrival) / 50 ms`, capped at
+  one step so a stalled simulation never runs ahead. The pulse head moves
+  `1/d` of the edge per step, and its 0.6-step tail lands after arrival.
+- **Buffering, separate from frames.** Snapshots are ingested when the WASM
+  seam publishes them, through `feedSpikeEvents(channel, buffer)`. Frames only
+  read the buffer. The buffer is a fixed-capacity ring (default 512, above the
+  live topology's worst case of 64 edges × 5 retained steps = 320). The oldest
+  events are evicted first and counted, and events retire one step after they
+  arrive. A repeated step is ignored. A lower step or a new topology digest
+  (a fresh adapter, such as the main-thread retry) restarts the buffer.
+  Ingestion is atomic: a snapshot that cannot be mapped changes nothing. The
+  renderer clears the buffer on pause and freeze, and on dispose it also
+  detaches from the channel. A disposed buffer ignores later input.
+- **Provenance.** Every event and per-step batch carries `provenance`, and a
+  buffer is bound to one provenance when it is created. `live-seams.ts` creates
+  the island's single `live-wasm` buffer and feeds it only from that island's
+  WASM channel. `fixture` buffers exist for isolated tests
+  (`test/spike-events.test.mjs`). No shipped module creates one, and a test
+  guards the live sources for that. There is no JavaScript spike source.
+- **Consumer API** (for #9 telemetry and #10 performance budgets).
+  `buffer.subscribe(batch => …)` delivers each step's `{ provenance, step,
+  topologyDigest, spikeNeurons, events }` after the buffer is updated.
+  Listener errors are reported, never thrown into ingestion.
+  `buffer.forEach` and `buffer.events()` read in-flight events oldest first.
+  `buffer.stats()` reports capacity, size, latest step, and the lifetime
+  `emitted`, `retired`, `evicted`, `resets`, and `clears` counters.
+  `createTopologyRendererSeam(...).inspect()` reports the last frame's
+  `drawnPulses`, `bufferedEvents`, and `motionEnabled`. `mapSpikesThroughTopology`,
+  `propagationSpan`, and `delayStepsToMs` are pure helpers.
+- **Rendering and reduced motion.** Each in-flight event is one tapered quad,
+  3 CSS px wide at the head and fading to clear at the tail, drawn in
+  `--signal` for excitatory synapses and `--ink` for inhibitory ones. Pulses
+  sit above the softer edge lines and under the nodes. Pulse buffers are
+  preallocated to the ring capacity, and only the drawn range is uploaded. The
+  renderer's motion flag, which is off whenever `prefers-reduced-motion:
+  reduce` applies, turns off pulses together with camera drift. After an
+  explicit Play under reduced motion, events are still buffered for telemetry
+  but nothing travels. The static topology and node state remain.
+- **Inspection.** Under `astro dev`, `globalThis.__neuromorphicSpikeEvents`
+  exposes `stats()`, `recent(limit)` (with `u64` steps as strings), and
+  `renderer()`.
 
 ### `neuromod` engine integration
 
