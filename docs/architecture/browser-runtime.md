@@ -168,7 +168,10 @@ pointer/touch/demo telemetry → kinetic-signals → axon-encoder → neuromod �
   `8 speed EMA(3)`, `9 speed EMA(12)`, `10 |Δspeed|`, `11 speed volatility
   (VolEstimator, 16 ticks)`, `12 speed surprise`, `13 pressure EMA(8)`,
   `14/15 x/y EMA(6)`. Full scale is 0.1 island/tick for velocity, 0.05 for
-  `|Δspeed|`, and z = 3 for surprise.
+  `|Δspeed|`, and z = 3 for surprise. Channel 11 follows `VolEstimator`'s
+  input contract (absolute changes, not levels): it is the rolling RMS over 16
+  ticks of `|Δspeed| / 0.1`, so a steady drag reads near 0 and jerky motion
+  reads high.
 - **Deterministic fallback.** Without pointer activity for 60 ticks (3 s), or
   after the pointer leaves the surface, the session feeds the deterministic
   scripted path (`scriptedTelemetry(sequence)` in
