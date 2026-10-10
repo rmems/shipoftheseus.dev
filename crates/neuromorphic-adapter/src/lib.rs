@@ -10,6 +10,16 @@ use wasm_bindgen::prelude::*;
 
 pub mod encoder;
 pub mod kinetic;
+/// NIR graph inspection (`nir-rs`, no HDF5), exported as `WasmNirInspection`
+/// only from the labs build (`--features nir`); the default homepage build
+/// does not compile it.
+#[cfg(feature = "nir")]
+pub mod nir;
+/// Recorded `corpus-ipc` envelope inspection for `/protocol/`, exported as
+/// `inspectProtocolFixture` only from the labs build (`--features protocol`);
+/// the default homepage build does not compile it.
+#[cfg(feature = "protocol")]
+pub mod protocol;
 
 use encoder::{
     CONTRACT_VERSION_V4, ENCODER_CHANNELS, EncoderMode, V1Encoder,

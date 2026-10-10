@@ -5,6 +5,10 @@ export const LIVE_ORIGIN_LABEL = 'LIVE · Rust/WASM';
 export const STATIC_ORIGIN_LABEL = 'STATIC · diagram';
 export const UNAVAILABLE_ORIGIN_LABEL = 'UNAVAILABLE · Rust/WASM';
 export const RECORDED_ORIGIN_LABEL = 'RECORDED · CUDA/FPGA';
+/** Graph structure read from a NIR asset; nothing is simulated. */
+export const IMPORTED_NIR_ORIGIN_LABEL = 'IMPORTED · NIR structure';
+/** Recorded `corpus-ipc` envelopes replayed offline on `/protocol/` (GitHub #21). */
+export const PROTOCOL_ORIGIN_LABEL = 'RECORDED · corpus-ipc wire v1';
 
 export const EMPTY_NATIVE_EVIDENCE_COPY =
   'No versioned CUDA or FPGA artifacts are published yet. Native-only acceleration is represented here only when a capture includes hardware, workload, units, source repository, source revision, and capture provenance.';

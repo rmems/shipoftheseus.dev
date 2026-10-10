@@ -1,0 +1,4 @@
+# Generated NIR assets are byte-compared (Rust generator test, Node WASM test,
+# and the /labs/nir/ page's WASM-vs-static check). Keep LF on every checkout.
+public/nir/*.json text eol=lf
+src/data/nir/*.json text eol=lf
