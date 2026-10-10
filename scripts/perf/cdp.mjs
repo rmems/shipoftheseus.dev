@@ -7,9 +7,24 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export async function launchChrome({ binary, headless = true, windowSize = '1280,900', extraArgs = [] }) {
-  const userDataDir = await mkdtemp(join(tmpdir(), 'neuromorphic-perf-chrome-'));
-  const args = [
+/** Wait for a child to exit, at most `ms`; true when it has exited. */
+function waitForExit(child, ms) {
+  return new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve(true);
+      return;
+    }
+    const timer = setTimeout(() => resolve(false), ms);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
+/** Chrome's arguments for a throwaway, unthrottled measurement profile. */
+function chromeArgs({ headless, userDataDir, windowSize, extraArgs }) {
+  return [
     headless ? '--headless=new' : null,
     '--remote-debugging-port=0',
     `--user-data-dir=${userDataDir}`,
@@ -28,48 +43,116 @@ export async function launchChrome({ binary, headless = true, windowSize = '1280
     ...extraArgs,
     'about:blank',
   ].filter(Boolean);
-  const child = spawn(binary, args, { stdio: 'ignore' });
+}
+
+/** Poll for Chrome's DevTools endpoint, failing fast if the process dies. */
+async function devToolsEndpoint(child, userDataDir, startupTimeoutMs, spawnFailure) {
   const portFile = join(userDataDir, 'DevToolsActivePort');
-  let endpoint = null;
-  for (let attempt = 0; attempt < 200 && !endpoint; attempt += 1) {
-    await delay(50);
+  const deadline = Date.now() + startupTimeoutMs;
+  for (;;) {
+    const failure = spawnFailure();
+    if (failure) throw new Error(`could not start the browser: ${failure.message}`);
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`the browser exited during startup (${child.exitCode ?? child.signalCode})`);
+    }
     try {
       const [port, path] = (await readFile(portFile, 'utf8')).trim().split('\n');
-      if (port && path) endpoint = `ws://127.0.0.1:${port}${path}`;
+      if (port && path) return `ws://127.0.0.1:${port}${path}`;
     } catch {
       // Not written yet.
     }
+    if (Date.now() > deadline) throw new Error('the browser did not expose a DevTools endpoint');
+    await delay(50);
   }
-  if (!endpoint) {
-    child.kill();
-    throw new Error('Chrome did not expose a DevTools endpoint');
+}
+
+/**
+ * Start Chrome with a throwaway profile and connect over CDP. If any step
+ * fails (spawn error, early exit, no DevTools endpoint, or a CDP connection
+ * that cannot open), the process is killed and the profile removed before
+ * the error is rethrown, so a failed start leaks nothing.
+ *
+ * `binaryArgs` go before Chrome's own arguments and `profileRoot` holds the
+ * profile; both exist so tests can stand in a fake browser.
+ */
+export async function launchChrome({
+  binary,
+  headless = true,
+  windowSize = '1280,900',
+  extraArgs = [],
+  binaryArgs = [],
+  profileRoot = tmpdir(),
+  startupTimeoutMs = 10_000,
+}) {
+  const userDataDir = await mkdtemp(join(profileRoot, 'neuromorphic-perf-chrome-'));
+  let child = null;
+  let connection = null;
+  let released = false;
+  const release = async () => {
+    if (released) return;
+    released = true;
+    connection?.close();
+    // A binary that failed to spawn has no pid and never emits 'exit'.
+    if (child?.pid !== undefined) {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      await waitForExit(child, 5000);
+    }
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
+  };
+
+  try {
+    let spawnError = null;
+    child = spawn(binary, [...binaryArgs, ...chromeArgs({ headless, userDataDir, windowSize, extraArgs })], {
+      stdio: 'ignore',
+    });
+    child.once('error', (error) => {
+      spawnError = error;
+    });
+    const endpoint = await devToolsEndpoint(child, userDataDir, startupTimeoutMs, () => spawnError);
+    connection = await CdpConnection.open(endpoint, startupTimeoutMs);
+  } catch (error) {
+    await release();
+    throw error;
   }
-  const connection = await CdpConnection.open(endpoint);
+
   return {
     connection,
     async close() {
       try {
         await connection.send('Browser.close');
       } catch {
-        child.kill();
+        // Fall through: release() kills the process.
       }
-      connection.close();
-      await new Promise((resolve) => {
-        if (child.exitCode !== null) resolve();
-        else child.once('exit', resolve);
-        setTimeout(resolve, 5000);
-      });
-      await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
+      await waitForExit(child, 5000);
+      await release();
     },
   };
 }
 
 export class CdpConnection {
-  static open(url) {
+  static open(url, timeoutMs = 10_000) {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(url);
-      socket.addEventListener('open', () => resolve(new CdpConnection(socket)), { once: true });
-      socket.addEventListener('error', () => reject(new Error(`could not connect to ${url}`)), { once: true });
+      const timer = setTimeout(() => {
+        socket.close();
+        reject(new Error(`timed out connecting to ${url}`));
+      }, timeoutMs);
+      socket.addEventListener(
+        'open',
+        () => {
+          clearTimeout(timer);
+          resolve(new CdpConnection(socket));
+        },
+        { once: true },
+      );
+      socket.addEventListener(
+        'error',
+        () => {
+          clearTimeout(timer);
+          reject(new Error(`could not connect to ${url}`));
+        },
+        { once: true },
+      );
     });
   }
 

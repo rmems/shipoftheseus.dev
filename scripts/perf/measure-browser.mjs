@@ -300,9 +300,11 @@ async function measureAdaptiveStress(page, report, rate) {
   }
 }
 
-const server = await serve(dist);
-const origin = `http://127.0.0.1:${server.address().port}`;
-const chrome = await launchChrome({ binary: browser, headless: !headed });
+// Set during startup inside the try below, so a failure at any point (server,
+// browser launch, CDP connection) still releases whatever already started.
+let server = null;
+let origin = null;
+let chrome = null;
 const report = {
   harness: 'scripts/perf/measure-browser.mjs',
   recordedAt: new Date().toISOString(),
@@ -317,6 +319,9 @@ const report = {
 };
 
 try {
+  server = await serve(dist);
+  origin = `http://127.0.0.1:${server.address().port}`;
+  chrome = await launchChrome({ binary: browser, headless: !headed });
   report.context.browser = await chrome.connection.send('Browser.getVersion');
   const page = await openPage(chrome.connection);
   if (emulatedDpr) {
@@ -335,8 +340,11 @@ try {
   if (option('cpu-throttle', null)) await measureAdaptiveStress(page, report, Number(option('cpu-throttle')));
   report.pageErrors = [...page.errors];
 } finally {
-  await chrome.close();
-  server.close();
+  await chrome?.close();
+  if (server) {
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
 }
 
 const json = JSON.stringify(report, null, 2);

@@ -89,6 +89,7 @@ export async function runBoundaryBench(deps, options = {}) {
   const now = deps.now ?? (() => performance.now());
   const ticks = options.ticks ?? 2000;
   const repeats = options.repeats ?? 7;
+  const workerTimeoutMs = options.workerTimeoutMs ?? DEFAULT_WORKER_TIMEOUT_MS;
   const modes = options.modes ?? ['delta', 'temporal', 'rate'];
   const sources = {
     scripted: scriptedTelemetry,
@@ -182,7 +183,7 @@ export async function runBoundaryBench(deps, options = {}) {
       // 6. Worker round trip: the shipped worker module, request/response per
       //    tick with the snapshot buffers transferred back.
       if (createWorker) {
-        row.workerTick = await workerBatch(createWorker, moduleUrl, DEMO_SEED, mode, packets, now, repeats, ticks);
+        row.workerTick = await workerBatch(createWorker, moduleUrl, DEMO_SEED, mode, packets, now, repeats, ticks, workerTimeoutMs);
       }
       results.push(row);
     }
@@ -212,44 +213,96 @@ export async function runBoundaryBench(deps, options = {}) {
   return { results, memory };
 }
 
-async function workerBatch(createWorker, moduleUrl, seed, mode, packets, now, repeats, ticks) {
+/** Longest wait for any single worker reply (init includes the WASM load). */
+export const DEFAULT_WORKER_TIMEOUT_MS = 10_000;
+
+/**
+ * Request/response over a worker with failure handling: a load error, a
+ * crash (`error`), an undeserializable reply (`messageerror`), or a reply
+ * that does not arrive within `timeoutMs` rejects instead of hanging the run.
+ * After the first failure every pending and later request rejects with it.
+ * Timers are injectable so the behaviour is testable without a real worker.
+ */
+export function createWorkerRequester(worker, options = {}) {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_WORKER_TIMEOUT_MS;
+  const setTimer = options.setTimeout ?? ((callback, ms) => setTimeout(callback, ms));
+  const clearTimer = options.clearTimeout ?? ((handle) => clearTimeout(handle));
+  const pending = new Map();
+  let failure = null;
+
+  const take = (id) => {
+    const entry = pending.get(id);
+    if (!entry) return null;
+    pending.delete(id);
+    clearTimer(entry.timer);
+    return entry;
+  };
+  const failAll = (error) => {
+    failure ??= error;
+    for (const id of [...pending.keys()]) take(id).reject(failure);
+  };
+
+  worker.onmessage = (event) => {
+    take(event?.data?.id)?.resolve(event.data);
+  };
+  worker.onerror = (event) => {
+    event?.preventDefault?.();
+    failAll(new Error(`benchmark worker failed: ${event?.message || 'it did not load or it crashed'}`));
+  };
+  worker.onmessageerror = () => failAll(new Error('benchmark worker sent a reply that could not be deserialized'));
+
+  return {
+    request(message, transfer = []) {
+      if (failure) return Promise.reject(failure);
+      return new Promise((resolve, reject) => {
+        const timer = setTimer(() => {
+          if (take(message.id)) {
+            reject(new Error(`benchmark worker did not answer ${message.type} #${message.id} within ${timeoutMs} ms`));
+          }
+        }, timeoutMs);
+        pending.set(message.id, { resolve, reject, timer });
+        try {
+          worker.postMessage(message, transfer);
+        } catch (error) {
+          take(message.id);
+          reject(error);
+        }
+      });
+    },
+    pending: () => pending.size,
+  };
+}
+
+async function workerBatch(createWorker, moduleUrl, seed, mode, packets, now, repeats, ticks, timeoutMs) {
   const perOp = [];
   for (let repeat = 0; repeat <= repeats; repeat += 1) {
     const worker = createWorker();
-    let nextId = 1;
-    const pending = new Map();
-    worker.onmessage = (event) => {
-      const entry = pending.get(event.data.id);
-      if (entry) {
-        pending.delete(event.data.id);
-        entry(event.data);
-      }
-    };
-    const request = (message, transfer = []) =>
-      new Promise((resolve) => {
-        pending.set(message.id, resolve);
-        worker.postMessage(message, transfer);
+    try {
+      const { request } = createWorkerRequester(worker, { timeoutMs });
+      let nextId = 1;
+      const ready = await request({
+        id: nextId++,
+        type: 'init',
+        seed,
+        moduleUrl,
+        options: { contractVersion: 5, encoderMode: mode },
       });
-    const ready = await request({
-      id: nextId++,
-      type: 'init',
-      seed,
-      moduleUrl,
-      options: { contractVersion: 5, encoderMode: mode },
-    });
-    if (ready.type !== 'ready') throw new Error(`worker init failed: ${ready.message}`);
-    const count = repeat === 0 ? Math.min(ticks, 200) : ticks;
-    const start = now();
-    for (let index = 0; index < count; index += 1) {
-      const samples = new Float32Array(packets[index]);
-      await request({ id: nextId++, type: 'input', sequence: BigInt(index + 1), samples }, [samples.buffer]);
-      const reply = await request({ id: nextId++, type: 'step' });
-      if (reply.type !== 'state') throw new Error(`worker step failed: ${reply.message}`);
+      if (ready.type !== 'ready') throw new Error(`worker init failed: ${ready.message}`);
+      const count = repeat === 0 ? Math.min(ticks, 200) : ticks;
+      const start = now();
+      for (let index = 0; index < count; index += 1) {
+        const samples = new Float32Array(packets[index]);
+        await request({ id: nextId++, type: 'input', sequence: BigInt(index + 1), samples }, [samples.buffer]);
+        const reply = await request({ id: nextId++, type: 'step' });
+        if (reply.type !== 'state') throw new Error(`worker step failed: ${reply.message}`);
+      }
+      const elapsed = (now() - start) / count;
+      worker.postMessage({ type: 'dispose' });
+      if (repeat > 0) perOp.push(elapsed); // repeat 0 is the warm-up
+    } finally {
+      // Always release the worker, including after a failed or timed-out run.
+      worker.terminate();
     }
-    const elapsed = (now() - start) / count;
-    worker.postMessage({ type: 'dispose' });
-    worker.terminate();
-    if (repeat > 0) perOp.push(elapsed); // repeat 0 is the warm-up
   }
   return summarize(perOp);
 }
