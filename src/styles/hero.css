@@ -1,0 +1,270 @@
+/*
+ * Homepage hero with the live neuromorphic mesh (src/components/NeuromorphicDemo.astro).
+ *
+ * Desktop: copy on the left, the mesh beside it. Tablet: copy first, then the
+ * mesh with its caption beside it. Mobile: the mesh below the calls to action
+ * at a modest height. The copy never sits over the mesh, and the mesh box is
+ * reserved before any script runs, so WebGL taking over moves nothing.
+ */
+
+.hero.hero-live {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+  grid-template-areas:
+    'heading heading'
+    'text mesh'
+    'index index';
+  column-gap: clamp(2rem, 5vw, 4.5rem);
+  align-items: center;
+  padding: clamp(3rem, 5.5vw, 4.5rem) 0 2.2rem;
+}
+
+.hero-live > .hero-heading { grid-area: heading; }
+.hero-live > .hero-text { grid-area: text; min-width: 0; }
+.hero-live > .hero-mesh { grid-area: mesh; }
+
+.hero-live > .hero-index {
+  grid-area: index;
+  margin: 0;
+  padding-top: clamp(2rem, 4vw, 3rem);
+}
+
+.hero.hero-live h1 { font-size: clamp(3.4rem, 6.4vw, 6.9rem); }
+
+/* The mesh: a reserved square plate with the static drawing underneath and
+   the WebGL surface on top. */
+.hero-mesh {
+  min-width: 0;
+  margin: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+/* The plate keeps a strip along its bottom edge for the controls, so they
+   never cover the network at any aspect ratio. */
+.hero-mesh-stage {
+  --plate-controls: 3.4rem;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--line);
+  background: var(--paper-deep);
+}
+
+.hero-mesh-static,
+.hero-mesh .demo-surface {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: calc(100% - var(--plate-controls));
+}
+
+.hero-mesh-static { display: block; }
+.hero-mesh-edges { fill: none; stroke-width: 1; }
+.hero-mesh-nodes { fill: none; stroke-linecap: square; }
+.hero-mesh-edges line,
+.hero-mesh-nodes { vector-effect: non-scaling-stroke; }
+
+.hero-mesh .demo-surface {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  cursor: crosshair;
+}
+
+/* Keep the hidden surface laid out at full size so the renderer starts at the
+   final size (no resize clear on reveal), but invisible and inert. */
+.hero-mesh .demo-surface[hidden] {
+  display: block;
+  visibility: hidden;
+}
+
+.hero-mesh .demo-surface:not([hidden]) + .hero-mesh-static { visibility: hidden; }
+
+.hero-mesh .demo-surface canvas {
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Caption: provenance, controls, status, crate trail, quiet links. */
+.hero-mesh-caption {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+/* Controls sit in the plate's bottom strip, absolutely placed, so showing or
+   hiding them never reflows the page. */
+.button.hero-mesh-play {
+  position: absolute;
+  right: 0.6rem;
+  bottom: 0.6rem;
+  min-width: 11em;
+  justify-content: center;
+  padding: 0.5rem 0.8rem;
+  background: var(--paper);
+  font-family: var(--sans);
+  font-size: 0.76rem;
+}
+
+.hero-mesh-input {
+  position: absolute;
+  bottom: 1.2rem;
+  left: 0.75rem;
+  display: none;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  pointer-events: none;
+}
+
+.hero-mesh-input > span { display: none; }
+
+.live-hero[data-mode='live'] .hero-mesh-input { display: block; }
+
+.live-hero[data-demo-input-source='pointer'] .hero-mesh-input > [data-input='pointer'],
+.live-hero:not([data-demo-input-source='pointer']) .hero-mesh-input > [data-input='scripted'] {
+  display: inline;
+}
+
+.live-hero[data-demo-input-source='pointer'] .hero-mesh-input { color: var(--signal); }
+
+/* The origin label sits alone on its line: its text changes with the
+   runtime, and nothing after it on the line could move. */
+.hero-mesh-meta {
+  display: grid;
+  justify-items: start;
+  gap: 0.5rem;
+}
+
+.hero-mesh-meta .execution-origin { margin: 0; }
+
+/* Both variants share one grid cell, so switching never changes its size. */
+.hero-mesh-mode { display: inline-grid; }
+.hero-mesh-mode > span { grid-area: 1 / 1; visibility: hidden; }
+
+.live-hero:not([data-mode='live']) .hero-mesh-mode > [data-when='idle'],
+.live-hero[data-mode='live'] .hero-mesh-mode > [data-when='live'] {
+  visibility: visible;
+}
+
+/* Room for the longest status message, so status changes do not reflow. */
+.hero-mesh .demo-status {
+  min-height: 4.5em;
+  font-family: var(--sans);
+  font-size: 0.86rem;
+}
+
+.hero-mesh .demo-status-noscript { min-height: 0; }
+
+.crate-trail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crate-trail li { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; }
+
+.crate-trail li:not(:last-child)::after {
+  color: var(--line-strong);
+  content: '→';
+  content: '→' / '';
+}
+
+.crate-trail a {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.crate-trail a:hover { color: var(--signal); }
+
+.hero-mesh-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.4rem;
+  margin: 0;
+}
+
+.hero-mesh-links a {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.hero-mesh-links a:hover { color: var(--signal); }
+
+/* How the live view is built, below the first screen. */
+.hero-runtime {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 1.5rem clamp(1.5rem, 5vw, 4rem);
+  align-items: start;
+  padding: clamp(3rem, 6vw, 5rem) 0 clamp(2rem, 4vw, 3rem);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.hero-runtime-heading .eyebrow { margin-bottom: 0.8rem; }
+
+.hero-runtime h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(2.3rem, 3.8vw, 3.6rem);
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+.hero-runtime-copy .demo-copy { margin: 0; }
+.hero-runtime-copy .demo-copy + .demo-copy { margin-top: 1rem; }
+
+@media (max-width: 900px) {
+  .hero.hero-live {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'heading'
+      'text'
+      'mesh'
+      'index';
+    row-gap: 2.5rem;
+    min-height: 0;
+  }
+
+  .hero.hero-live h1 { font-size: clamp(3.4rem, 9.2vw, 6.5rem); }
+
+  /* Offset: the plate on the left, its caption beside it. */
+  .hero-mesh {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    align-items: end;
+    gap: 1rem 1.5rem;
+  }
+
+  .hero-runtime { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 680px) {
+  .hero.hero-live {
+    row-gap: 2rem;
+    padding-top: 3.5rem;
+  }
+
+  .hero.hero-live h1 { font-size: min(17vw, 5rem); }
+
+  .hero-mesh { grid-template-columns: minmax(0, 1fr); }
+  .hero-mesh-stage { aspect-ratio: 4 / 3; }
+  .hero-live > .hero-index { padding-top: 0.5rem; }
+}
+
+@media (max-width: 360px) {
+  .hero.hero-live h1 { font-size: min(18vw, 3.7rem); }
+}

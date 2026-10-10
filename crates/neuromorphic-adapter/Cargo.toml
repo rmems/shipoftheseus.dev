@@ -8,14 +8,55 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+# Labs-only NIR inspection (`/labs/nir/`). Built into the separate labs
+# package so the homepage package never carries nir-rs or its Serde decoder.
+nir = ["dep:nir-rs", "dep:serde", "dep:serde_json"]
+# Labs-only recorded corpus-ipc envelope inspection (`/protocol/`): the
+# serde_json decode path for every IpcMessage variant plus SHA-256. The
+# default build keeps only the corpus-ipc wire-version constant.
+protocol = ["dep:serde_json", "dep:sha2"]
+# Labs-only reward-modulated learning lab (`/labs/plasticity/`): limbic-critic
+# reward shaping and plasticity-lab orchestration above neuromod's R-STDP.
+plasticity = ["dep:limbic-critic", "dep:plasticity-lab"]
+
 [dependencies]
 axon-encoder = { git = "https://github.com/Limen-Neural/axon-encoder.git", rev = "a56276746569e5ecaa78e50882064858835b2438", default-features = false, features = ["serde", "wasm-js"] }
 corpus-ipc = { version = "=0.1.0", default-features = false }
 kinetic-signals = { git = "https://github.com/rmems/kinetic-signals.git", rev = "e829a0d5826c0d1175b8878b024a69ce4e1d538b" }
 js-sys = "=0.3.103"
+limbic-critic = { version = "=0.3.0", optional = true }
 neuromod = { version = "=0.7.0", default-features = false, features = ["wasm-js"] }
+nir-rs = { version = "=0.4.5", default-features = false, features = ["serde"], optional = true }
+# crates.io plasticity-lab 0.2.1 requires neuromod ^0.6; main at this revision
+# requires the adapter's neuromod 0.7.0 and is not yet published.
+plasticity-lab = { git = "https://github.com/Limen-Neural/plasticity-lab.git", rev = "c80fac2eb96a140df9cfd999278bce414a329a56", default-features = false, features = ["critic", "wasm-js"], optional = true }
+serde = { version = "=1.0.229", features = ["derive"], optional = true }
+serde_json = { version = "=1.0.151", optional = true }
+sha2 = { version = "=0.10.9", default-features = false, optional = true }
 synaptic-wiring = "=0.3.0"
 wasm-bindgen = "=0.2.126"
 
 [dev-dependencies]
 serde_json = "=1.0.151"
+
+[[test]]
+name = "nir_example"
+required-features = ["nir"]
+
+[[test]]
+name = "nir_inspection"
+required-features = ["nir"]
+
+[[test]]
+name = "protocol_fixtures"
+required-features = ["protocol"]
+
+[[test]]
+name = "protocol_ingress"
+required-features = ["protocol"]
+
+[[test]]
+name = "plasticity_session"
+required-features = ["plasticity"]

@@ -1,0 +1,44 @@
+/* Shared by the /labs/ index and individual lab pages. */
+.execution-origin[data-origin='imported'] {
+  border-style: dashed;
+}
+
+.labs-index {
+  padding: 0 0 6rem;
+  border-top: 1px solid var(--ink);
+}
+
+.labs-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lab-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  gap: 0.2rem;
+  padding: 2rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.lab-entry .execution-origin { margin-bottom: 0.6rem; }
+
+.lab-entry h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(min(2rem, 10vw), 4vw, 3rem);
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.lab-entry h2 a { text-decoration: none; }
+
+.lab-entry > p {
+  max-width: 42rem;
+  margin: 0.8rem 0 0;
+}
+
+.lab-entry .technology-list { margin: 1rem 0 0.8rem; }

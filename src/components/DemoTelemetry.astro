@@ -1,0 +1,91 @@
+---
+import { executionOriginData, executionOriginLabel } from '../native-evidence/view';
+import { DEFAULT_RASTER_STEPS, KINETIC_FEATURE_LABELS, TELEMETRY_STATIC_STATUS } from '../runtime/demo-telemetry';
+import '../styles/telemetry.css';
+
+// Static first: before the live runtime streams anything, the panel only
+// explains where its data would come from. `telemetry-view.ts` binds it from
+// the demo island and samples only while the panel is open.
+const origin = 'unavailable-wasm';
+---
+<details class="demo-telemetry" data-demo-telemetry id="live-telemetry" data-demo-viewport data-telemetry-state="unavailable">
+  <summary class="demo-telemetry-summary">
+    <span class="demo-telemetry-summary-title">Live telemetry</span>
+    <span class="demo-telemetry-summary-hint">Spike raster, neuron inspector, and encoder input</span>
+  </summary>
+  <div class="demo-telemetry-body">
+    <div class="demo-telemetry-head">
+      <p class="execution-origin" data-origin={executionOriginData(origin)} data-telemetry-origin>{executionOriginLabel(origin)}</p>
+      <p class="demo-telemetry-status" data-telemetry-status>{TELEMETRY_STATIC_STATUS}</p>
+    </div>
+    <div class="demo-telemetry-live" data-telemetry-live hidden>
+      <p class="demo-telemetry-provenance" data-telemetry-provenance></p>
+
+      <section class="demo-telemetry-block demo-telemetry-raster" aria-labelledby="demo-telemetry-raster-title">
+        <h3 id="demo-telemetry-raster-title">Spike raster <span class="demo-telemetry-layer">neuromod</span></h3>
+        <canvas
+          data-telemetry-raster
+          role="img"
+          aria-label={`Spike raster of the last ${DEFAULT_RASTER_STEPS} simulation steps. Rows are NeuronIds from top to bottom, columns are steps with the newest on the right, and marks are neuromod spikes. The bottom lane shows axon-encoder spikes per step. The text below summarizes the same window.`}
+        ></canvas>
+        <p class="demo-telemetry-caption">Rows: NeuronId, top to bottom. Columns: steps, newest on the right. Marks: neuromod output spikes from the spike-event buffer. Bottom lane: <span class="demo-telemetry-layer">axon-encoder</span> spikes encoded per step, as a share of its 16 channels.</p>
+        <p class="demo-telemetry-caption" data-telemetry-raster-summary></p>
+        <p class="demo-telemetry-caption" data-telemetry-propagation></p>
+      </section>
+
+      <section class="demo-telemetry-block demo-telemetry-inspector" aria-labelledby="demo-telemetry-neuron-title">
+        <h3 id="demo-telemetry-neuron-title">Neuron inspector</h3>
+        <fieldset class="demo-telemetry-neurons" data-telemetry-neurons>
+          <legend>Select a NeuronId (shared by <span class="demo-telemetry-layer">neuromod</span> and <span class="demo-telemetry-layer">synaptic-wiring</span>)</legend>
+          <div class="demo-telemetry-chips" data-telemetry-chips></div>
+        </fieldset>
+        <dl class="demo-telemetry-facts">
+          <div><dt>Neuron</dt><dd data-telemetry-field="neuron">—</dd></div>
+          <div><dt>Membrane potential <span class="demo-telemetry-layer">neuromod</span></dt><dd data-telemetry-field="membrane">—</dd></div>
+          <div><dt>Spiked <span class="demo-telemetry-layer">neuromod</span></dt><dd data-telemetry-field="spiked">—</dd></div>
+          <div><dt>Recent spike steps</dt><dd data-telemetry-field="recent">—</dd></div>
+        </dl>
+        <div class="demo-telemetry-tables">
+          <div class="demo-telemetry-table-scroll">
+            <table data-telemetry-outgoing>
+              <caption>Outgoing synapses <span class="demo-telemetry-layer">synaptic-wiring</span></caption>
+              <thead><tr><th scope="col">Edge</th><th scope="col">Target</th><th scope="col">Weight</th><th scope="col">Delay</th><th scope="col">Polarity</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="demo-telemetry-table-scroll">
+            <table data-telemetry-incoming>
+              <caption>Incoming synapses <span class="demo-telemetry-layer">synaptic-wiring</span></caption>
+              <thead><tr><th scope="col">Edge</th><th scope="col">Source</th><th scope="col">Weight</th><th scope="col">Delay</th><th scope="col">Polarity</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="demo-telemetry-block demo-telemetry-input" aria-labelledby="demo-telemetry-input-title">
+        <h3 id="demo-telemetry-input-title">Input and encoding</h3>
+        <dl class="demo-telemetry-facts">
+          <div><dt>Input source <span class="demo-telemetry-layer">site input</span></dt><dd data-telemetry-field="source">—</dd></div>
+          <div><dt>Encoder mode <span class="demo-telemetry-layer">axon-encoder</span></dt><dd data-telemetry-field="encoder-mode">—</dd></div>
+          <div><dt>Latest input encoded</dt><dd data-telemetry-field="encoded">—</dd></div>
+          <div><dt>Encoded since start</dt><dd data-telemetry-field="encoded-total">—</dd></div>
+        </dl>
+        <h4>Encoder input features <span class="demo-telemetry-layer">kinetic-signals</span></h4>
+        <ol class="demo-telemetry-features" data-telemetry-features>
+          {KINETIC_FEATURE_LABELS.map((label, index) => (
+            <li>
+              <span class="demo-telemetry-feature-index">{index}</span>
+              <span class="demo-telemetry-feature-label">{label}</span>
+              <span class="demo-telemetry-feature-bar" aria-hidden="true"><span data-feature-bar></span></span>
+              <span class="demo-telemetry-feature-value" data-feature-value>—</span>
+            </li>
+          ))}
+        </ol>
+        <p class="demo-telemetry-caption" data-telemetry-features-missing hidden>This contract does not export encoder input features.</p>
+      </section>
+
+      <p class="demo-telemetry-note">Every value here except the input source is read from the live Rust/WASM runtime, from the same snapshots that drive the network view. The input source is the site's own DOM input tracker, which records whether the step's packet came from your pointer or the scripted path. Contract 5 routes <span class="demo-telemetry-layer">axon-encoder</span> spikes through <span class="demo-telemetry-layer">synaptic-wiring</span> into <span class="demo-telemetry-layer">neuromod</span>. The raster shows neuromod's output spikes, which are not fed back into the mesh, so a synapse listed here is the route the topology defines, not proof that its target received current. The runtime does not export a firing threshold or neuron-model parameters, so none are shown.</p>
+    </div>
+  </div>
+</details>

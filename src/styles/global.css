@@ -32,6 +32,9 @@ body {
   font-size: 16px;
   line-height: 1.65;
   text-rendering: optimizeLegibility;
+  /* A word longer than its line breaks instead of widening the page (narrow
+     screens with large text). */
+  overflow-wrap: break-word;
 }
 
 body::before {
@@ -118,7 +121,7 @@ code {
 .signal-mark span:nth-child(2) { height: 17px; }
 .signal-mark span:nth-child(3) { height: 12px; }
 
-.primary-nav { display: flex; gap: clamp(0.9rem, 2.5vw, 1.8rem); }
+.primary-nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.4rem clamp(0.9rem, 2.5vw, 1.8rem); }
 
 .primary-nav a,
 .header-profile {
@@ -232,6 +235,9 @@ button.button {
   cursor: pointer;
 }
 
+/* `.button` sets a display, which would otherwise override `hidden`. */
+.button[hidden] { display: none; }
+
 .button-primary { color: var(--paper); background: var(--ink); }
 .button-primary:hover { color: var(--paper); border-color: var(--signal); background: var(--signal); }
 .button-secondary:hover { color: var(--paper); background: var(--signal); border-color: var(--signal); }
@@ -253,7 +259,7 @@ button.button {
 
 .section-heading {
   display: grid;
-  grid-template-columns: 0.7fr 1.5fr auto;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.5fr) auto;
   align-items: end;
   gap: 2rem;
   margin-bottom: 2.5rem;
@@ -279,10 +285,17 @@ button.button {
   font-size: 0.7rem;
   font-weight: 650;
   letter-spacing: 0.02em;
-  white-space: nowrap;
 }
 
-.project-grid { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--ink); }
+/* Columns are at least 18rem wide, so larger text means fewer columns
+   (three on a desktop, one at 200% text) instead of cramped cards. The grid
+   draws the left edge; each card draws its right and bottom edges. */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  border-top: 1px solid var(--ink);
+  border-left: 1px solid var(--line);
+}
 
 .project-card {
   min-height: 400px;
@@ -295,11 +308,12 @@ button.button {
   transition: background 180ms ease;
 }
 
-.project-card:first-child { border-left: 1px solid var(--line); }
 .project-card:hover { background: rgb(229 227 217 / 72%); }
 
 .project-topline {
   display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.8rem;
   align-items: center;
   justify-content: space-between;
   color: var(--muted);
@@ -314,7 +328,6 @@ button.button {
   color: var(--muted);
   font-family: var(--mono);
   font-size: 0.66rem;
-  white-space: nowrap;
 }
 
 .status i {
@@ -367,7 +380,7 @@ button.button {
 
 .focus-band {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 3rem;
   padding: clamp(3.5rem, 6vw, 5.5rem) 0;
   border-top: 1px solid var(--ink);
@@ -377,46 +390,11 @@ button.button {
 .focus-band .eyebrow { margin-bottom: 0.8rem; }
 .focus-band > p { max-width: 520px; margin: 0; font-size: 1.05rem; }
 
-.demo-island {
-  display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: clamp(1.5rem, 4vw, 3rem);
-  align-items: end;
-  border-bottom: 1px solid var(--line-strong);
-}
-
-.demo-heading .eyebrow { margin-bottom: 0.8rem; }
-
 .demo-copy {
   max-width: 42rem;
   margin: 1.1rem 0 0;
   color: var(--ink);
   font-size: 1.02rem;
-}
-
-.demo-stage {
-  display: grid;
-  gap: 1rem;
-}
-
-.demo-diagram {
-  margin: 0;
-  padding: 1rem;
-  border: 1px solid var(--line-strong);
-  background: var(--paper-deep);
-  color: var(--ink);
-}
-
-.demo-diagram svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.demo-diagram-labels {
-  font-family: var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .demo-surface {
@@ -430,13 +408,6 @@ button.button {
   width: 100%;
   height: 100%;
   min-height: 12rem;
-}
-
-.demo-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.85rem 1.1rem;
 }
 
 .demo-status {
@@ -471,7 +442,6 @@ button.button {
   border-color: var(--line-strong);
 }
 
-.demo-heading .execution-origin,
 .native-evidence-heading .execution-origin {
   margin-bottom: 1.15rem;
 }
@@ -657,7 +627,7 @@ button.button {
 
 .prose-grid {
   display: grid;
-  grid-template-columns: 1fr 2fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
   padding: 1.5rem 0 6rem;
   border-top: 1px solid var(--ink);
 }
@@ -672,7 +642,7 @@ button.button {
 
 .work-index {
   display: grid;
-  grid-template-columns: 0.7fr 2.3fr;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 2.3fr);
   gap: 2rem;
   padding: 1.5rem 0 4rem;
   border-top: 1px solid var(--ink);
@@ -683,7 +653,7 @@ button.button {
 
 .work-index a {
   display: grid;
-  grid-template-columns: 3rem 1fr;
+  grid-template-columns: 3rem minmax(0, 1fr);
   gap: 1rem;
   padding: 0.9rem 0;
   border-bottom: 1px solid var(--line);
@@ -702,7 +672,7 @@ button.button {
   scroll-margin-top: 2rem;
 }
 
-.case-study-header { display: grid; grid-template-columns: 1fr auto; gap: 2rem; align-items: start; }
+.case-study-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2rem; align-items: start; }
 
 .case-study-header h2 {
   max-width: 900px;
@@ -716,13 +686,13 @@ button.button {
 
 .case-study-body {
   display: grid;
-  grid-template-columns: 0.7fr 1.3fr;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
   gap: clamp(2rem, 7vw, 6rem);
   margin-top: clamp(3rem, 6vw, 5rem);
 }
 
 .case-study-summary { margin: 0; font-family: var(--serif); font-size: clamp(1.35rem, 2.5vw, 2rem); line-height: 1.3; }
-.case-study-detail { display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 2.5rem; }
+.case-study-detail { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); gap: 2.5rem; }
 .detail-label { padding-top: 0.8rem; border-top: 1px solid var(--line); }
 .question-list { margin: 0; padding: 0; list-style: none; }
 
@@ -742,7 +712,7 @@ button.button {
 
 .note-entry {
   display: grid;
-  grid-template-columns: 1.1fr 1fr auto;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto;
   gap: 2rem;
   align-items: center;
   padding: 2rem 0;
@@ -763,7 +733,7 @@ button.button {
 
 .contact-panel > * {
   display: grid;
-  grid-template-columns: 140px 1fr auto;
+  grid-template-columns: 140px minmax(0, 1fr) auto;
   gap: 1rem;
   align-items: center;
   padding: 1.6rem 0;
@@ -777,13 +747,11 @@ button.button {
 .resume-panel > p:not(.eyebrow) { max-width: 600px; margin: 2rem 0; font-size: 1.08rem; }
 
 @media (max-width: 900px) {
-  .site-header { grid-template-columns: 1fr auto; }
+  .site-header { grid-template-columns: minmax(0, 1fr) auto; }
   .primary-nav { grid-column: 1 / -1; grid-row: 2; justify-content: space-between; padding: 0.9rem 0; border-top: 1px solid var(--line); }
   .header-profile { grid-column: 2; grid-row: 1; }
-  .section-heading, .work-index, .demo-island, .native-evidence { grid-template-columns: 1fr; gap: 1.2rem; }
-  .project-grid { grid-template-columns: 1fr 1fr; }
-  .project-card:nth-child(3) { border-left: 1px solid var(--line); }
-  .case-study-body { grid-template-columns: 1fr; }
+  .section-heading, .work-index, .native-evidence { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; }
+  .case-study-body { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 680px) {
@@ -791,26 +759,28 @@ button.button {
   .site-header { min-height: 78px; gap: 0.8rem; }
   .brand { font-size: 0.86rem; }
   .header-profile { padding: 0.42rem 0.55rem; }
-  .primary-nav { gap: 0.55rem; }
+  .primary-nav { flex-wrap: wrap; gap: 0.45rem 0.55rem; }
   .primary-nav a, .header-profile { font-size: 0.62rem; }
   .hero { min-height: 0; padding-top: 5rem; }
   .hero-coordinate { display: none; }
-  .hero h1, .page-intro h1, .resume-panel h1, .note-article h1 { font-size: clamp(3.3rem, 17vw, 5rem); }
+  /* Capped by the viewport, not by rem, so 200% text cannot push them wider than the screen. */
+  .hero h1 { font-size: min(17vw, 5rem); }
+  .page-intro h1, .resume-panel h1, .note-article h1 { font-size: min(15.5vw, 5rem); }
   .hero-index { flex-direction: column; padding-top: 4rem; }
-  .section-heading, .focus-band, .prose-grid, .case-study-detail, .native-evidence { grid-template-columns: 1fr; }
-  .project-grid { grid-template-columns: 1fr; }
-  .project-card { min-height: 0; border-left: 1px solid var(--line); }
+  .section-heading, .focus-band, .prose-grid, .case-study-detail, .native-evidence { grid-template-columns: minmax(0, 1fr); }
+  .section h2, .focus-band h2, .work-principle h2 { font-size: clamp(min(2.5rem, 11vw), 4.4vw, 4.4rem); }
+  .project-card { min-height: 0; }
   .project-detail-link { margin-top: 1.5rem; }
   .focus-band { gap: 1.5rem; }
   .page-intro { padding-top: 5rem; }
   .prose-grid { gap: 1.4rem; padding-bottom: 4.5rem; }
-  .case-study-header { grid-template-columns: 1fr; gap: 1.5rem; }
-  .case-study-header h2 { font-size: clamp(3rem, 15vw, 4.8rem); }
+  .case-study-header { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  .case-study-header h2 { font-size: min(15vw, 4.8rem); }
   .case-study-detail { gap: 2rem; }
-  .note-entry { grid-template-columns: 1fr; gap: 1rem; }
-  .native-evidence-provenance div { grid-template-columns: 1fr; gap: 0.3rem; }
-  .native-evidence-parameters div { grid-template-columns: 1fr; gap: 0.2rem; }
-  .contact-panel > * { grid-template-columns: 1fr auto; gap: 0.3rem; }
+  .note-entry { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .native-evidence-provenance div { grid-template-columns: minmax(0, 1fr); gap: 0.3rem; }
+  .native-evidence-parameters div { grid-template-columns: minmax(0, 1fr); gap: 0.2rem; }
+  .contact-panel > * { grid-template-columns: minmax(0, 1fr) auto; gap: 0.3rem; }
   .contact-panel strong { grid-column: 1; grid-row: 2; }
   .contact-panel span:last-child { grid-column: 2; grid-row: 1 / 3; }
   .site-footer { flex-direction: column; gap: 0.5rem; }
@@ -819,7 +789,8 @@ button.button {
 @media (max-width: 360px) {
   .brand span:last-child { max-width: 8rem; line-height: 1.15; }
   .primary-nav { flex-wrap: wrap; }
-  .hero h1, .page-intro h1, .resume-panel h1, .note-article h1 { font-size: clamp(2.8rem, 18vw, 3.7rem); }
+  .hero h1 { font-size: min(18vw, 3.7rem); }
+  .page-intro h1, .resume-panel h1, .note-article h1 { font-size: min(15.5vw, 3.7rem); }
 }
 
 @media (prefers-reduced-motion: reduce) {

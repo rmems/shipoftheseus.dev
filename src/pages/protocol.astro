@@ -1,0 +1,139 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ExecutionOrigin from '../components/ExecutionOrigin.astro';
+import ProtocolFixtureCard from '../components/ProtocolFixtureCard.astro';
+import { loadProtocolFixtureCatalog } from '../protocol/catalog';
+import {
+  CORPUS_IPC_ARCHIVE_SHA256,
+  CORPUS_IPC_CRATE,
+  CORPUS_IPC_FEATURES,
+  CORPUS_IPC_LOCKFILE,
+  CORPUS_IPC_REQUIREMENT,
+  CORPUS_IPC_SOURCE_REPOSITORY,
+  CORPUS_IPC_SOURCE_SHA,
+  PROTOCOL_DECODE_PATH,
+  PROTOCOL_ERROR_CODES,
+  PROTOCOL_FIXTURE_BYTE_LIMIT,
+  PROTOCOL_TRANSPORT,
+  PROTOCOL_WASM_MODULE_URL,
+} from '../protocol/provenance';
+import { executionOriginLabel } from '../native-evidence/view';
+import '../styles/protocol.css';
+
+const catalog = loadProtocolFixtureCatalog();
+---
+<BaseLayout title="Protocol" description="Recorded corpus-ipc wire-v1 envelopes, verified by SHA-256 and decoded in the browser by the Rust/WASM adapter. Offline replay: no ZeroMQ, no IPC service.">
+  <section class="page-intro compact" aria-labelledby="protocol-page-title">
+    <p class="eyebrow">Recorded protocol</p>
+    <ExecutionOrigin origin="recorded-protocol" />
+    <h1 id="protocol-page-title">IPC provenance you can check byte for byte.</h1>
+    <p>These are recorded <code>corpus-ipc</code> wire-v1 envelopes, replayed offline from checked-in files. ZeroMQ, the Axum IPC service, and any live transport stay out of the browser. With JavaScript, the page decodes each envelope through the Rust/WASM adapter crate behind the homepage demo, in its labs build.</p>
+  </section>
+
+  <div class="protocol-viewer" data-protocol-viewer data-protocol-state="static">
+    <section class="protocol-section" aria-labelledby="protocol-provenance-title">
+      <div class="protocol-section-heading">
+        <p class="eyebrow">Locked surface</p>
+        <h2 id="protocol-provenance-title">What decodes these bytes.</h2>
+      </div>
+      <dl class="protocol-fields protocol-provenance">
+        <div>
+          <dt>Crate</dt>
+          <dd><code>{CORPUS_IPC_CRATE} = "{CORPUS_IPC_REQUIREMENT}"</code></dd>
+        </div>
+        <div>
+          <dt>Source</dt>
+          <dd><a href={`${CORPUS_IPC_SOURCE_REPOSITORY}/tree/${CORPUS_IPC_SOURCE_SHA}`} target="_blank" rel="noreferrer">Limen-Neural/corpus-ipc@<code data-protocol-source-sha>{CORPUS_IPC_SOURCE_SHA}</code></a></dd>
+        </div>
+        <div>
+          <dt>Archive SHA-256</dt>
+          <dd><code data-protocol-archive-sha>{CORPUS_IPC_ARCHIVE_SHA256}</code></dd>
+        </div>
+        <div>
+          <dt>Lockfile</dt>
+          <dd><code>{CORPUS_IPC_LOCKFILE}</code></dd>
+        </div>
+        <div>
+          <dt>Features</dt>
+          <dd>{CORPUS_IPC_FEATURES}</dd>
+        </div>
+        <div>
+          <dt>Transport</dt>
+          <dd data-protocol-transport>{PROTOCOL_TRANSPORT}</dd>
+        </div>
+        <div>
+          <dt>Decode</dt>
+          <dd><code>{PROTOCOL_DECODE_PATH}</code></dd>
+        </div>
+        <div>
+          <dt>Package</dt>
+          <dd>Labs build of <code>neuromorphic-adapter</code> (<code>--features nir,protocol</code>), <code>{PROTOCOL_WASM_MODULE_URL}</code>. The homepage package does not include this decode path.</dd>
+        </div>
+        <div>
+          <dt>Byte limit</dt>
+          <dd>{PROTOCOL_FIXTURE_BYTE_LIMIT} bytes, checked before hashing or parsing</dd>
+        </div>
+        <div>
+          <dt>Fixtures</dt>
+          <dd>Derived from a deterministic replay of <code>{catalog.sourceTrace}</code> (completed step {catalog.sourceStep}), encoded by <code>corpus-ipc</code> in <code>{catalog.generator}</code>. Not captured from hardware or a live service.</dd>
+        </div>
+      </dl>
+      <div class="protocol-origins" aria-label="Execution-origin labels on this site">
+        <p><span class="execution-origin" data-origin="protocol">{executionOriginLabel('recorded-protocol')}</span> Recorded IPC envelopes on this page.</p>
+        <p><span class="execution-origin" data-origin="live">{executionOriginLabel('live-wasm')}</span> The homepage simulation, computed in your browser.</p>
+        <p><span class="execution-origin" data-origin="recorded">{executionOriginLabel('recorded-cuda-fpga')}</span> Native captures on the <a href="/evidence/">evidence page</a>.</p>
+      </div>
+      <p class="protocol-page-status" role="status" aria-live="polite" data-protocol-page-status>Static view. Each fixture below shows its exact recorded bytes and digest.</p>
+    </section>
+
+    <section class="protocol-section" aria-labelledby="protocol-fixtures-title">
+      <div class="protocol-section-heading">
+        <p class="eyebrow">Wire v1 fixtures</p>
+        <h2 id="protocol-fixtures-title">Stimuli, spikes, and eligibility traces from one replayed tick.</h2>
+      </div>
+      <div class="protocol-fixtures">
+        {catalog.fixtures.map((fixture) => <ProtocolFixtureCard fixture={fixture} />)}
+      </div>
+    </section>
+
+    <section class="protocol-section" aria-labelledby="protocol-fail-closed-title">
+      <div class="protocol-section-heading">
+        <p class="eyebrow">Fail closed</p>
+        <h2 id="protocol-fail-closed-title">Every rejection has a stable reason.</h2>
+      </div>
+      <div class="protocol-checks" data-protocol-checks hidden>
+        <p>Replay a tampered copy of the first verified fixture through the real adapter:</p>
+        <div class="protocol-check-actions">
+          <button type="button" class="button button-secondary" data-protocol-check="flip-byte">Change one byte, keep the digest</button>
+          <button type="button" class="button button-secondary" data-protocol-check="future-version">Set wire_version 2, re-hash</button>
+        </div>
+        <p class="protocol-check-result" role="status" aria-live="polite" data-protocol-check-result></p>
+      </div>
+      <div class="protocol-table-wrap">
+        <table class="protocol-table protocol-codes">
+          <caption>Adapter reason codes</caption>
+          <thead>
+            <tr>
+              <th scope="col">Code</th>
+              <th scope="col">Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(PROTOCOL_ERROR_CODES).map(([code, meaning]) => (
+              <tr>
+                <th scope="row"><code>{code}</code></th>
+                <td>{meaning}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</BaseLayout>
+
+<script>
+  import { enhanceProtocolViewers } from '../protocol/enhance-protocol';
+
+  enhanceProtocolViewers(document);
+</script>

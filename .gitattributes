@@ -1,0 +1,7 @@
+# Generated NIR assets are byte-compared (Rust generator test, Node WASM test,
+# and the /labs/nir/ page's WASM-vs-static check). Keep LF on every checkout.
+public/nir/*.json text eol=lf
+src/data/nir/*.json text eol=lf
+# The plasticity lab golden is byte-compared by its Rust generator test and
+# embedded verbatim in /labs/plasticity/. Keep LF on every checkout.
+src/data/plasticity/*.json text eol=lf

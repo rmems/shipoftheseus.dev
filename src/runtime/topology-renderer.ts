@@ -7,6 +7,25 @@ import type {
 import type { NeuromorphicState } from './neuromorphic-adapter';
 import type { SimulationChannel } from './simulation-channel';
 import {
+  QUALITY_LADDER,
+  cappedPixelRatio,
+  watchDevicePixelRatio,
+  type AdaptiveQualityController,
+  type AdaptiveQualityReader,
+  type QualitySettings,
+} from './adaptive-quality';
+import type { PerfProbe } from './perf-probe';
+import {
+  CAMERA_EXTENT,
+  EDGE_OPACITY,
+  INHIBITORY_INK_MIX,
+  NODE_SIZE_PX,
+  edgeStrength,
+  edgeWeightExtent,
+  layoutTopology,
+  type NodeLayout,
+} from './topology-layout';
+import {
   LIVE_SPIKE_EVENT_PROVENANCE,
   SPIKE_EVENT_STEP_MS,
   createSpikeEventBuffer,
@@ -25,6 +44,23 @@ export const EDGE_RENDER_ORDER = 0;
 export const PULSE_RENDER_ORDER = 1;
 export const NODE_RENDER_ORDER = 2;
 
+/** Animation-frame jitter tolerated by the quality level's frame-interval cap. */
+const FRAME_CAP_TOLERANCE_MS = 2;
+
+/**
+ * How many of `buffered` events, in oldest-first buffer order, to pass over so
+ * a pulse cap of `limit` draws the most recently emitted ones. Recent spikes
+ * stay on screen when quality caps drawing. Buffered events whose tail has
+ * landed retire within one step, so the drawn count stays close to `limit`
+ * without a second counting pass over the buffer.
+ */
+export function oldestPulsesToSkip(buffered: number, limit: number): number {
+  return Math.max(0, buffered - Math.max(0, limit));
+}
+
+// Layout and colour rules are shared with the hero's static drawing.
+export { layoutTopology } from './topology-layout';
+
 class RendererSeamError extends Error {
   code: ReasonCode;
 
@@ -33,27 +69,6 @@ class RendererSeamError extends Error {
     this.name = 'TopologyRendererError';
     this.code = code;
   }
-}
-
-interface NodeLayout {
-  x: number;
-  y: number;
-}
-
-/**
- * Deterministic topology layout: nodes on a ring with a small index-keyed
- * radial jitter. Pure function of the topology projection — never of timing or
- * device state.
- */
-export function layoutTopology(nodeCount: number): NodeLayout[] {
-  const positions: NodeLayout[] = [];
-  for (let node = 0; node < nodeCount; node += 1) {
-    const angle = (2 * Math.PI * node) / nodeCount - Math.PI / 2;
-    const jitter = ((node * 2654435761) % 97) / 97;
-    const radius = 0.92 + jitter * 0.14;
-    positions.push({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
-  }
-  return positions;
 }
 
 interface CssPalette {
@@ -80,6 +95,14 @@ export interface TopologyRendererSeamOptions {
    * again on dispose. Defaults to a private `live-wasm` buffer.
    */
   spikeEvents?: SpikeEventBuffer;
+  /**
+   * Adaptive presentation quality (`adaptive-quality.ts`). The renderer feeds
+   * it frame timings and applies its pixel-ratio cap, pulse cap, and frame
+   * interval. Without one, the renderer stays at full quality.
+   */
+  quality?: AdaptiveQualityController;
+  /** Opt-in timing probe (`perf-probe.ts`); `null` in normal visits. */
+  probe?: PerfProbe | null;
 }
 
 /** Per-frame facts for development inspection and performance budgets. */
@@ -90,11 +113,17 @@ export interface TopologyRendererInspection {
   bufferedEvents: number;
   /** Whether nonessential motion (camera drift, pulses) is enabled. */
   motionEnabled: boolean;
+  /** Active presentation quality level name. */
+  quality: QualitySettings['name'];
+  /** Pixel ratio applied to the drawing buffer. */
+  pixelRatio: number;
 }
 
 export interface TopologyRendererSeam extends RendererSeam {
   /** The current session's last frame, or `null` without a live session. */
   inspect: () => TopologyRendererInspection | null;
+  /** Read side of the adaptive quality controller, when one is attached. */
+  quality: AdaptiveQualityReader | null;
 }
 
 /**
@@ -113,11 +142,14 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
   let inspectSession: (() => TopologyRendererInspection) | null = null;
   const spikeEvents =
     options.spikeEvents ?? createSpikeEventBuffer({ provenance: LIVE_SPIKE_EVENT_PROVENANCE });
+  const quality = options.quality ?? null;
+  const probe = options.probe ?? null;
 
   return {
     inspect() {
       return inspectSession?.() ?? null;
     },
+    quality,
     disposePartial() {
       partial?.();
       partial = null;
@@ -176,14 +208,14 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       scene.add(world);
 
       const nodeMaterial = new THREE.PointsMaterial({
-        size: 16,
+        size: NODE_SIZE_PX,
         vertexColors: true,
         sizeAttenuation: false,
       });
       const edgeMaterial = new THREE.LineBasicMaterial({
         vertexColors: true,
         transparent: true,
-        opacity: 0.55,
+        opacity: EDGE_OPACITY,
       });
       // Pulses: one tapered quad (two triangles) per in-flight event, with
       // RGBA vertex colors fading from an opaque head to a clear tail.
@@ -218,6 +250,14 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
 
       let nodeGeometry: import('three').BufferGeometry | null = null;
       let edgeGeometry: import('three').BufferGeometry | null = null;
+      // Topology geometry is replaced on a digest change; only the current
+      // pair is ever retained, so rebuilds cannot accumulate disposables.
+      disposables.push({
+        dispose() {
+          nodeGeometry?.dispose();
+          edgeGeometry?.dispose();
+        },
+      });
       let pointsObject: import('three').Points | null = null;
       let edgeObject: import('three').LineSegments | null = null;
       let builtDigest: string | null = null;
@@ -227,7 +267,7 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       const signalColor = new THREE.Color(palette.signal);
       const mutedColor = new THREE.Color(palette.muted);
       const inkColor = new THREE.Color(palette.ink);
-      const inhibitoryColor = mutedColor.clone().lerp(inkColor, 0.25);
+      const inhibitoryColor = mutedColor.clone().lerp(inkColor, INHIBITORY_INK_MIX);
       const excitatoryColor = signalColor.clone();
       // Pulses use the full-strength tokens so they read over the softer edges:
       // `--signal` for excitatory synapses, `--ink` for inhibitory ones.
@@ -259,6 +299,8 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         builtDigest = state.topologyDigest;
         nodeCount = state.topologyNodeIds.length;
         nodePositions = layoutTopology(nodeCount);
+        // Flash state is keyed by neuron id; drop ids of the previous topology.
+        spikeFlash.clear();
 
         if (pointsObject) {
           world.remove(pointsObject);
@@ -282,7 +324,6 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         }
         nodeGeometry.setAttribute('position', new THREE.BufferAttribute(pointPositions, 3));
         nodeGeometry.setAttribute('color', new THREE.BufferAttribute(pointColors, 3));
-        disposables.push(nodeGeometry);
         pointsObject = new THREE.Points(nodeGeometry, nodeMaterial);
         pointsObject.renderOrder = NODE_RENDER_ORDER;
         world.add(pointsObject);
@@ -291,23 +332,19 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         const edgeCount = state.topologyEdgeSources.length;
         const linePositions = new Float32Array(edgeCount * 6);
         const lineColors = new Float32Array(edgeCount * 6);
-        const weightExtent = state.topologyEdgeWeights.reduce(
-          (extent, weight) => Math.max(extent, Math.abs(weight)),
-          0,
-        ) || 1;
+        const weightExtent = edgeWeightExtent(state.topologyEdgeWeights);
         for (let edge = 0; edge < edgeCount; edge += 1) {
           const source = nodePositions[state.topologyEdgeSources[edge]];
           const target = nodePositions[state.topologyEdgeTargets[edge]];
           linePositions.set([source.x, source.y, -0.01, target.x, target.y, -0.01], edge * 6);
           const base = state.topologyPolarities[edge] === 0 ? excitatoryColor : inhibitoryColor;
-          const strength = Math.min(1, 0.35 + 0.65 * (Math.abs(state.topologyEdgeWeights[edge]) / weightExtent));
+          const strength = edgeStrength(state.topologyEdgeWeights[edge], weightExtent);
           const color = base.clone().lerp(mutedColor, 1 - strength);
           color.toArray(lineColors, edge * 6);
           color.toArray(lineColors, edge * 6 + 3);
         }
         edgeGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
         edgeGeometry.setAttribute('color', new THREE.BufferAttribute(lineColors, 3));
-        disposables.push(edgeGeometry);
         edgeObject = new THREE.LineSegments(edgeGeometry, edgeMaterial);
         edgeObject.renderOrder = EDGE_RENDER_ORDER;
         world.add(edgeObject);
@@ -323,6 +360,10 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       let lastFrameTime = 0;
       let worldPerPixel = 0.01;
       let drawnPulses = 0;
+      let settings: QualitySettings = quality?.current() ?? QUALITY_LADDER[0];
+      let pixelRatio = 1;
+      let lastCallbackAt = 0;
+      let lastDrawnAt = Number.NEGATIVE_INFINITY;
 
       // Allocation-free per frame: vertices go straight into the
       // preallocated attribute arrays.
@@ -377,8 +418,16 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       const pulseSpan: PropagationSpan = { head: 0, tail: 0 };
       let frameStep = 0;
       let drawn = 0;
+      // The quality level's pulse cap for this frame (drawing only).
+      let pulseLimit = pulseCapacity;
+      // Oldest buffered events to pass over so a capped level draws the newest.
+      let skipOldest = 0;
       const visitPulse = (event: SpikePropagationEvent) => {
-        if (drawn >= pulseCapacity || event.topologyDigest !== builtDigest) {
+        if (skipOldest > 0) {
+          skipOldest -= 1;
+          return;
+        }
+        if (drawn >= pulseLimit || event.topologyDigest !== builtDigest) {
           return;
         }
         const source = nodePositions[event.sourceNeuron];
@@ -404,12 +453,15 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       const drawPulses = (time: number) => {
         drawn = 0;
         const latestStep = spikeEvents.latestStep();
-        if (motionEnabled && latestStep !== null && nodeCount > 0) {
+        // Quality caps drawing only; every event stays buffered.
+        pulseLimit = Math.min(pulseCapacity, settings.maxPulses);
+        if (motionEnabled && pulseLimit > 0 && latestStep !== null && nodeCount > 0) {
           // Sub-step progress since the latest snapshot, capped at one step
           // so a stalled simulation cannot run pulses ahead of it.
           const fraction = Math.min(1, Math.max(0, (time - latestAt) / SPIKE_EVENT_STEP_MS));
           // Steps stay exact as numbers for 2^53 ticks; avoids bigint math per event.
           frameStep = Number(latestStep) + fraction;
+          skipOldest = oldestPulsesToSkip(spikeEvents.size(), pulseLimit);
           spikeEvents.forEach(visitPulse);
         }
         pulseGeometry.setDrawRange(0, drawn * 6);
@@ -427,10 +479,11 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       const resize = () => {
         const width = surface.clientWidth || 1;
         const height = surface.clientHeight || 1;
-        renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
+        pixelRatio = cappedPixelRatio(globalThis.devicePixelRatio, settings);
+        renderer.setPixelRatio(pixelRatio);
         renderer.setSize(width, height, false);
         const aspect = width / height;
-        const extent = 1.35;
+        const extent = CAMERA_EXTENT;
         if (aspect >= 1) {
           camera.left = -extent * aspect;
           camera.right = extent * aspect;
@@ -482,7 +535,30 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         if (disposed || paused || frozen) {
           return;
         }
-        renderFrame(time);
+        const interval = lastCallbackAt > 0 ? time - lastCallbackAt : 0;
+        lastCallbackAt = time;
+        let work = 0;
+        let drewFrame = false;
+        // The frame-interval cap skips drawing, never simulation work.
+        if (time - lastDrawnAt >= settings.minFrameIntervalMs - FRAME_CAP_TOLERANCE_MS) {
+          drewFrame = true;
+          const drawStart = performance.now();
+          renderFrame(time);
+          work = performance.now() - drawStart;
+          lastDrawnAt = time;
+          if (probe) {
+            probe.record('frame-work', work);
+            probe.increment('frames-drawn');
+            probe.increment('pulses-drawn', drawnPulses);
+            probe.mark('first-frame');
+          }
+        } else {
+          probe?.increment('frames-skipped');
+        }
+        if (probe && interval > 0) {
+          probe.record('frame-interval', interval);
+        }
+        quality?.recordFrame(interval, work, drewFrame);
         frame = requestAnimationFrame(loop);
       };
 
@@ -493,6 +569,9 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         paused = false;
         feed.setActive(true);
         if (frame === 0) {
+          // A resumed loop's first interval spans the pause; drop it.
+          lastCallbackAt = 0;
+          quality?.resetWindow();
           frame = requestAnimationFrame(loop);
         }
       };
@@ -515,13 +594,26 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
           : null;
       resizeObserver?.observe(surface);
 
-      let motionQuery: MediaQueryList | null = null;
-      const onDprChange = () => {
-        resize();
-        motionQuery = globalThis.matchMedia?.(`(resolution: ${globalThis.devicePixelRatio}dppx)`) ?? null;
-        motionQuery?.addEventListener('change', onDprChange);
+      const redrawIfIdle = () => {
+        if (frozen || paused) {
+          renderer.render(scene, camera);
+        }
       };
-      onDprChange();
+      // One live listener at a time: the previous query's listener is removed
+      // before the next is added (the earlier inline version leaked one per
+      // pixel-ratio change).
+      const stopWatchingPixelRatio = watchDevicePixelRatio(globalThis, () => {
+        resize();
+        redrawIfIdle();
+      });
+      const unsubscribeQuality = quality?.subscribe((next) => {
+        const pixelRatioChanged = next.maxPixelRatio !== settings.maxPixelRatio;
+        settings = next;
+        if (pixelRatioChanged) {
+          resize();
+          redrawIfIdle();
+        }
+      });
 
       canvas.addEventListener('webglcontextlost', (event) => {
         event.preventDefault();
@@ -532,10 +624,13 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       resize();
       start();
       partial = null;
+      probe?.mark('renderer-ready');
       const inspect = (): TopologyRendererInspection => ({
         drawnPulses,
         bufferedEvents: spikeEvents.size(),
         motionEnabled,
+        quality: settings.name,
+        pixelRatio,
       });
       inspectSession = inspect;
 
@@ -569,7 +664,8 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
             inspectSession = null;
           }
           resizeObserver?.disconnect();
-          motionQuery?.removeEventListener('change', onDprChange);
+          stopWatchingPixelRatio();
+          unsubscribeQuality?.();
           for (const disposable of disposables) {
             disposable.dispose();
           }

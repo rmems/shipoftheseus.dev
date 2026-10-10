@@ -1,0 +1,358 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import ExecutionOrigin from '../../components/ExecutionOrigin.astro';
+import goldenText from '../../data/plasticity/scripted-session.v1.json?raw';
+import { PLASTICITY_STATIC_STATUS } from '../../runtime/enhance-plasticity';
+import {
+  LIMBIC_CRITIC_VERSION,
+  MODULATOR_NAMES,
+  NEUROMOD_VERSION,
+  PLASTICITY_GOLDEN_PATH,
+  PLASTICITY_LAB_REPOSITORY,
+  PLASTICITY_LAB_REVISION,
+  REWARD_EVENT_LABELS,
+  STIMULUS_LABELS,
+  f32FromBits,
+  formatModulator,
+  formatSignedDelta,
+  formatSpikeList,
+  formatWeight,
+  formatWeightChangeSummary,
+  largestGoldenWeightChange,
+  parsePlasticityGolden,
+} from '../../runtime/plasticity-lab';
+import { PORTFOLIO_DEFAULT_REF, PORTFOLIO_REPOSITORY_URL } from '../../native-evidence/view';
+import '../../styles/labs.css';
+import '../../styles/plasticity-lab.css';
+
+// The golden is generated natively by the adapter's Rust test
+// (crates/neuromorphic-adapter/tests/plasticity_session.rs). The page renders
+// it at build time and embeds the exact text so "Run scripted session" can
+// compare the browser's Rust/WASM replay with it, value for value.
+const golden = parsePlasticityGolden(JSON.parse(goldenText));
+const embeddedGolden = JSON.stringify(goldenText).replaceAll('<', '\\u003c');
+const network = golden.network;
+const neurons = Array.from({ length: network.lif_neurons }, (_, index) => index);
+const channels = Array.from({ length: network.channels }, (_, index) => index);
+const initialWeight = f32FromBits(network.initial_weight_bits);
+const finalWeights = golden.final_weight_bits.map(f32FromBits);
+const finalThresholds = golden.final_threshold_bits.map(f32FromBits);
+const generatorUrl = `${PORTFOLIO_REPOSITORY_URL}/blob/${PORTFOLIO_DEFAULT_REF}/${golden.generator}`;
+const goldenUrl = `${PORTFOLIO_REPOSITORY_URL}/blob/${PORTFOLIO_DEFAULT_REF}/${PLASTICITY_GOLDEN_PATH}`;
+const revisionUrl = `${PLASTICITY_LAB_REPOSITORY}/tree/${PLASTICITY_LAB_REVISION}`;
+const shortRevision = PLASTICITY_LAB_REVISION.slice(0, 7);
+const goldenRows = golden.steps.map((step) => ({
+  ...step,
+  dopamine: f32FromBits(step.modulator_bits[0]),
+  norepinephrine: f32FromBits(step.modulator_bits[3]),
+  change: formatWeightChangeSummary(step.weight_changes.length, largestGoldenWeightChange(step)),
+}));
+const channelPattern = (channel: number) => (channel < 2 ? 'A' : 'B');
+---
+<BaseLayout title="Reward-modulated learning" description="A small spiking network that learns from reward: limbic-critic maps reward and penalty to neuromodulators, plasticity-lab steps a neuromod network with them, and neuromod's reward-modulated STDP changes the weights, all in Rust/WASM.">
+  <section class="page-intro compact" aria-labelledby="plasticity-title">
+    <p class="eyebrow">Labs · Plasticity</p>
+    <h1 id="plasticity-title">Learning from a reward signal.</h1>
+    <p>Two input patterns, two LIF neurons, and a reward button. <a href="https://github.com/Limen-Neural/limbic-critic" target="_blank" rel="noreferrer">limbic-critic</a> turns your reward or penalty into neuromodulator levels. <a href={PLASTICITY_LAB_REPOSITORY} target="_blank" rel="noreferrer">plasticity-lab</a> steps a <a href="https://github.com/Limen-Neural/neuromod" target="_blank" rel="noreferrer">neuromod</a> network with them, and neuromod's reward-modulated STDP decides which synapses change. This lab is separate from the homepage and loads its own WebAssembly package.</p>
+  </section>
+
+  <section class="plasticity-lab" aria-labelledby="plasticity-lab-title" data-plasticity-lab data-plasticity-state="static" data-plasticity-golden="">
+    <div class="plasticity-heading">
+      <div>
+        <ExecutionOrigin origin="unavailable-wasm" runtimeBound />
+        <h2 id="plasticity-lab-title">Present a pattern, then reward or penalize it.</h2>
+        <p class="plasticity-copy">Pattern A drives input channels 0 and 1; pattern B drives channels 2 and 3. While a pattern is on, neuromod records the timing of input and output spikes in per-synapse eligibility traces. A reward, even a few steps later, makes limbic-critic emit dopamine, and dopamine converts those traces into weight changes. A penalty emits norepinephrine instead: it lowers the input gain for that step and changes no weight. A reward pays out every trace that is still alive, including traces an earlier pattern left in the same episode; “New episode” clears them.</p>
+      </div>
+      <dl class="plasticity-provenance">
+        <div>
+          <dt>Session</dt>
+          <dd>Seed {golden.seed}. Every step is deterministic for a seed; Reset starts the same session again.</dd>
+        </div>
+        <div>
+          <dt>Network</dt>
+          <dd>{network.lif_neurons} LIF neurons, {network.channels} input channels, equal-share weights of {formatWeight(initialWeight)}, threshold {formatWeight(f32FromBits(network.initial_threshold_bits))}. R-STDP eligibility τ {f32FromBits(network.tau_eligibility_bits)} steps, reward learning rate {f32FromBits(network.reward_lr_bits)}.</dd>
+        </div>
+        <div>
+          <dt>Crates</dt>
+          <dd>limbic-critic {LIMBIC_CRITIC_VERSION}, plasticity-lab at <a href={revisionUrl} target="_blank" rel="noreferrer"><code>{shortRevision}</code></a> (critic bridge), neuromod {NEUROMOD_VERSION}.</dd>
+        </div>
+        <div>
+          <dt>Runs in</dt>
+          <dd>The labs WebAssembly package, which the homepage never loads.</dd>
+        </div>
+      </dl>
+    </div>
+
+    <p class="plasticity-status" data-plasticity-status role="status" aria-live="polite">{PLASTICITY_STATIC_STATUS}</p>
+    <noscript>
+      <p class="plasticity-status">JavaScript is off, so the live lab cannot run. The scripted session below is the same Rust code's output, rendered when this page was built.</p>
+    </noscript>
+
+    <div class="plasticity-controls" data-plasticity-controls hidden>
+      <fieldset class="plasticity-stimulus">
+        <legend>Input pattern</legend>
+        <label><input type="radio" name="plasticity-stimulus" value="quiet" data-plasticity-stimulus /> <span>Quiet</span></label>
+        <label><input type="radio" name="plasticity-stimulus" value="A" checked data-plasticity-stimulus /> <span>Pattern A <small>(ch 0–1)</small></span></label>
+        <label><input type="radio" name="plasticity-stimulus" value="B" data-plasticity-stimulus /> <span>Pattern B <small>(ch 2–3)</small></span></label>
+      </fieldset>
+      <div class="plasticity-buttons" role="group" aria-label="Session">
+        <button type="button" class="button button-secondary" data-plasticity-action="step">Step</button>
+        <button type="button" class="button button-secondary" data-plasticity-action="run" aria-pressed="false">Run</button>
+        <button type="button" class="button button-secondary" data-plasticity-action="new-episode">New episode</button>
+        <button type="button" class="button button-secondary" data-plasticity-action="reset">Reset</button>
+      </div>
+      <div class="plasticity-buttons" role="group" aria-label="Reward input">
+        <button type="button" class="button plasticity-reward-button" data-plasticity-action="reward">Reward</button>
+        <button type="button" class="button plasticity-penalty-button" data-plasticity-action="penalty">Penalty</button>
+      </div>
+      <div class="plasticity-buttons" role="group" aria-label="Checks">
+        <button type="button" class="button button-secondary" data-plasticity-action="scripted">Run scripted session</button>
+        <button type="button" class="button button-secondary" data-plasticity-action="probe">Probe (frozen)</button>
+      </div>
+    </div>
+
+    <div class="plasticity-panels" data-plasticity-live hidden>
+      <section class="plasticity-panel plasticity-panel-reward" aria-labelledby="plasticity-reward-title" data-plasticity-panel="reward">
+        <header>
+          <p class="eyebrow">Reward side</p>
+          <h3 id="plasticity-reward-title">Reward input and modulators</h3>
+          <p class="plasticity-layers"><span class="plasticity-layer">limbic-critic SimpleCritic</span> <span aria-hidden="true">→</span> <span class="plasticity-layer">plasticity-lab bridge</span></p>
+        </header>
+        <p class="plasticity-caption">What your last input was, what limbic-critic read from it, and the modulator vector it produced. Nothing in this panel is a spike or a weight.</p>
+        <dl class="plasticity-readout">
+          <div><dt>Last step</dt><dd data-plasticity-field="last-step">—</dd></div>
+          <div><dt>Reward input</dt><dd data-plasticity-field="last-event">—</dd></div>
+          <div><dt>Critic observation</dt><dd data-plasticity-field="observation">—</dd></div>
+          <div><dt>Queued</dt><dd data-plasticity-field="queued" aria-live="polite">nothing queued</dd></div>
+        </dl>
+        <ul class="plasticity-modulators" aria-label="Modulator vector">
+          {MODULATOR_NAMES.map((name) => (
+            <li data-modulator={name}>
+              <span class="plasticity-modulator-name">{name}</span>
+              <span class="plasticity-meter" aria-hidden="true"><span data-modulator-bar></span></span>
+              <span class="plasticity-modulator-value" data-modulator-value>—</span>
+            </li>
+          ))}
+        </ul>
+        <figure class="plasticity-figure">
+          <canvas data-plasticity-modulator-strip role="img" aria-label="Dopamine and norepinephrine for each recent step"></canvas>
+          <figcaption>Recent steps, newest on the right. Upper lane: dopamine. Lower lane: norepinephrine.</figcaption>
+        </figure>
+        <div>
+          <h4>Recent reward input</h4>
+          <ol class="plasticity-event-log" data-plasticity-event-log></ol>
+          <p class="plasticity-caption" data-plasticity-event-empty>No reward or penalty yet.</p>
+        </div>
+      </section>
+
+      <section class="plasticity-panel plasticity-panel-network" aria-labelledby="plasticity-network-title" data-plasticity-panel="network">
+        <header>
+          <p class="eyebrow">Network side</p>
+          <h3 id="plasticity-network-title">Neurons, spikes, and weights</h3>
+          <p class="plasticity-layers"><span class="plasticity-layer">neuromod</span> <span aria-hidden="true">via</span> <span class="plasticity-layer">plasticity-lab trainer</span></p>
+        </header>
+        <p class="plasticity-caption">neuromod's state after the last step: spike timing, membrane and threshold, synaptic weights, and the eligibility traces a reward would pay out.</p>
+        <figure class="plasticity-figure">
+          <canvas data-plasticity-raster role="img" aria-label="Spike raster of the input channels and LIF neurons"></canvas>
+          <figcaption>Rows, top to bottom: input channels 0–3 (neuromod's Bernoulli input spikes, used for spike timing), then LIF neurons 0 and 1. <span data-plasticity-field="raster-summary"></span></figcaption>
+        </figure>
+        <div class="plasticity-table-wrap">
+          <table class="plasticity-table">
+            <caption>Neurons</caption>
+            <thead><tr><th scope="col">Neuron</th><th scope="col">Spiked</th><th scope="col">Membrane</th><th scope="col">Threshold</th></tr></thead>
+            <tbody>
+              {neurons.map((neuron) => (
+                <tr data-plasticity-neuron={neuron}>
+                  <th scope="row">LIF {neuron}</th>
+                  <td data-cell="spiked">—</td>
+                  <td data-cell="membrane">—</td>
+                  <td data-cell="threshold">—</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div class="plasticity-table-wrap">
+          <table class="plasticity-table plasticity-weights">
+            <caption>Weights (change since the session started)</caption>
+            <thead>
+              <tr><th scope="col">Neuron</th>{channels.map((channel) => <th scope="col">ch {channel} <small>{channelPattern(channel)}</small></th>)}</tr>
+            </thead>
+            <tbody>
+              {neurons.map((neuron) => (
+                <tr data-plasticity-weights={neuron}>
+                  <th scope="row">LIF {neuron}</th>
+                  {channels.map((channel) => <td data-channel={channel}>—</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p class="plasticity-caption" data-plasticity-field="weight-change">—</p>
+        <div class="plasticity-table-wrap">
+          <table class="plasticity-table">
+            <caption>Eligibility traces</caption>
+            <thead>
+              <tr><th scope="col">Neuron</th>{channels.map((channel) => <th scope="col">ch {channel}</th>)}</tr>
+            </thead>
+            <tbody>
+              {neurons.map((neuron) => (
+                <tr data-plasticity-traces={neuron}>
+                  <th scope="row">LIF {neuron}</th>
+                  {channels.map((channel) => <td data-channel={channel}>—</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="plasticity-panel plasticity-panel-probe" aria-labelledby="plasticity-probe-title" data-plasticity-panel="probe">
+        <header>
+          <p class="eyebrow">Frozen probe</p>
+          <h3 id="plasticity-probe-title">What the weights do now</h3>
+        </header>
+        <p class="plasticity-caption">Probe presents each pattern at amplitude {formatWeight(f32FromBits(network.probe_amplitude_bits))} for {network.probe_steps} steps on a copy of the network, through plasticity-lab's frozen evaluation: nothing in the session changes. The counts are LIF spikes per pattern.</p>
+        <div class="plasticity-table-wrap">
+          <table class="plasticity-table">
+            <caption data-plasticity-field="probe-caption">Not probed yet</caption>
+            <thead><tr><th scope="col">Neuron</th><th scope="col">Pattern A</th><th scope="col">Pattern B</th></tr></thead>
+            <tbody>
+              {neurons.map((neuron) => (
+                <tr data-plasticity-probe={neuron}>
+                  <th scope="row">LIF {neuron}</th>
+                  <td data-cell="a">—</td>
+                  <td data-cell="b">—</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p class="plasticity-caption" data-plasticity-field="golden-check"></p>
+      </section>
+    </div>
+    <script is:inline type="application/json" data-plasticity-golden-source set:html={embeddedGolden}></script>
+  </section>
+
+  <section class="plasticity-mechanisms" aria-labelledby="plasticity-mechanisms-title">
+    <div>
+      <p class="eyebrow">Scope</p>
+      <h2 id="plasticity-mechanisms-title">What is enabled, exactly.</h2>
+    </div>
+    <div class="plasticity-mechanism-lists">
+      <div>
+        <h3>Enabled</h3>
+        <ul>
+          <li><strong>Reward shaping:</strong> limbic-critic's stateless <code>SimpleCritic::try_assess</code>. The lab reports objective +1 for a reward and −1 plus stress 1 for a penalty; the critic maps a positive objective to dopamine (0 to 1) and stress to norepinephrine. Serotonin and acetylcholine stay 0 because the lab reports no volatility or surprise.</li>
+          <li><strong>Modulator hand-off:</strong> plasticity-lab's <code>bridge::to_neuromodulators</code> copies the vector into neuromod unchanged.</li>
+          <li><strong>Training steps:</strong> plasticity-lab's <code>train_step_with_modulators_and_rng</code>, one seeded step at a time.</li>
+          <li><strong>Reward-modulated STDP</strong> in neuromod: every step decays and accumulates one eligibility trace per synapse from input and output spike timing; positive dopamine converts traces into weight changes (at 0.5 × dopamine × the reward learning rate); each neuron's weights are then renormalized to an L1 budget of 2.0, so one pattern gains what the other loses. Renormalization runs every step and can move a weight by float rounding alone; the lab labels those steps.</li>
+          <li><strong>Modulator effects on dynamics</strong> in neuromod: dopamine moves the firing threshold toward its target, and norepinephrine scales the input gain down to as little as 10 %.</li>
+          <li><strong>Episodes:</strong> neuromod's <code>reset</code> clears spike times, membranes, traces, and modulators, and keeps weights and thresholds. The scripted session starts each episode this way, so a reward credits only that episode's pattern.</li>
+          <li><strong>Frozen probe:</strong> plasticity-lab's <code>run_eval_with_rng</code> on a copy of the network.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Not enabled, or not provided by these crates</h3>
+        <ul>
+          <li>limbic-critic is a reward-shaping map, not an actor-critic: there is no policy, no learned value function, and no temporal-difference backup. Its <code>TDCritic</code> (an average of objective changes) is not used.</li>
+          <li>No penalty-driven weakening. neuromod changes weights only when dopamine is positive, so a penalty withholds reinforcement rather than reversing it.</li>
+          <li>The reward is your input. Nothing here predicts or learns a reward, and the network chooses no action.</li>
+          <li>plasticity-lab's scalar <code>RewardMapping</code> and its batch <code>run_session</code> APIs are not used, because they bypass limbic-critic.</li>
+          <li>No encoder, topology, or Izhikevich bank: the two patterns are fixed stimulus vectors feeding one layer of two LIF neurons.</li>
+          <li>Both neurons start identical and see the same input, so they stay identical. This lab shows credit assigned to input channels, not competition between neurons.</li>
+          <li>No checkpointing. The session lives in this tab; Reset replays from the seed.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="plasticity-golden" aria-labelledby="plasticity-golden-title">
+    <div class="plasticity-golden-heading">
+      <p class="eyebrow">Scripted session · seed {golden.seed}</p>
+      <h2 id="plasticity-golden-title">The same session, step by step.</h2>
+      <p>Rendered when this page was built from <a href={goldenUrl}>the committed golden</a>, which <a href={generatorUrl}>the adapter's Rust test</a> generates natively. Tests replay it through the labs WebAssembly package and require every value to match; “Run scripted session” above does the same in your browser. Each episode presents a pattern for three steps, waits two quiet steps, then gives the reward input on a third quiet step.</p>
+    </div>
+    <div class="plasticity-table-wrap">
+      <table class="plasticity-table plasticity-golden-table">
+        <caption>{golden.steps.length} steps, {golden.steps.at(-1)?.episode} episodes</caption>
+        <thead>
+          <tr>
+            <th scope="col">Step</th>
+            <th scope="col">Episode</th>
+            <th scope="col">Pattern</th>
+            <th scope="col">Reward input</th>
+            <th scope="col">Dopamine</th>
+            <th scope="col">Norepinephrine</th>
+            <th scope="col">Input spikes</th>
+            <th scope="col">LIF spikes</th>
+            <th scope="col">Weights</th>
+          </tr>
+        </thead>
+        <tbody>
+          {goldenRows.map((row) => (
+            <tr data-golden-step={row.step} data-golden-event={row.event} data-new-episode={row.new_episode ? 'true' : undefined}>
+              <th scope="row">{row.step}</th>
+              <td>{row.episode}</td>
+              <td>{STIMULUS_LABELS[row.stimulus]}</td>
+              <td>{REWARD_EVENT_LABELS[row.event]}</td>
+              <td>{formatModulator(row.dopamine)}</td>
+              <td>{formatModulator(row.norepinephrine)}</td>
+              <td>{formatSpikeList('ch ', row.input_spikes)}</td>
+              <td>{formatSpikeList('LIF ', row.output_spikes)}</td>
+              <td>{row.change}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <div class="plasticity-golden-results">
+      <div class="plasticity-table-wrap">
+        <table class="plasticity-table plasticity-weights">
+          <caption>Weights after the session (change from {formatWeight(initialWeight)})</caption>
+          <thead>
+            <tr><th scope="col">Neuron</th>{channels.map((channel) => <th scope="col">ch {channel} <small>{channelPattern(channel)}</small></th>)}<th scope="col">Threshold</th></tr>
+          </thead>
+          <tbody>
+            {neurons.map((neuron) => (
+              <tr>
+                <th scope="row">LIF {neuron}</th>
+                {channels.map((channel) => {
+                  const weight = finalWeights[neuron * network.channels + channel];
+                  return <td>{formatWeight(weight)} <small>{formatSignedDelta(weight - initialWeight)}</small></td>;
+                })}
+                <td>{formatWeight(finalThresholds[neuron])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div class="plasticity-table-wrap">
+        <table class="plasticity-table">
+          <caption>Frozen probe: LIF spikes in {network.probe_steps} steps per pattern</caption>
+          <thead><tr><th scope="col">Neuron</th><th scope="col">A before</th><th scope="col">B before</th><th scope="col">A after</th><th scope="col">B after</th></tr></thead>
+          <tbody>
+            {neurons.map((neuron) => (
+              <tr>
+                <th scope="row">LIF {neuron}</th>
+                <td>{golden.probe_before.pattern_a_spikes[neuron]}</td>
+                <td>{golden.probe_before.pattern_b_spikes[neuron]}</td>
+                <td>{golden.probe_after.pattern_a_spikes[neuron]}</td>
+                <td>{golden.probe_after.pattern_b_spikes[neuron]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="plasticity-golden-note">Two rewarded episodes of pattern A moved weight from channels 2–3 to channels 0–1, and the frozen probe then fires more for A than for B. Both penalized episodes of pattern B changed no weight. This is one seed of a tiny synthetic task, not a benchmark. Regenerate the golden with <code>{golden.regenerate}</code>.</p>
+  </section>
+</BaseLayout>
+<script>
+  import { enhancePlasticityLabs } from '../../runtime/enhance-plasticity';
+  try {
+    enhancePlasticityLabs();
+  } catch {
+    // Keep the static explanation and the scripted session table.
+  }
+</script>

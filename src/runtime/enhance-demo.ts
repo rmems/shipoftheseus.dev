@@ -7,6 +7,7 @@ import {
   type DemoViewElements,
 } from './demo-runtime';
 import { provideLiveDemoSeams } from './live-seams';
+import { bindDemoTelemetryPanel } from './telemetry-entry';
 
 interface BoundIsland {
   dispose: () => void;
@@ -31,6 +32,13 @@ function viewElements(root: HTMLElement): DemoViewElements {
   };
 }
 
+/** Elements whose visibility gates the island (`[data-demo-viewport]`), else the root. */
+export function viewportTargets(root: HTMLElement): Element[] {
+  const marked =
+    typeof root.querySelectorAll === 'function' ? Array.from(root.querySelectorAll('[data-demo-viewport]')) : [];
+  return marked.length > 0 ? marked : [root];
+}
+
 function motionQueryList(host: Window): MediaQueryList | undefined {
   if (typeof host.matchMedia !== 'function') {
     return undefined;
@@ -50,6 +58,9 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
     });
   const elements = viewElements(root);
   const play = requiredElement<HTMLButtonElement>(root, '[data-demo-play]');
+  // Optional and closed by default: its code loads on first open, and it
+  // samples only while open.
+  const telemetry = bindDemoTelemetryPanel(root);
   const motionQuery = motionQueryList(window);
   let disposed = false;
 
@@ -113,6 +124,7 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
     motionQuery?.removeEventListener('change', onMotionChange);
     root.removeEventListener('webglcontextlost', onContextLost, contextLostCapture);
     observer?.disconnect();
+    telemetry?.dispose();
     boundRuntime.dispose();
   };
 
@@ -124,11 +136,25 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
   motionQuery?.addEventListener('change', onMotionChange);
   root.addEventListener('webglcontextlost', onContextLost, contextLostCapture);
 
+  // The island runs while any of its viewport targets is on screen. In the
+  // homepage hero those are the mesh and the telemetry panel, so hero copy
+  // alone in view (the mesh still below the fold on a phone) starts nothing,
+  // and reading the open panel keeps it fed. Islands without targets use the
+  // whole root.
+  const targets = viewportTargets(root);
+  const intersecting = new Set<Element>();
   const observer =
     'IntersectionObserver' in window
       ? new IntersectionObserver(
           (entries) => {
-            const visible = entries.some((entry) => entry.isIntersecting);
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                intersecting.add(entry.target);
+              } else {
+                intersecting.delete(entry.target);
+              }
+            }
+            const visible = intersecting.size > 0;
             void boundRuntime.setInViewport(visible).then(paint);
           },
           { threshold: 0.2 },
@@ -136,7 +162,9 @@ export function bindDemoIsland(root: HTMLElement, runtime?: DemoRuntime): BoundI
       : null;
 
   if (observer) {
-    observer.observe(root);
+    for (const target of targets) {
+      observer.observe(target);
+    }
   } else {
     void boundRuntime.setInViewport(true).then(paint);
   }
