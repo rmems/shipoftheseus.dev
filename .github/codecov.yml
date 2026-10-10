@@ -33,3 +33,6 @@ ignore:
   - "public/wasm/**"
   - "dist/**"
   - ".astro/**"
+  # Manual, machine-dependent measurement harnesses (docs/architecture/performance-budgets.md).
+  - "scripts/perf/**"
+  - "crates/**/examples/**"

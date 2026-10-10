@@ -29,6 +29,9 @@ test('every requested primary route is backed by an Astro page', () => {
     'src/pages/contact.astro',
     'src/pages/resume.astro',
     'src/pages/evidence.astro',
+    'src/pages/labs/index.astro',
+    'src/pages/labs/nir.astro',
+    'src/pages/labs/plasticity.astro',
   ]) {
     assert.equal(existsSync(new URL(`../${route}`, import.meta.url)), true, `${route} is missing`);
   }
@@ -180,6 +183,70 @@ test('the homepage ships a static neuromorphic diagram that remains usable witho
   assert.doesNotMatch(island, /client:only/);
 });
 
+test('the protocol route replays recorded corpus-ipc fixtures static-first and labels them distinctly', () => {
+  assert.equal(existsSync(new URL('../src/pages/protocol.astro', import.meta.url)), true);
+  const page = read('src/pages/protocol.astro');
+  const card = read('src/components/ProtocolFixtureCard.astro');
+  const enhance = read('src/protocol/enhance-protocol.ts');
+  const inspector = read('src/protocol/inspector.ts');
+  const catalog = read('src/protocol/catalog.ts');
+  const styles = read('src/styles/protocol.css');
+
+  // Static-first: rendered at build time from the checked-in fixtures.
+  assert.match(page, /loadProtocolFixtureCatalog\(\)/);
+  assert.match(page, /import '\.\.\/styles\/protocol\.css'/);
+  assert.match(page, /data-protocol-viewer/);
+  assert.match(page, /data-protocol-checks hidden/);
+  assert.match(page, /role="status"/);
+  assert.doesNotMatch(page, /client:(only|load|visible|idle)/);
+  assert.match(card, /<pre><code>\{fixture\.text\}<\/code><\/pre>/);
+  assert.match(card, /data-fixture-sha256=\{fixture\.sha256\}/);
+  assert.match(card, /<details class="protocol-bytes" open>/);
+  assert.match(enhance, /The recorded bytes and digests above remain the reference/);
+  assert.match(inspector, /readBoundedBytes/);
+  assert.doesNotMatch(`${catalog}${inspector}${enhance}`, /JSON\.parse\(\s*(text|bytes|decoder)/);
+
+  // Distinct origin label, never the live Rust/WASM one.
+  assert.match(page, /<ExecutionOrigin origin="recorded-protocol" \/>/);
+  assert.doesNotMatch(page, /<ExecutionOrigin origin="live-wasm"/);
+  assert.match(read('src/native-evidence/types.ts'), /PROTOCOL_ORIGIN_LABEL = 'RECORDED · corpus-ipc wire v1'/);
+  assert.match(read('src/native-evidence/view.ts'), /case 'recorded-protocol':\s+return 'protocol';/);
+  assert.match(styles, /\.execution-origin\[data-origin='protocol'\]/);
+  assert.doesNotMatch(read('src/styles/global.css'), /data-origin='protocol'/);
+
+  // Linked from the evidence intro; offline transport only.
+  assert.match(read('src/pages/evidence.astro'), /href="\/protocol\/"/);
+  assert.match(read('src/protocol/provenance.ts'), /No ZeroMQ, HTTP service, proxy, or live producer/);
+  for (const file of ['manifest.json', 'kinetic-seed9-step7-stimuli.json', 'kinetic-seed9-step7-spikes.json', 'kinetic-seed9-step7-eligibility-traces.json']) {
+    assert.equal(existsSync(new URL(`../public/protocol/fixtures/v1/${file}`, import.meta.url)), true, `${file} is missing`);
+  }
+});
+
+test('the browser adapter keeps corpus-ipc on its no-default surface without ZeroMQ or the server', () => {
+  const cargoToml = read('crates/neuromorphic-adapter/Cargo.toml');
+  const policy = read('scripts/verify-browser-dependencies.mjs');
+  const profiles = read('scripts/wasm-profiles.mjs');
+  const packageJson = read('package.json');
+
+  assert.match(cargoToml, /^corpus-ipc = \{ version = "=0\.1\.0", default-features = false \}$/m);
+  assert.doesNotMatch(cargoToml, /corpus-ipc[^\n]*features = \[/);
+  for (const name of ['zmq', 'zeromq', 'axum', 'axum-core', 'tokio', 'tokio-macros', 'hyper', 'tower', 'mio', 'socket2']) {
+    assert.match(policy, new RegExp(`'${name}',`), `${name} must stay forbidden in the browser graph`);
+  }
+  assert.match(policy, /NATIVE_BUILD_PACKAGES = new Set\(\['bindgen', 'cc', 'cmake', 'pkg-config', 'vcpkg'\]\)/);
+  assert.match(policy, /feature === 'server' \|\| feature === 'zmq'/);
+  assert.match(packageJson, /node scripts\/verify-browser-dependencies\.mjs/);
+
+  // The protocol decode path is a labs-only cargo feature.
+  assert.match(cargoToml, /^protocol = \["dep:serde_json", "dep:sha2"\]$/m);
+  assert.match(cargoToml, /^sha2 = \{ version = "=0\.10\.9", default-features = false, optional = true \}$/m);
+  assert.match(profiles, /features: Object\.freeze\(\['nir', 'protocol', 'plasticity'\]\)/);
+  assert.match(profiles, /excludedDirectDependencies: Object\.freeze\(\['nir-rs', 'serde', 'serde_json', 'sha2', 'plasticity-lab', 'limbic-critic'\]\)/);
+  assert.match(read('src/protocol/provenance.ts'), /'\/wasm\/neuromorphic-adapter-labs\/neuromorphic_adapter\.js'/);
+  assert.doesNotMatch(read('public/wasm/neuromorphic-adapter/neuromorphic_adapter.js'), /inspectProtocolFixture/);
+  assert.match(read('public/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js'), /inspectProtocolFixture/);
+});
+
 test('page metadata includes canonical and complete social sharing basics', () => {
   const layout = read('src/layouts/BaseLayout.astro');
 
@@ -225,4 +292,174 @@ test('quality CI validates the locked Rust/WASM adapter before the frontend cont
   assert.match(readme, /Rust 1\.98\.1/);
   assert.match(readme, /wasm32-unknown-unknown/);
   assert.match(readme, /wasm-bindgen-cli 0\.2\.126/);
+});
+
+test('primary navigation lists Labs between Evidence and About', () => {
+  const site = read('src/data/site.ts');
+  const evidence = site.indexOf("{ href: '/evidence/', label: 'Evidence' }");
+  const labs = site.indexOf("{ href: '/labs/', label: 'Labs' }");
+  const about = site.indexOf("{ href: '/about/', label: 'About' }");
+
+  assert.ok(evidence >= 0 && labs > evidence && about > labs, 'Labs must sit between Evidence and About');
+  assert.equal(site.match(/label: 'Labs'/g).length, 1);
+});
+
+test('the labs index is a list driven by one data array', () => {
+  const index = read('src/pages/labs/index.astro');
+  const labs = read('src/data/labs.ts');
+
+  assert.match(index, /labs\.map\(\(lab\) =>/);
+  assert.match(index, /<ExecutionOrigin origin=\{lab\.origin\} \/>/);
+  assert.match(index, /href=\{lab\.href\}/);
+  assert.match(labs, /export const labs: readonly LabEntry\[\] = \[/);
+  assert.match(labs, /href: '\/labs\/nir\/'/);
+  assert.match(labs, /origin: 'imported-nir'/);
+  assert.match(labs, /href: '\/labs\/plasticity\/'/);
+  assert.match(labs, /origin: 'live-wasm',\s*\n\s*crates: \['limbic-critic', 'plasticity-lab', 'neuromod'\]/);
+});
+
+test('the plasticity lab is static-first, keeps reward state apart from spike state, and states its limits', () => {
+  const page = read('src/pages/labs/plasticity.astro');
+  const enhance = read('src/runtime/enhance-plasticity.ts');
+  const runtime = read('src/runtime/plasticity-lab.ts');
+  const styles = read('src/styles/plasticity-lab.css');
+
+  // Static first: the committed golden session renders at build time.
+  assert.match(page, /scripted-session\.v1\.json\?raw/);
+  assert.match(page, /parsePlasticityGolden\(JSON\.parse\(goldenText\)\)/);
+  assert.match(page, /data-plasticity-golden-source/);
+  assert.match(page, /goldenRows\.map\(\(row\) =>/);
+  assert.match(page, /data-plasticity-controls hidden/);
+  assert.match(page, /data-plasticity-live hidden/);
+  assert.match(page, /<noscript>/);
+  assert.match(page, /role="status"/);
+  assert.match(page, /aria-live="polite"/);
+  assert.match(page, /<ExecutionOrigin origin="unavailable-wasm" runtimeBound \/>/);
+  assert.match(page, /import '\.\.\/\.\.\/styles\/plasticity-lab\.css'/);
+  assert.doesNotMatch(page, /client:/);
+
+  // Reward/modulator state and neuron/spike state live in separate panels.
+  assert.match(page, /data-plasticity-panel="reward"/);
+  assert.match(page, /data-plasticity-panel="network"/);
+  assert.ok(page.indexOf('data-plasticity-panel="reward"') < page.indexOf('data-plasticity-panel="network"'));
+  assert.ok(!page.slice(page.indexOf('data-plasticity-panel="reward"'), page.indexOf('data-plasticity-panel="network"')).includes('data-plasticity-raster'));
+  assert.match(styles, /\.plasticity-panel-reward \{\s*border: 1px dashed var\(--signal\)/);
+  assert.match(styles, /\.plasticity-panel-network \{\s*border: 1px solid var\(--ink\)/);
+
+  // Enabled mechanisms and the limits of the crates are stated plainly.
+  assert.match(page, /What is enabled, exactly\./);
+  assert.match(page, /not an actor-critic/);
+  assert.match(page, /No penalty-driven weakening/);
+  assert.match(page, /SimpleCritic::try_assess/);
+  assert.match(page, /bridge::to_neuromodulators/);
+  assert.match(page, /train_step_with_modulators_and_rng/);
+  assert.match(page, /run_eval_with_rng/);
+
+  // Bounded buffers, throttled rendering, pausing, and reduced motion.
+  assert.match(runtime, /createSpikeRaster/);
+  assert.match(runtime, /export const PLASTICITY_HISTORY_STEPS = \d+;/);
+  assert.match(enhance, /createFlushScheduler/);
+  assert.match(enhance, /prefers-reduced-motion: reduce/);
+  assert.match(enhance, /visibilitychange/);
+  assert.match(enhance, /IntersectionObserver/);
+  assert.match(enhance, /document\.hidden/);
+  assert.match(enhance, /astro:before-swap/);
+  assert.match(enhance, /pagehide/);
+  assert.match(enhance, /session\?\.dispose\(\)/);
+  assert.match(enhance, /executionOriginLabel\(originKind\)/);
+
+  // Every step, from Run or Step, consumes the one-slot reward input queue;
+  // nothing calls the session's step directly. The controls' behavior is
+  // exercised end to end in test/plasticity-lab-dom.test.mjs; these checks
+  // only keep the single step path from being bypassed.
+  assert.equal(enhance.match(/stepWithRewardInput\(session, stimulus, rewardInput\)/g)?.length, 1);
+  assert.doesNotMatch(enhance, /session\.step\(/);
+  assert.match(enhance, /case 'step':\s*\n\s*if \(!stepOnce\(selectedStimulus\(\)\)\) return;/);
+  assert.match(enhance, /if \(stepOnce\(selectedStimulus\(\)\)\) \{\s*\n\s*scheduler\.request\(\);/);
+  assert.match(enhance, /case 'new-episode':[\s\S]*?rewardInput\.clear\(\);[\s\S]*?session\.newEpisode\(\);/);
+  assert.match(enhance, /const freshSession = \(\) => \{[\s\S]*?rewardInput\.clear\(\);/);
+  assert.match(page, /data-plasticity-field="queued"/);
+});
+
+test('the plasticity lab ships only in the labs package and never touches the homepage', () => {
+  const lib = read('crates/neuromorphic-adapter/src/lib.rs');
+  const manifest = read('crates/neuromorphic-adapter/Cargo.toml');
+
+  assert.match(lib, /#\[cfg\(feature = "plasticity"\)\]\s*\npub mod plasticity;/);
+  assert.match(manifest, /^plasticity = \["dep:limbic-critic", "dep:plasticity-lab"\]$/m);
+  assert.match(manifest, /^\[\[test\]\]\r?\nname = "plasticity_session"\r?\nrequired-features = \["plasticity"\]$/m);
+  assert.match(read('src/runtime/plasticity-lab.ts'), /'\/wasm\/neuromorphic-adapter-labs\/neuromorphic_adapter\.js'/);
+  assert.match(read('public/wasm/neuromorphic-adapter-labs/neuromorphic_adapter.js'), /WasmPlasticityLab/);
+  assert.doesNotMatch(read('public/wasm/neuromorphic-adapter/neuromorphic_adapter.js'), /WasmPlasticityLab/);
+  for (const path of ['src/pages/index.astro', 'src/components/NeuromorphicDemo.astro', 'src/runtime/enhance-demo.ts', 'src/runtime/wasm-session.ts', 'src/runtime/neuromorphic-worker.ts']) {
+    assert.doesNotMatch(read(path), /plasticity|neuromorphic-adapter-labs/i, `${path} must not reach the plasticity lab`);
+  }
+  assert.match(read('.gitattributes'), /^src\/data\/plasticity\/\*\.json text eol=lf$/m);
+});
+
+test('the NIR lab is static-first and labelled as imported structure, not the live simulation', () => {
+  const page = read('src/pages/labs/nir.astro');
+  const enhance = read('src/runtime/enhance-nir.ts');
+  const types = read('src/native-evidence/types.ts');
+  const home = read('src/pages/index.astro');
+  const demo = read('src/components/NeuromorphicDemo.astro');
+
+  assert.match(page, /<ExecutionOrigin origin="imported-nir" \/>/);
+  assert.match(types, /IMPORTED_NIR_ORIGIN_LABEL = 'IMPORTED · NIR structure'/);
+  assert.match(page, /not a simulation/);
+  assert.match(page, /data-nir-lab/);
+  assert.match(page, /layoutNirDiagram\(projection\)/);
+  assert.match(page, /lif-readout-example\.v1\.inspection\.json\?raw/);
+  assert.match(page, /data-nir-static-projection/);
+  assert.match(page, /<svg viewBox=/);
+  assert.match(page, /href=\{`#\$\{node\.anchorId\}`\}/);
+  assert.match(page, /<table class="nir-field-table">/);
+  assert.match(page, /<noscript>/);
+  assert.match(page, /role="status"/);
+  assert.match(page, /aria-live="polite"/);
+  assert.match(page, /data-nir-inspector aria-label="Operator inspector" hidden/);
+  assert.match(page, /import '\.\.\/\.\.\/styles\/nir-lab\.css'/);
+  assert.doesNotMatch(page, /client:/);
+  assert.doesNotMatch(page, /origin="live-wasm"/);
+  assert.match(enhance, /astro:before-swap/);
+  assert.match(enhance, /pagehide/);
+  assert.match(enhance, /session\?\.dispose\(\)/);
+  assert.doesNotMatch(home, /labs\/nir|imported-nir/);
+  assert.doesNotMatch(demo, /imported-nir/);
+});
+
+test('the NIR browser path never ships native HDF5', () => {
+  const manifest = read('crates/neuromorphic-adapter/Cargo.toml');
+  const policy = read('scripts/verify-browser-dependencies.mjs');
+
+  assert.match(manifest, /nir-rs = \{ version = "=0\.4\.5", default-features = false, features = \["serde"\], optional = true \}/);
+  assert.match(manifest, /\[features\]\s*\ndefault = \[\]/);
+  assert.match(manifest, /nir = \["dep:nir-rs", "dep:serde", "dep:serde_json"\]/);
+  assert.doesNotMatch(manifest, /hdf5/);
+  assert.match(policy, /\/hdf5\/i\.test\(pkg\.name\)/);
+  assert.match(policy, /NATIVE_FEATURES = new Set\(\['hdf5'\]\)/);
+  assert.equal(existsSync(new URL('../public/nir/lif-readout-example.v1.json', import.meta.url)), true);
+  assert.doesNotMatch(read('public/nir/lif-readout-example.v1.json'), /\.nir"|hdf5/i);
+});
+
+test('NIR inspection ships only in the labs package, never in the homepage package', () => {
+  const lib = read('crates/neuromorphic-adapter/src/lib.rs');
+  const packageJson = JSON.parse(read('package.json'));
+  const rust = packageJson.scripts['validate:rust'];
+
+  assert.match(lib, /#\[cfg\(feature = "nir"\)\]\s*\npub mod nir;/);
+  for (const command of ['clippy', 'test', 'check']) {
+    const runs = rust.split(' && ').filter((step) => step.includes(` ${command} `));
+    assert.equal(runs.length, 2, `${command} must run for the default build and with every labs feature`);
+    assert.equal(runs.filter((step) => step.includes('--all-features')).length, 1, command);
+    assert.equal(runs.filter((step) => step.includes('--features')).length, 0, `${command} uses --all-features, not a partial list`);
+  }
+  assert.match(rust, /node scripts\/verify-browser-dependencies\.mjs$/);
+  assert.match(read('src/runtime/nir-inspection.ts'), /'\/wasm\/neuromorphic-adapter-labs\/neuromorphic_adapter\.js'/);
+  assert.match(read('src/runtime/wasm-session.ts'), /'\/wasm\/neuromorphic-adapter\/neuromorphic_adapter\.js'/);
+  assert.match(read('scripts/wasm-profiles.mjs'), /outputDirectory: 'public\/wasm\/neuromorphic-adapter-labs'/);
+  for (const file of ['neuromorphic_adapter.js', 'neuromorphic_adapter.d.ts', 'neuromorphic_adapter_bg.wasm']) {
+    assert.equal(existsSync(new URL(`../public/wasm/neuromorphic-adapter-labs/${file}`, import.meta.url)), true, file);
+  }
+  assert.doesNotMatch(read('public/wasm/neuromorphic-adapter/neuromorphic_adapter.js'), /WasmNirInspection/);
 });

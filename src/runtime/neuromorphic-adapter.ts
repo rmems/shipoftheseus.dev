@@ -133,6 +133,8 @@ interface RawWasmState {
   encoded_spike_channels: number;
   encoded_spike_total: bigint;
   encoder_features?: Float32Array;
+  /** wasm-bindgen handle release; absent on plain test doubles. */
+  free?: () => void;
 }
 
 export type NeuromorphicContractVersion =
@@ -212,7 +214,63 @@ function isValidEncoderDiagnostics(raw: RawWasmState): boolean {
   return true;
 }
 
-function snapshot(raw: RawWasmState): NeuromorphicState {
+/**
+ * Read every field of a wasm-bindgen state handle exactly once. Each getter
+ * call crosses into WASM and copies its array into a fresh JS-owned typed
+ * array, so validating straight off the handle (dozens of property reads)
+ * repeated those copies on every step. Measured in
+ * `docs/architecture/performance-budgets.md`.
+ */
+function readRawState(raw: RawWasmState): RawWasmState {
+  return {
+    contract_version: raw.contract_version,
+    seed: raw.seed,
+    completed_step: raw.completed_step,
+    last_sequence: raw.last_sequence,
+    membrane_potentials: raw.membrane_potentials,
+    spike_neurons: raw.spike_neurons,
+    topology_rows: raw.topology_rows,
+    topology_targets: raw.topology_targets,
+    topology_weights: raw.topology_weights,
+    topology_delays: raw.topology_delays,
+    topology_node_ids: raw.topology_node_ids,
+    topology_edge_sources: raw.topology_edge_sources,
+    topology_edge_targets: raw.topology_edge_targets,
+    topology_edge_weights: raw.topology_edge_weights,
+    topology_edge_delays: raw.topology_edge_delays,
+    topology_polarities: raw.topology_polarities,
+    topology_weight_bits: raw.topology_weight_bits,
+    topology_outgoing_edge_offsets: raw.topology_outgoing_edge_offsets,
+    topology_digest: raw.topology_digest,
+    protocol_wire_version: raw.protocol_wire_version,
+    error_status: raw.error_status,
+    encoder_mode: raw.encoder_mode,
+    encoder_name: raw.encoder_name,
+    encoded_spike_count: raw.encoded_spike_count,
+    encoded_spike_channels: raw.encoded_spike_channels,
+    encoded_spike_total: raw.encoded_spike_total,
+    encoder_features: raw.encoder_features,
+  };
+}
+
+function snapshot(handle: RawWasmState): NeuromorphicState {
+  if (!handle || typeof handle !== 'object') {
+    throw new AdapterUnavailableError('The Rust/WASM runtime returned an invalid contract state.');
+  }
+  let fields: RawWasmState;
+  try {
+    fields = readRawState(handle);
+  } finally {
+    // Release the Rust-side snapshot now. Otherwise each step's state stays in
+    // WASM linear memory until a GC finalizer happens to run.
+    if (typeof handle.free === 'function') {
+      handle.free();
+    }
+  }
+  return materialize(fields);
+}
+
+function materialize(raw: RawWasmState): NeuromorphicState {
   if (
     !raw ||
     typeof raw !== 'object' ||
@@ -280,7 +338,7 @@ function snapshot(raw: RawWasmState): NeuromorphicState {
       raw.topology_weight_bits,
     ) ||
     !hasMatchingWeightBits(raw.topology_edge_weights, raw.topology_weight_bits) ||
-    !hasMatchingRoutedTopology(
+    !hasVerifiedRoutedTopology(
       raw.topology_rows,
       raw.topology_targets,
       raw.topology_weights,
@@ -422,6 +480,72 @@ function hasCanonicalEdgeOrder(
     }
     if (weightBits[previous] > weightBits[edge]) return false;
   }
+  return true;
+}
+
+type TopologyArray = Uint16Array | Uint32Array;
+
+/**
+ * The most recent routed/canonical topology pair that passed
+ * {@link hasMatchingRoutedTopology}, as private copies. The live topology is
+ * identical on every step, so later snapshots are checked by plain value
+ * comparison instead of rebuilding the multiset (the dominant per-step bridge
+ * cost before this cache; see `docs/architecture/performance-budgets.md`).
+ * Any difference falls through to the full check. One entry: bounded.
+ */
+let verifiedRoutedTopology: TopologyArray[] | null = null;
+
+function bitsOf(weights: Float32Array): Uint32Array {
+  return new Uint32Array(weights.buffer, weights.byteOffset, weights.length);
+}
+
+function sameValues(left: TopologyArray, right: TopologyArray): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function hasVerifiedRoutedTopology(
+  rows: Uint32Array,
+  targets: Uint32Array,
+  weights: Float32Array,
+  delays: Uint16Array,
+  canonicalSources: Uint32Array,
+  canonicalTargets: Uint32Array,
+  canonicalWeights: Float32Array,
+  canonicalDelays: Uint16Array,
+): boolean {
+  const key: TopologyArray[] = [
+    rows,
+    targets,
+    bitsOf(weights),
+    delays,
+    canonicalSources,
+    canonicalTargets,
+    bitsOf(canonicalWeights),
+    canonicalDelays,
+  ];
+  const verified = verifiedRoutedTopology;
+  if (verified && key.every((array, index) => sameValues(array, verified[index]))) {
+    return true;
+  }
+  if (
+    !hasMatchingRoutedTopology(
+      rows,
+      targets,
+      weights,
+      delays,
+      canonicalSources,
+      canonicalTargets,
+      canonicalWeights,
+      canonicalDelays,
+    )
+  ) {
+    return false;
+  }
+  verifiedRoutedTopology = key.map((array) => array.slice());
   return true;
 }
 

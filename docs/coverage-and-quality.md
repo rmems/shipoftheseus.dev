@@ -22,7 +22,11 @@ CI generates two LCOV files:
 
 1. **Rust** — `cargo llvm-cov --all-targets --locked` on
    `crates/neuromorphic-adapter` (library, integration tests, WASM target code
-   paths exercised on the host).
+   paths exercised on the host). Local `npm run coverage` adds
+   `--all-features`, so it also covers feature-gated labs code such as `nir`
+   (`src/nir.rs` and its tests). The CI step in `quality.yml` does not pass
+   `--all-features` yet, so CI coverage omits that code until the workflow is
+   updated.
 2. **Node** — `c8` over `node --test test/**/*.test.mjs`, attributing coverage
    to `scripts/**/*.mjs` (verification harnesses).
 
@@ -50,7 +54,10 @@ Explicit ignores are listed in:
 - `.c8rc.json` (Node report scope)
 
 Generated WASM under `public/wasm/`, build output (`dist/`, `.astro/`), tests,
-fixtures, and dependencies are excluded.
+fixtures, and dependencies are excluded. So are the manual performance
+harnesses (`scripts/perf/**` and `crates/**/examples/**`; see
+`docs/architecture/performance-budgets.md`), which are machine-dependent and
+never run in CI.
 
 ## Local commands
 
