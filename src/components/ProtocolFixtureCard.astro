@@ -1,0 +1,55 @@
+---
+import type { ProtocolFixture } from '../protocol/catalog';
+import { PROTOCOL_FIXTURE_BYTE_LIMIT } from '../protocol/provenance';
+
+interface Props {
+  fixture: ProtocolFixture;
+}
+
+const { fixture } = Astro.props;
+const titleId = `protocol-fixture-${fixture.id}`;
+---
+<article
+  class="protocol-fixture"
+  aria-labelledby={titleId}
+  data-protocol-fixture
+  data-protocol-status="static"
+  data-fixture-id={fixture.id}
+  data-fixture-url={fixture.url}
+  data-fixture-sha256={fixture.sha256}
+  data-fixture-variant={fixture.variant}
+>
+  <header>
+    <p class="eyebrow">IpcMessage::{fixture.variant}</p>
+    <h3 id={titleId}>{fixture.id}</h3>
+    <p>{fixture.derivation}</p>
+  </header>
+  <dl class="protocol-fields">
+    <div>
+      <dt>Fixture ID</dt>
+      <dd><code>{fixture.id}</code></dd>
+    </div>
+    <div>
+      <dt>Variant</dt>
+      <dd>{fixture.variant}</dd>
+    </div>
+    <div>
+      <dt>SHA-256</dt>
+      <dd><code data-protocol-digest>{fixture.sha256}</code> <span class="protocol-note">out of band, over the exact bytes</span></dd>
+    </div>
+    <div>
+      <dt>Size</dt>
+      <dd>{fixture.bytes} bytes (pre-parse limit {PROTOCOL_FIXTURE_BYTE_LIMIT})</dd>
+    </div>
+    <div>
+      <dt>Bytes</dt>
+      <dd><a href={fixture.url} download>{fixture.file}</a></dd>
+    </div>
+  </dl>
+  <details class="protocol-bytes" open>
+    <summary>Recorded envelope, exact bytes</summary>
+    <pre><code>{fixture.text}</code></pre>
+  </details>
+  <p class="protocol-fixture-status" data-protocol-fixture-status>Not decoded yet. The bytes above are the reference; the browser view decodes them through the Rust/WASM adapter when JavaScript and WebAssembly are available.</p>
+  <div class="protocol-decoded" data-protocol-decoded></div>
+</article>

@@ -1,0 +1,34 @@
+{
+  "fixtures": [
+    {
+      "bytes": 446,
+      "derivation": "Derived from a deterministic adapter replay, not captured from hardware or a live service. values are the 16 clamped kinetic-signals features the adapter handed to axon-encoder for completed step 7 of the committed contract-5 golden (seed 9). batch_id is assigned (2^53 + 1); timestamp is 0 because replay has no wall clock.",
+      "file": "kinetic-seed9-step7-stimuli.json",
+      "id": "kinetic-seed9-step7-stimuli",
+      "sha256": "bd770ba329faddd3285e73355a7281241b7f689f50d54deab8af16d827d7925c",
+      "variant": "Stimuli"
+    },
+    {
+      "bytes": 928,
+      "derivation": "Derived from the same replay, not captured from hardware or a live service. Each event is a neuromod LIF spike emitted at completed step 7: channel is the neuron index and time is the step. strength 1.0 marks a binary spike; the adapter does not export spike amplitude.",
+      "file": "kinetic-seed9-step7-spikes.json",
+      "id": "kinetic-seed9-step7-spikes",
+      "sha256": "1a494c772ee8cc876983993c20d67d2b5473967839f0c2c30ab00a855cfbdb25",
+      "variant": "Spikes"
+    },
+    {
+      "bytes": 1016,
+      "derivation": "Derived from the same replay, not captured from hardware or a live service. Rows are neuromod's per-synapse eligibility traces for LIF neuron 0's 16 input channels after completed step 7; last_spike_time is that neuron's neuromod step of its most recent spike.",
+      "file": "kinetic-seed9-step7-eligibility-traces.json",
+      "id": "kinetic-seed9-step7-eligibility-traces",
+      "sha256": "f8909b87cf2c85aff113539d10879c612955ddbc622b106c5151d7c4e651fe5b",
+      "variant": "EligibilityTraces"
+    }
+  ],
+  "generator": "crates/neuromorphic-adapter/tests/protocol_fixtures.rs",
+  "schema": "shipoftheseus.protocol-fixtures",
+  "schema_version": 1,
+  "source_step": 7,
+  "source_trace": "crates/neuromorphic-adapter/tests/fixtures/kinetic-seed9-trace.json",
+  "wire_version": 1
+}
