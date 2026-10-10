@@ -261,7 +261,7 @@ function combineFailureReasons(rendererError: ReasonCode | null, wasmError: Reas
 
 export function demoExecutionOrigin(
   snapshot: Pick<DemoSnapshot, 'mode' | 'reason'>,
-): Exclude<ExecutionOrigin, 'recorded-cuda-fpga'> {
+): Exclude<ExecutionOrigin, 'recorded-cuda-fpga' | 'recorded-protocol'> {
   switch (snapshot.mode) {
     case 'live':
       return 'live-wasm';

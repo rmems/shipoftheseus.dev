@@ -2,7 +2,7 @@
 
 - **Status:** accepted for V1
 - **Decision date:** 2026-09-16
-- **Scope:** GitHub #4, #6, #7, #8, #14, #15, and #21
+- **Scope:** GitHub #4, #6, #7, #8, #14, #15, #16, and #21
 
 ## Decision
 
@@ -42,7 +42,7 @@ algorithms owned elsewhere:
 | Topology, routing, and delays | `synaptic-wiring` |
 | Reward/modulator mapping (when needed) | `limbic-critic` |
 | Training/session orchestration (when needed) | `plasticity-lab` |
-| NIR graph interchange (later/selective) | `nir-rs` without `hdf5` |
+| NIR graph interchange and semantics (`/labs/nir/` inspection) | `nir-rs` without `hdf5` |
 | Canonical protocol/provenance models, envelopes, wire compatibility, fail-closed decode, protocol limits, and validation for the V1 recorded viewer | `corpus-ipc` default schema/validation surface |
 
 Dependencies point from the adapter to these crates. Upstream crates must remain
@@ -189,6 +189,93 @@ pointer/touch/demo telemetry → kinetic-signals → axon-encoder → neuromod �
   encoder, encoded spike count, and features, and `.trace()` returns the
   replayable recording (capped at 6000 ticks, then `null`).
 
+### Recorded `corpus-ipc` protocol viewer (GitHub #21 / Linear RM-1657)
+
+`/protocol/` replays checked-in `corpus-ipc` wire-v1 envelopes through the
+adapter crate's `protocol` cargo feature, which only the `labs` build profile
+enables (`public/wasm/neuromorphic-adapter-labs/`; see
+[Browser build profiles](#browser-build-profiles)). It is a recorded, offline
+view: ZeroMQ, the Axum IPC service, proxying, and streaming never run in the
+browser.
+
+- **Locked surface.** `corpus-ipc = { version = "=0.1.0", default-features =
+  false }` in `crates/neuromorphic-adapter/Cargo.toml`. Source
+  `Limen-Neural/corpus-ipc@d99e6544d7925dc0ccfe69fdff372352b0a9d041` (also
+  recorded in the published crate's `.cargo_vcs_info.json`); crates.io archive
+  SHA-256 `eec6624caf88783f1c35109fe1c27615fc85c986249d480c8efabb72d5f92081`,
+  which is the `corpus-ipc` checksum in `crates/neuromorphic-adapter/Cargo.lock`.
+  No `corpus-ipc` features are selected, so `zmq` and `server` are off.
+  `scripts/verify-browser-dependencies.mjs` fails, in every profile, if
+  `zmq`, `zeromq`, `axum`, `axum-core`, `tokio`, `tokio-macros`, `hyper`,
+  `tower`, `mio`, `socket2`, a native `-sys` crate, C/C++ build tooling, or a
+  package that links a native library other than `wasm_bindgen` enters the
+  wasm32 graph, or if `corpus-ipc` gains `server`/`zmq`. The `protocol`
+  feature adds two optional direct dependencies, `serde_json =1.0.151` and
+  `sha2 =0.10.9`. Both are already in the locked graph through `corpus-ipc`
+  and `synaptic-wiring`, so the policy pins the adapter itself: in the
+  `default` profile it must not enable `protocol` or depend directly on
+  `serde_json`/`sha2`.
+- **Ingress order** (`crates/neuromorphic-adapter/src/protocol.rs`). Every
+  step fails closed with a stable reason code and nothing later runs:
+  declared variant and out-of-band digest are well formed; the 64 KiB
+  pre-parse byte limit (`MAX_PROTOCOL_FIXTURE_BYTES`); SHA-256 over the exact
+  bytes; `WireEnvelope::<IpcMessage>::decode_json(bytes)`, which accepts the
+  wire version before converting the payload; `Validate::validate()` on the
+  decoded message; and the declared-versus-decoded kind check. The
+  legacy-tolerant `decode_ipc_message_json` is not used, so unversioned JSON
+  fails as `wire-version-missing`.
+- **Validation placement.** `corpus-ipc` also runs its `Validate` policy
+  inside payload deserialization (`TryFrom` shadow types). Wire-level
+  validation failures therefore surface during decode; the adapter classifies
+  them by the crate's stable `ValidationKind` names as `validation-failed`,
+  the same code the explicit post-decode `Validate::validate()` gate returns.
+- **Forward compatibility.** Additive unknown fields on the envelope and on
+  payloads are ignored as `corpus-ipc` documents. Unknown `IpcMessage`
+  variants fail as `unknown-variant`. The adapter re-encodes every accepted
+  envelope with `corpus-ipc` and reports only what a comparison establishes
+  (`canonical_difference`): `identical` bytes; `formatting` (both parse to
+  the same JSON value, so only whitespace, key order, or similar spelling
+  differs); `dropped-fields` (input object keys missing from the re-encoding,
+  listed as dotted paths, at most 32); or `differs` (for example an omitted
+  optional field written back as `null`, or an `f32` with extra digits).
+- **Boundary.** `inspectProtocolFixture(bytes, sha256, variant)` returns a
+  `WasmProtocolInspection` whose `u64` fields (`batch_id`, `timestamp`,
+  `metadata_processing_latency_ns`) are `bigint`, and whose rows are typed
+  arrays. Failures throw a `ProtocolFixtureError` with a `code`.
+  `protocolFixtureByteLimit()` exposes the limit so the page bounds its reads
+  with the adapter's own constant. TypeScript (`src/protocol/`) moves bytes,
+  reads each allocating getter once, checks the output shape, copies it into
+  JS-owned values, and renders it. It never parses envelopes with JavaScript
+  JSON or re-describes the schema. `test/protocol-enhance.test.mjs` drives the
+  page enhancement through the real labs package on a small fake DOM
+  (`test/fake-dom.mjs`).
+- **Fixtures** (`public/protocol/fixtures/v1/`). One `Stimuli`, one `Spikes`,
+  and one `EligibilityTraces` envelope, each from the first firing tick of a
+  deterministic replay of the contract-5 golden
+  `crates/neuromorphic-adapter/tests/fixtures/kinetic-seed9-trace.json`:
+  the 16 `kinetic-signals` features handed to `axon-encoder`, the LIF spikes
+  `neuromod` emitted, and `neuromod`'s eligibility traces for neuron 0's input
+  synapses. They are derived from that replay, not captured from hardware or a
+  live service. `batch_id` is the assigned value 2^53 + 1, so a lossy
+  `Number` path would show 9007199254740992. `timestamp` is 0 because replay
+  has no wall clock, and spike `strength` 1.0 marks a binary spike.
+  `corpus-ipc` itself encodes the bytes. `manifest.json` carries each file's
+  size and SHA-256 out of band. `tests/protocol_fixtures.rs` fails on any drift;
+  regenerate with
+  `cargo test --locked --features protocol --test protocol_fixtures regenerate_protocol_fixtures -- --ignored --exact`.
+  Both protocol test files declare `required-features = ["protocol"]`.
+- **Static first.** The page is rendered at build time from the manifest and
+  the exact bytes. The build fails if a digest or size does not match. Without
+  JavaScript or WASM, the bytes, digests, and provenance stay readable. The
+  enhancement only adds the decoded view. The page carries the
+  `RECORDED · corpus-ipc wire v1` origin label, which is distinct from
+  `LIVE · Rust/WASM` and `RECORDED · CUDA/FPGA`.
+- **Bundle cost.** The `serde_json` decode path for every `IpcMessage`
+  variant would roughly triple the homepage package (189 KB to 569 KB, about
+  67 KB to 169 KB with gzip -9), so it lives only in the labs package. The
+  homepage keeps the lean default build; its only `corpus-ipc` use is the
+  `WireCompatibility::CURRENT` constant behind `protocol_wire_version`.
+
 ### Topology projection handoff
 
 `synaptic-wiring = "=0.3.0"` remains the sole owner of graph construction,
@@ -302,6 +389,68 @@ synaptic-wiring projection (same snapshot) ──┴→ mapSpikesThroughTopology
   exposes `stats()`, `recent(limit)` (with `u64` steps as strings), and
   `renderer()`.
 
+### Live telemetry panel (GitHub #9 / Linear RM-1652)
+
+The demo island carries a collapsible, closed-by-default `<details>` panel
+(`src/components/DemoTelemetry.astro`) with a spike raster, a neuron
+inspector, and the active input and encoder state. It is a consumer of the
+seams above, never a second source: `src/runtime/demo-telemetry.ts` holds the
+DOM-free logic and `src/runtime/telemetry-view.ts` writes the DOM. Both load
+when a reader first opens the panel; the always-loaded
+`src/runtime/telemetry-entry.ts` only holds the per-island source registry and
+that lazy binder.
+
+```text
+channel.publish(snapshot) ─→ live-wasm SpikeEventBuffer ─ subscribe(batch) ─→ raster ring (per step)
+                         └─ channel.latest() (same step) ─────────────────────┘
+raster ring + latest snapshot ─ throttled flush (default 4 Hz) ─→ canvas + inspector DOM
+```
+
+- **Sources.** `live-seams.ts` registers each island's `live-wasm` buffer,
+  read-only channel (`latest()` only), and input source with
+  `registerLiveTelemetrySources`, which rejects any other provenance. Per step,
+  the panel records the batch's `neuromod` spikes and the matching snapshot's
+  `encoded_spike_count` (skipping a batch whose snapshot is not the same step).
+  Membrane potentials, topology, encoder mode and diagnostics, and
+  `encoder_features` are read from that snapshot. The input source
+  (`pointer`/`scripted`) is the one value from the site rather than the
+  runtime. The live seams keep a fixed ring of the last 128 steps' sources,
+  and the panel looks up the step it displays, so a pause during an in-flight
+  tick still shows the right source. Nothing is computed or synthesized for
+  display.
+- **Only exported fields.** A selected neuron shows its upstream `NeuronId`,
+  `neuromod` membrane potential, whether it spiked at the shown step, its
+  sampled spike steps, and its outgoing and incoming canonical edges with real
+  weights, delays, and polarity. Outgoing edges are exactly the range the
+  spike-event seam maps spikes onto, so they are the edges the renderer pulses.
+  Contract 5 exports no firing threshold, neuron-model tag, or other neuron
+  parameters, so none are shown; contract-3 encoder fields (bridge defaults)
+  and contract-4 features (not exported) are not shown either.
+- **Cost and cadence.** A closed or disabled panel holds no subscription, timer,
+  or observer. While open, sampling writes a few bytes per step into a fixed
+  ring (`DEFAULT_RASTER_STEPS` = 120 steps × neurons); DOM work happens only in
+  flushes coalesced to the requested cadence (default 4 Hz, capped at one per
+  step) and only after new data or a demo-mode change. Reduced motion caps the
+  cadence at 1 Hz, including when the preference changes while the panel is
+  open. `getDemoTelemetry(island)` (in `telemetry-entry.ts`)
+  returns the controller once the panel has been opened; its `setCadenceHz(hz)`
+  and `setEnabled(false)` let a performance budget lower or stop telemetry
+  without touching the simulation or the renderer.
+- **Pausing.** Telemetry receives data only while the simulation ticks and the
+  renderer feeds the buffer, so it stops with the demo (off-screen, background
+  tab, user pause, reduced motion before Play). After a user pause the last
+  sampled step stays inspectable. Closing the panel drops the sampled window.
+- **Origin labels.** The panel uses the execution-origin vocabulary: it shows
+  `LIVE · Rust/WASM` only while it displays values from the `live-wasm`
+  buffer's runtime, and `UNAVAILABLE · Rust/WASM` otherwise, including the
+  static and no-JavaScript state. Each block names its crate layer
+  (`kinetic-signals`, `axon-encoder`, `neuromod`, `synaptic-wiring`), and the
+  panel restates that contract 5 does not feed `neuromod` spikes back into the
+  mesh.
+- **Inspection.** Under `astro dev`, `globalThis.__neuromorphicTelemetryPanel`
+  exposes `inspect()`, `setCadenceHz(hz)`, and `setEnabled(enabled)`. The panel
+  element reports `data-telemetry-state` and `data-telemetry-step`.
+
 ### `neuromod` engine integration
 
 `neuromod` owns neuron dynamics and spike generation. `synaptic-wiring` owns
@@ -404,6 +553,147 @@ One failure must not cause an exception during page hydration. Feature flags are
 build-time/off by default for experimental WebGPU and NIR import; flags cannot
 weaken capability checks or fallback behavior.
 
+## NIR network inspection (GitHub #16 / Linear RM-1653)
+
+`/labs/nir/` inspects one bundled, versioned example graph. It is imported
+graph **structure**: nothing on the page simulates neurons, and it is labelled
+`IMPORTED · NIR structure` (`imported-nir` execution origin) so it is never
+confused with the `LIVE · Rust/WASM` homepage simulation, which is a different
+network owned by `synaptic-wiring` and `neuromod`.
+
+- **Ownership.** `nir-rs = "=0.4.5"` (`default-features = false`,
+  `features = ["serde"]`) owns NIR graph semantics: the closed node set and
+  its wire type names (`NirNode::type_name`), field names, tensor
+  shapes/dtypes, and `validate_structure` / `validate_parameters`. The adapter
+  module `crates/neuromorphic-adapter/src/nir.rs` only wraps the graph in a
+  versioned envelope and projects it for display (nodes in layer order, edges,
+  Rust-formatted field values, and a presentation-only `layer`/`row` layout:
+  strongly connected components are collapsed first, so cycle members share a
+  layer and operators after a cycle still land on later layers). The module
+  is compiled only with the adapter's `nir` cargo feature and is exported as
+  `WasmNirInspection` (`parse(envelopeJson)`, `inspection_json()`,
+  `node_json(name)`) from the **labs** package only; see
+  [Browser build profiles](#browser-build-profiles). Errors are stable
+  `"<code>: <message>"` strings (`nir-envelope-invalid`,
+  `nir-rs-version-mismatch`, `nir-graph-invalid-structure`, …).
+- **No HDF5 in the browser.** The `hdf5` feature (which links native libhdf5
+  through `hdf5-metno`/`hdf5-metno-sys`) is not enabled anywhere in the
+  adapter, so none of those crates enters `Cargo.lock`.
+  `scripts/verify-browser-dependencies.mjs` fails either profile's graph on
+  any package whose name contains `hdf5`, any package with the `hdf5` feature
+  enabled, any non-JavaScript `-sys` crate, any undeclared native `links`
+  key, and native C build tooling (`cc`, `cmake`, `pkg-config`, `bindgen`,
+  `vcpkg`). The earlier exact-name `hdf5` check would not have caught
+  `nir-rs/hdf5`, whose crates are named `hdf5-metno*`.
+- **Envelope (`shipoftheseus.nir-graph`, version 1).** `{ format,
+  format_version, nir_rs_version, asset, graph }`, with `graph` in the
+  `nir-rs` Serde representation. Upstream documents that representation as a
+  debug/test format, not a NIR interchange standard, so the parser accepts it
+  only from the exact pinned `nir-rs` release (`nir-rs-version-mismatch`
+  otherwise), rejects unknown envelope fields, and bounds input to 256 KiB,
+  64 nodes, and 256 edges. HDF5 `.nir` remains the interchange format.
+  `asset.origin` is a closed set; version 1 accepts only
+  `hand-authored-example`.
+- **Bundled example and provenance.** `public/nir/lif-readout-example.v1.json`
+  (input → affine → LIF → linear → LI → output, six nodes) is generated by
+  `crates/neuromorphic-adapter/tests/nir_example.rs` with the `nir-rs` graph
+  API. Its parameters are illustrative hand-picked constants: not trained,
+  tuned, fitted, or measured. The same test file writes
+  `src/data/nir/lif-readout-example.v1.inspection.json`, the projection
+  `nir-rs` produces from that envelope, and asserts that both committed files
+  match the generator byte for byte. Regenerate both (after bumping
+  `asset.revision` and the file names if the graph changes) with:
+
+  ```text
+  cargo +1.98.1 test --manifest-path crates/neuromorphic-adapter/Cargo.toml --locked --features nir --test nir_example regenerate_nir_example -- --ignored --exact
+  ```
+
+  `.gitattributes` keeps both files LF on every checkout because they are
+  compared byte for byte.
+- **Static first.** The page imports the committed projection at build time
+  and renders the SVG diagram, a per-operator parameter table, and the
+  provenance without JavaScript. Enhancement loads the labs adapter package,
+  fetches the envelope, parses and validates it with `nir-rs` in Rust/WASM,
+  and enables node selection only if the WASM projection is byte-identical to
+  the one embedded in the page (`projection-mismatch` otherwise). The page
+  embeds that projection as a build-emitted JSON string literal; the browser
+  only decodes it with `JSON.parse` (which executes nothing), requires a
+  string, and compares it. Node views returned by WASM pass a structural check
+  before they are rendered, always through `textContent`. Any failure keeps the
+  complete static page and reports `data-nir-state="unavailable"`.
+  `test/nir-lab.test.mjs` replays the same equality against the committed
+  labs package under Node.
+- **Converting a `.nir` file (not shipped).** No HDF5 asset is bundled. A
+  future `.nir` example must be converted natively, outside the browser and
+  outside `npm run build`: a host-only tool reads it with
+  `nir_rs::io::read_with` (with the `hdf5` feature and a system libhdf5) and
+  writes this envelope. It needs a new `asset.origin` variant that records the
+  source file's SHA-256, its upstream repository/revision, and its license, a
+  new envelope or asset revision, and a committed generator test like
+  `nir_example.rs`. That tool must not be a dependency of the adapter crate.
+- **Scope.** Only bundled, versioned assets are inspected. Importing arbitrary
+  user-supplied NIR files is not implemented.
+- **Size.** Deserializing the `nir-rs` graph model through Serde is most of
+  the labs package's extra weight, which is why NIR lives behind the `nir`
+  feature and outside the homepage package (sizes below). The projection
+  structs declare fields alphabetically so the WASM path serializes directly
+  instead of through `serde_json::Value`, which saved about 70 KB.
+
+## Browser build profiles
+
+The adapter is one crate and one boundary, compiled once per profile listed in
+`scripts/wasm-profiles.mjs` (name → cargo features → output directory):
+
+| Profile | Cargo features | Package | Loaded by |
+| --- | --- | --- | --- |
+| `default` | none | `public/wasm/neuromorphic-adapter/` | the homepage live demo (`src/runtime/wasm-session.ts`) |
+| `labs` | `nir`, `protocol` | `public/wasm/neuromorphic-adapter-labs/` | off-homepage interactive surfaces: `/labs/nir/` (`src/runtime/nir-inspection.ts`) and `/protocol/` (`src/protocol/provenance.ts`) |
+
+**Why the split exists.** Off-homepage surfaces need crates the landing page
+never uses. Linking `nir-rs` and its Serde decoder into one shared package
+made the homepage download 3.5× the WASM for a lab it does not show. The
+`labs` package now carries every off-homepage feature, and the `default`
+package stays byte-identical to the pre-NIR build. A later surface adds its
+feature to `labs.features` and its crates to `labs.requiredCrates`, and lists
+those crates in `default.excludedCrates`. When its crates already sit in the
+default graph transitively (the `protocol` feature's `sha2` and `serde_json`),
+it lists them in `default.excludedDirectDependencies` and
+`labs.requiredDirectDependencies` instead: the policy then checks the
+adapter's own enabled features and direct dependencies per profile. The
+homepage package never grows with it.
+
+Measured on 2026-10-09 (Rust 1.98.1, wasm-bindgen 0.2.126, release build;
+gzip is GNU gzip 1.14 `-9` of the file, before any HTTP compression the host
+applies):
+
+| Package | `.wasm` raw | `.wasm` gzip | `.js` glue raw | `.js` glue gzip |
+| --- | ---: | ---: | ---: | ---: |
+| `default` (`neuromorphic-adapter/`) | 189,316 B | 67,177 B | 16,606 B | 3,152 B |
+| `labs`, `nir` only (#16, before `protocol`) | 670,382 B | 190,546 B | 21,858 B | 4,106 B |
+| `labs`, `nir` + `protocol` (`neuromorphic-adapter-labs/`) | 966,603 B | 258,008 B | 31,745 B | 5,394 B |
+
+The `default` row is unchanged by the `protocol` feature: its `.js`/`.d.ts`
+are byte-identical to a fresh default build, and the committed `.wasm` is kept
+because a rebuild differs only in embedded source paths.
+
+- `npm run build:wasm-web` builds every profile. Each profile has its own cargo
+  target directory (`target/`, `target/labs/`), so the outputs never overwrite
+  each other. `npm run test:wasm-web-pkg` regenerates every profile and fails
+  on drift in the deterministic `.js`/`.d.ts` files.
+- `npm run validate:rust` runs clippy, `cargo test`, and the wasm32
+  `cargo check` twice: for the default build and with `--all-features` (the
+  labs configuration, `nir` + `protocol`).
+- `scripts/verify-browser-dependencies.mjs` resolves each profile's graph
+  separately: the native-dependency rules apply to both, `nir-rs` is required
+  in `labs` and absent from `default`, and the adapter's enabled features and
+  direct dependencies must match the profile (`default` enables none and has
+  no direct `nir-rs`, `serde`, `serde_json`, or `sha2`).
+- The `nir` integration tests (`tests/nir_example.rs`, `tests/nir_inspection.rs`)
+  declare `required-features = ["nir"]` and the protocol tests
+  (`tests/protocol_fixtures.rs`, `tests/protocol_ingress.rs`) declare
+  `required-features = ["protocol"]`, so they run in the `--all-features`
+  pass.
+
 ## Read-only `wasm32-unknown-unknown` audit
 
 The audit used clean clones at the exact commits below and made no upstream
@@ -420,6 +710,7 @@ decision above places it outside the browser.
 | `neuromod` | `Limen-Neural/neuromod` (crates.io) | =0.7.0 | `a897cc9` (v0.7.0 tag) | `--no-default-features --features wasm-js` | **Pass**. The opt-in `wasm-js` feature enables the supported `getrandom` browser backend; the default-only graph remains intentionally unsupported. |
 | `synaptic-wiring` | `Limen-Neural/synaptic-wiring` | `=0.3.0` | crates.io checksum `311aed9804c027f786ed5385883bd22469f8cb87fe804b88f77162466b9137b2`; audited source/main `5f70762b4ef09346d0689a65a1a8b20531cfbdab` | `--no-default-features` | **Pass** |
 | `nir-rs` | `Limen-Neural/nir-rs` | 0.4.3 | `1043cbf7bc6acbece250c769b9c2c8f7c58ce681` | `--no-default-features --features serde` (`hdf5` excluded) | **Pass** |
+| `nir-rs` | `Limen-Neural/nir-rs` | `=0.4.5` | crates.io checksum `cd21419b28aac9b71ec7abc63ec9c596e578f8fa7ce87019c255b93f84d09e00`; audited source/tag `f2d61779b261661a2c8eca14d79bde1e48c39969` (`v0.4.5`) | `default-features = false, features = ["serde"]` (`hdf5` excluded) | **Pass** on 2026-10-09 inside the adapter crate with `--locked --features nir`; approved as the NIR graph model behind the adapter's `nir` feature, linked only into the labs package (see [NIR network inspection](#nir-network-inspection-github-16--linear-rm-1653)). |
 | `limbic-critic` | `Limen-Neural/limbic-critic` | 0.3.0 | `9bf0c79f5a47fac9c5b921dd9011b013d1ae52bb` | `--no-default-features` | **Pass** |
 | `plasticity-lab` | `Limen-Neural/plasticity-lab` | 0.1.0 | `d47ae33914b6a3044d0539b851cd83621b7f1f4b` | `--no-default-features --features critic` | **Blocked:** its `neuromod 0.6.0` git dependency reaches `getrandom 0.4.3`, which emits the missing-`wasm_js` compile error. |
 | `myelin-accelerator` | `Limen-Neural/myelin-accelerator` | 0.2.0 | `26651ca0edf96b080cd5ef89045543c453bd786c` | `--no-default-features` (`cuda` excluded) | **Pass**, using the crate's non-CUDA stub PTX build path; still excluded from the browser dependency graph. |

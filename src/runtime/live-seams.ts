@@ -7,6 +7,7 @@ import {
   type SpikeEventBuffer,
   type SpikePropagationEvent,
 } from './spike-events';
+import { createInputSourceHistory, registerLiveTelemetrySources } from './telemetry-entry';
 import { createTopologyRendererSeam, type TopologyRendererSeam } from './topology-renderer';
 import { createWasmSeam, type TelemetryFrame } from './wasm-session';
 
@@ -104,6 +105,17 @@ export function createLiveDemoSeams(island?: HTMLElement): DemoSeams {
   const spikeEvents = createSpikeEventBuffer({ provenance: LIVE_SPIKE_EVENT_PROVENANCE });
   const renderer = createTopologyRendererSeam({ channel, island, spikeEvents });
   let latestFrame: TelemetryFrame | null = null;
+  const inputSources = createInputSourceHistory();
+
+  if (island) {
+    // The telemetry panel (#9) reads this island's live-wasm buffer and
+    // snapshots; it never feeds or steps the simulation.
+    registerLiveTelemetrySources(island, {
+      spikeEvents,
+      channel,
+      inputSource: (step) => inputSources.at(step),
+    });
+  }
 
   if (import.meta.env?.DEV) {
     (globalThis as { __neuromorphicTelemetry?: TelemetryInspector }).__neuromorphicTelemetry =
@@ -119,6 +131,7 @@ export function createLiveDemoSeams(island?: HTMLElement): DemoSeams {
       telemetry: () => (surface ? createPointerTelemetry(surface) : createScriptedTelemetry()),
       onFrame(frame) {
         latestFrame = frame;
+        inputSources.record(frame.state.completedStep, frame.source);
         if (island && island.dataset.demoInputSource !== frame.source) {
           island.dataset.demoInputSource = frame.source;
         }
