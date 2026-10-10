@@ -185,8 +185,12 @@ export function createPointerTelemetry(
       lastKind = active ? 'pointer' : 'scripted';
       const packet = active && latest ? new Float32Array(latest) : fallback.sample(sequence);
       if (next) {
+        // The queued packet becomes the latched one, together with the pointer
+        // that produced it, so later leave/cancel events match the right pointer.
         latest = next;
+        latestId = nextId;
         next = null;
+        nextId = null;
         dirty = true;
       } else if (leftBeforeSample) {
         release();
