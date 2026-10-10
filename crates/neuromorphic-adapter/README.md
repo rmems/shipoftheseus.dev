@@ -20,12 +20,18 @@ and `target/` are generated locally and intentionally not committed.
 
 ## Boundary guarantees
 
-- `WasmAdapter.init(seed, config)` accepts only the versioned V3 config byte
-  `[3]`; it rejects unknown configuration rather than ignoring it. V3 was
-  introduced because seeding LIF weights changed deterministic simulation
-  state relative to V2.
+- `WasmAdapter.init(seed, config)` accepts only versioned configs: `[3]`
+  (delta-only V3), `[4]` / `[4, mode]` (selectable `axon-encoder` modes) and
+  `[5]` / `[5, mode]` (kinetic-signals telemetry, below). It rejects unknown
+  configuration rather than ignoring it. V3 was introduced because seeding LIF
+  weights changed deterministic simulation state relative to V2.
 - `input(sequence, Float32Array)` requires finite samples and a strictly
   increasing `bigint` sequence.
+- Contract 5 (`[5]` / `[5, mode]`) treats each input as one `[x, y,
+  pressure]` telemetry packet. `src/kinetic.rs` extracts 16 clamped `[0, 1]`
+  features with `kinetic-signals` and hands them to `axon-encoder`; snapshots
+  expose them as `encoder_features`. See the `kinetic-signals` section of
+  `docs/architecture/browser-runtime.md`.
 - `step()` uses a caller-seeded `neuromod::StdRng` and returns copied typed
   arrays plus topology and `corpus-ipc` wire-version provenance.
 - `dispose()` makes all later runtime operations fail closed.
@@ -48,6 +54,14 @@ regenerate it with:
 
 ```text
 cargo test --locked regenerate_seed9_trace -- --ignored --exact
+```
+
+`tests/fixtures/kinetic-seed9-trace.json` is the contract-5 golden. It is a
+recorded-style pointer trace whose steps also pin `encoder_features` bits.
+Regenerate it with:
+
+```text
+cargo test --locked regenerate_kinetic_seed9_trace -- --ignored --exact
 ```
 
 Custom topology payloads are deliberately not accepted here. The later

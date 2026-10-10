@@ -4,6 +4,8 @@ import test from 'node:test';
 import { loadTsModule } from './load-ts-module.mjs';
 
 const stimulus = await loadTsModule('../src/runtime/demo-stimulus.ts');
+const telemetry = await loadTsModule('../src/runtime/kinetic-telemetry.ts');
+const { replayTraceFixture } = await import('../scripts/replay-trace-fixture.mjs');
 const channelModule = await loadTsModule('../src/runtime/simulation-channel.ts');
 const rendererModule = await loadTsModule('../src/runtime/topology-renderer.ts');
 const wasmModule = await loadTsModule('../src/runtime/wasm-session.ts');
@@ -58,13 +60,351 @@ function fakeAdapter(state = fakeState()) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-test('stimulus is deterministic, finite, and purely a function of sequence', () => {
-  const first = stimulus.stimulusSamples(7n);
-  const second = stimulus.stimulusSamples(7n);
-  assert.deepEqual(first, second);
-  assert.equal(first.length, stimulus.DEMO_CHANNEL_COUNT);
-  assert.ok([...first].every(Number.isFinite));
-  assert.notDeepEqual(stimulus.stimulusSamples(7n), stimulus.stimulusSamples(8n));
+test('scripted telemetry is a deterministic [x, y, pressure] path inside the island', () => {
+  assert.deepEqual(stimulus.scriptedTelemetry(7n), stimulus.scriptedTelemetry(7n));
+  assert.notDeepEqual(stimulus.scriptedTelemetry(7n), stimulus.scriptedTelemetry(8n));
+  const pressures = new Set();
+  for (let sequence = 1n; sequence <= 240n; sequence += 1n) {
+    const [x, y, pressure] = stimulus.scriptedTelemetry(sequence);
+    assert.equal(stimulus.scriptedTelemetry(sequence).length, 3);
+    assert.ok(x >= 0 && x <= 1 && y >= 0 && y <= 1, `packet ${sequence} leaves the island`);
+    pressures.add(pressure);
+  }
+  assert.deepEqual([...pressures].sort(), [0, 0.5], 'the script presses and releases');
+});
+
+function fakePointerTarget() {
+  const listeners = new Map();
+  return {
+    listeners,
+    getBoundingClientRect: () => ({ left: 100, top: 50, width: 400, height: 200 }),
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type, listener) {
+      if (listeners.get(type) === listener) listeners.delete(type);
+    },
+    emit(type, event = {}) {
+      listeners.get(type)?.(event);
+    },
+  };
+}
+
+test('pointer telemetry normalizes island-relative packets and falls back to the script when idle', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+
+  assert.deepEqual(source.sample(1n), stimulus.scriptedTelemetry(1n), 'no pointer yet');
+  assert.equal(source.kind(), 'scripted');
+
+  // Raw coordinates outside the island pass through; Rust owns clamping.
+  target.emit('pointermove', { clientX: 300, clientY: 100, pressure: 0 });
+  assert.deepEqual([...source.sample(2n)], [0.5, 0.25, 0]);
+  target.emit('pointerdown', { clientX: 700, clientY: 0, pressure: 0.5 });
+  assert.deepEqual([...source.sample(3n)], [1.5, -0.25, 0.5]);
+  assert.equal(source.kind(), 'pointer');
+
+  // A held, motionless pointer keeps its last packet until the idle window ends.
+  const idle = telemetry.POINTER_IDLE_TICKS;
+  assert.deepEqual([...source.sample(3n + idle - 1n)], [1.5, -0.25, 0.5]);
+  assert.deepEqual(source.sample(3n + idle), stimulus.scriptedTelemetry(3n + idle));
+  assert.equal(source.kind(), 'scripted');
+
+  target.emit('pointermove', { clientX: 200, clientY: 150, pressure: 0 });
+  assert.equal(source.sample(100n)[0], 0.25);
+  target.emit('pointerleave');
+  assert.deepEqual(source.sample(101n), stimulus.scriptedTelemetry(101n), 'leaving resumes the script');
+
+  source.dispose();
+  assert.equal(target.listeners.size, 0, 'dispose removes every pointer listener');
+});
+
+test('a tap that leaves between ticks delivers its press, then its release, then the script', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
+  target.emit('pointerup', { clientX: 200, clientY: 100, pressure: 0 });
+  target.emit('pointerleave');
+  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0.5], 'the pressed phase reaches a tick');
+  assert.equal(source.kind(), 'pointer');
+  assert.deepEqual([...source.sample(2n)], [0.25, 0.25, 0], 'then the release');
+  assert.equal(source.kind(), 'pointer');
+  assert.deepEqual(source.sample(3n), stimulus.scriptedTelemetry(3n));
+  assert.equal(source.kind(), 'scripted');
+  source.dispose();
+});
+
+test('a quick tap that stays over the island keeps its press and then follows the pointer', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
+  target.emit('pointerup', { clientX: 200, clientY: 100, pressure: 0 });
+  // Hover movement after the release replaces the queued release packet.
+  target.emit('pointermove', { clientX: 300, clientY: 150, pressure: 0 });
+  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0.5]);
+  assert.deepEqual([...source.sample(2n)], [0.5, 0.5, 0]);
+  assert.deepEqual([...source.sample(3n)], [0.5, 0.5, 0], 'the hover position is held while idle');
+  // A slow press/release (sampled between the two) is not altered.
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
+  assert.deepEqual([...source.sample(4n)], [0.25, 0.25, 0.5]);
+  target.emit('pointerup', { clientX: 200, clientY: 100, pressure: 0 });
+  assert.deepEqual([...source.sample(5n)], [0.25, 0.25, 0]);
+  source.dispose();
+});
+
+test('only the primary pointer drives telemetry when several touches are down', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5, isPrimary: true });
+  // A second finger lands, moves, and lifts; none of it may disturb the first.
+  target.emit('pointerdown', { clientX: 400, clientY: 200, pressure: 0.5, isPrimary: false });
+  target.emit('pointermove', { clientX: 420, clientY: 210, pressure: 0.5, isPrimary: false });
+  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0.5]);
+  target.emit('pointerup', { clientX: 420, clientY: 210, pressure: 0, isPrimary: false });
+  target.emit('pointerleave', { isPrimary: false });
+  target.emit('pointercancel', { isPrimary: false });
+  assert.deepEqual([...source.sample(2n)], [0.25, 0.25, 0.5], 'the primary touch is still held');
+  assert.equal(source.kind(), 'pointer');
+  target.emit('pointermove', { clientX: 300, clientY: 100, pressure: 0.5, isPrimary: true });
+  assert.deepEqual([...source.sample(3n)], [0.5, 0.25, 0.5]);
+  target.emit('pointercancel', { isPrimary: true });
+  assert.deepEqual(source.sample(4n), stimulus.scriptedTelemetry(4n), 'a primary cancel still ends input');
+  source.dispose();
+});
+
+test('only the pointer being followed can end input (touch plus mouse on one device)', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  // The primary touch (id 2) drives the island; the primary mouse (id 1) leaves.
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5, isPrimary: true, pointerId: 2 });
+  target.emit('pointerleave', { isPrimary: true, pointerId: 1 });
+  target.emit('pointercancel', { isPrimary: true, pointerId: 1 });
+  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0.5], 'the touch keeps driving input');
+  // Moving the mouse over the island hands input to it (latest primary wins).
+  target.emit('pointermove', { clientX: 300, clientY: 150, pressure: 0, isPrimary: true, pointerId: 1 });
+  assert.deepEqual([...source.sample(2n)], [0.5, 0.5, 0]);
+  // The touch canceling no longer ends the mouse's input...
+  target.emit('pointercancel', { isPrimary: true, pointerId: 2 });
+  assert.deepEqual([...source.sample(3n)], [0.5, 0.5, 0]);
+  // ...but the followed pointer leaving does.
+  target.emit('pointerleave', { isPrimary: true, pointerId: 1 });
+  assert.deepEqual(source.sample(4n), stimulus.scriptedTelemetry(4n));
+  source.dispose();
+});
+
+test('a canceled touch never reaches the simulation through a queued packet', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  // An unsampled touch press, then the mouse moves (queued), then the touch is canceled.
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5, isPrimary: true, pointerId: 2 });
+  target.emit('pointermove', { clientX: 300, clientY: 150, pressure: 0, isPrimary: true, pointerId: 1 });
+  target.emit('pointercancel', { isPrimary: true, pointerId: 2 });
+  assert.deepEqual([...source.sample(1n)], [0.5, 0.5, 0], 'the mouse packet replaces the canceled press');
+  assert.equal(source.kind(), 'pointer');
+  assert.deepEqual([...source.sample(2n)], [0.5, 0.5, 0]);
+
+  // Canceling the queued pointer instead keeps the press that was not canceled.
+  const t2 = fakePointerTarget();
+  const second = telemetry.createPointerTelemetry(t2);
+  t2.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5, isPrimary: true, pointerId: 2 });
+  t2.emit('pointermove', { clientX: 300, clientY: 150, pressure: 0, isPrimary: true, pointerId: 1 });
+  t2.emit('pointercancel', { isPrimary: true, pointerId: 1 });
+  assert.deepEqual([...second.sample(1n)], [0.25, 0.25, 0.5]);
+  assert.deepEqual([...second.sample(2n)], [0.25, 0.25, 0.5], 'the press is held, not replaced');
+  second.dispose();
+  source.dispose();
+});
+
+test('a cancel drops a queued quick-tap release as well', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
+  target.emit('pointerup', { clientX: 200, clientY: 100, pressure: 0 });
+  target.emit('pointercancel');
+  assert.deepEqual(source.sample(1n), stimulus.scriptedTelemetry(1n));
+  assert.deepEqual(source.sample(2n), stimulus.scriptedTelemetry(2n));
+  source.dispose();
+});
+
+test('a canceled gesture drops its pending packet instead of reporting pointer input', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5 });
+  target.emit('pointermove', { clientX: 220, clientY: 110, pressure: 0.5 });
+  // The browser takes over for scrolling before the next tick samples.
+  target.emit('pointercancel');
+  assert.deepEqual(source.sample(1n), stimulus.scriptedTelemetry(1n));
+  assert.equal(source.kind(), 'scripted');
+  // A cancel arriving after the packet was sampled also ends pointer input.
+  target.emit('pointermove', { clientX: 300, clientY: 100, pressure: 0.5 });
+  assert.deepEqual([...source.sample(2n)], [0.5, 0.25, 0.5]);
+  target.emit('pointercancel');
+  assert.deepEqual(source.sample(3n), stimulus.scriptedTelemetry(3n));
+  assert.equal(source.kind(), 'scripted');
+  source.dispose();
+  assert.equal(target.listeners.size, 0);
+});
+
+test('the session feeds telemetry packets to the adapter and records a replayable trace', async () => {
+  const channel = channelModule.createSimulationChannel();
+  const received = [];
+  const adapter = fakeAdapter();
+  const input = adapter.input;
+  adapter.input = (sequence, samples) => {
+    input(sequence, samples);
+    received.push([sequence, [...samples]]);
+  };
+  const frames = [];
+  const seam = wasmModule.createWasmSeam({
+    channel,
+    mainThreadAdapter: () => Promise.resolve(adapter),
+    telemetry: () => telemetry.createScriptedTelemetry(),
+    onFrame: (frame) => frames.push(frame),
+  });
+  const session = await seam.init({
+    useWorker: false,
+    signal: new AbortController().signal,
+    onWorkerFailure: () => assert.fail('no worker failure expected'),
+  });
+  session.resume();
+  await sleep(180);
+  session.dispose();
+
+  assert.ok(received.length >= 2);
+  received.forEach(([sequence, samples], index) => {
+    assert.equal(sequence, BigInt(index + 1));
+    assert.deepEqual(samples, [...stimulus.scriptedTelemetry(sequence)]);
+  });
+  const last = frames.at(-1);
+  assert.equal(last.source, 'scripted');
+  const trace = last.trace();
+  assert.equal(trace.seed, stimulus.DEMO_SEED.toString());
+  assert.deepEqual(trace.config, [5, 1], 'live sessions use contract 5 with the temporal encoder');
+  assert.deepEqual(
+    trace.operations,
+    received.flatMap(([sequence, samples]) => [
+      { op: 'input', sequence: sequence.toString(), samples },
+      { op: 'step' },
+    ]),
+  );
+});
+
+test('a throwing frame observer does not fail the live session', async () => {
+  const channel = channelModule.createSimulationChannel();
+  const adapter = fakeAdapter();
+  let calls = 0;
+  const seam = wasmModule.createWasmSeam({
+    channel,
+    mainThreadAdapter: () => Promise.resolve(adapter),
+    telemetry: () => telemetry.createScriptedTelemetry(),
+    onFrame: () => {
+      calls += 1;
+      throw new Error('observer bug');
+    },
+  });
+  const reported = [];
+  const previousReportError = globalThis.reportError;
+  globalThis.reportError = (error) => reported.push(error);
+  try {
+    const session = await seam.init({
+      useWorker: false,
+      signal: new AbortController().signal,
+      onWorkerFailure: () => assert.fail('an observer error is not a worker failure'),
+    });
+    session.resume();
+    await sleep(180);
+    session.dispose();
+  } finally {
+    globalThis.reportError = previousReportError;
+  }
+  assert.ok(calls >= 2, 'ticks keep running after the observer throws');
+  assert.ok(adapter.calls.step >= 2);
+  assert.equal(reported.length, calls, 'every observer error is still reported');
+  assert.ok(reported.every((error) => error.message === 'observer bug'));
+});
+
+test('a throwing telemetry factory disposes the initialized engine', async () => {
+  const channel = channelModule.createSimulationChannel();
+  const adapter = fakeAdapter();
+  const seam = wasmModule.createWasmSeam({
+    channel,
+    mainThreadAdapter: () => Promise.resolve(adapter),
+    telemetry: () => {
+      throw new Error('no telemetry');
+    },
+  });
+  await assert.rejects(
+    seam.init({
+      useWorker: false,
+      signal: new AbortController().signal,
+      onWorkerFailure: () => {},
+    }),
+  );
+  assert.equal(adapter.calls.dispose, 1, 'the adapter is not leaked');
+});
+
+test('failed ticks are not recorded, and exported recordings replay without expected values', async () => {
+  const channel = channelModule.createSimulationChannel();
+  const adapter = fakeAdapter();
+  const step = adapter.step;
+  adapter.step = () => {
+    if (adapter.calls.step >= 2) {
+      adapter.calls.step += 1;
+      throw new Error('step failed');
+    }
+    return step();
+  };
+  const frames = [];
+  const failures = [];
+  const seam = wasmModule.createWasmSeam({
+    channel,
+    mainThreadAdapter: () => Promise.resolve(adapter),
+    onFrame: (frame) => frames.push(frame),
+  });
+  const session = await seam.init({
+    useWorker: false,
+    signal: new AbortController().signal,
+    onWorkerFailure: (phase) => failures.push(phase),
+  });
+  session.resume();
+  await sleep(220);
+  session.dispose();
+
+  assert.ok(failures.length > 0, 'the third tick fails');
+  const trace = frames.at(-1).trace();
+  assert.deepEqual(
+    trace.operations.filter((operation) => operation.op === 'input').map((operation) => operation.sequence),
+    ['1', '2'],
+    'only the two completed ticks are recorded',
+  );
+
+  trace.operations[0].samples[0] = 99;
+  assert.notEqual(frames.at(-1).trace().operations[0].samples[0], 99, 'exports are copies');
+
+  const replayed = [];
+  let seenConfig;
+  await replayTraceFixture(frames.at(-1).trace(), (seed, config) => {
+    seenConfig = config;
+    return {
+      input: (sequence, samples) => replayed.push([sequence, Array.from(samples)]),
+      step: () => ({ error_status: 'ok' }),
+    };
+  });
+  assert.deepEqual(seenConfig, [5, 1]);
+  assert.deepEqual(replayed, [
+    [1n, Array.from(stimulus.scriptedTelemetry(1n))],
+    [2n, Array.from(stimulus.scriptedTelemetry(2n))],
+  ]);
+});
+
+test('the telemetry recorder stops at capacity instead of dropping replay history', () => {
+  const recorder = telemetry.createTelemetryRecorder(9n, [5, 1], 2);
+  recorder.record(1n, new Float32Array([0.1, 0.2, 0]));
+  recorder.record(2n, new Float32Array([0.2, 0.2, 0]));
+  assert.equal(recorder.trace().operations.length, 4);
+  recorder.record(3n, new Float32Array([0.3, 0.2, 0]));
+  assert.equal(recorder.trace(), null);
+  assert.throws(() => recorder.record(4n, new Float32Array(16)), RangeError);
 });
 
 test('simulation channel delivers the latest snapshot to subscribers', () => {

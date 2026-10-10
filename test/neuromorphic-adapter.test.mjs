@@ -412,7 +412,7 @@ test('the adapter snapshot exposes exactly the minimum render and inspection sta
       'topologyDigest', 'protocolWireVersion', 'errorStatus',
       // encoder inspection: active mode and derived spike-train diagnostics
       'encoderMode', 'encoderName', 'encodedSpikeCount', 'encodedSpikeChannels',
-      'encodedSpikeTotal',
+      'encodedSpikeTotal', 'encoderFeatures',
       // neuron state: spikes and potentials
       'spikeNeurons', 'membranePotentials',
       // topology: node ids, edges, offsets, weight bits
@@ -541,4 +541,57 @@ test('the browser bridge keeps legacy contract-3 delta-only init and rejects mis
     () => runtime.initNeuromorphicAdapter(loadWasmModule, 1n, { encoderMode: 'population' }),
     runtime.AdapterUnavailableError,
   );
+});
+
+test('contract 5 requests kinetic telemetry mode and exposes clamped encoder features', async () => {
+  const runtime = await loadTsModule('../src/runtime/neuromorphic-adapter.ts');
+  const features = new Float32Array([0, 1, 0.5, 0.25, ...Array(12).fill(0.125)]);
+  const kineticState = (overrides = {}) => validTopologyState({
+    contract_version: 5,
+    encoder_mode: 1,
+    encoder_name: 'temporal',
+    encoder_features: features,
+    ...overrides,
+  });
+  const adapterFor = async (state) => {
+    let seenConfig;
+    const adapter = await runtime.initNeuromorphicAdapter(
+      async () => ({
+        async default() {},
+        WasmAdapter: {
+          init(seed, config) {
+            seenConfig = [...config];
+            return { input() {}, step() { return state; }, state() { return state; }, dispose() {} };
+          },
+        },
+      }),
+      9n,
+      { contractVersion: 5 },
+    );
+    return { adapter, seenConfig };
+  };
+
+  const { adapter, seenConfig } = await adapterFor(kineticState());
+  assert.deepEqual(seenConfig, [5, 1], 'contract 5 defaults to the temporal encoder');
+  const snapshot = adapter.state();
+  assert.equal(snapshot.contractVersion, 5);
+  assert.deepEqual([...snapshot.encoderFeatures], [...features]);
+  assert.notEqual(snapshot.encoderFeatures.buffer, features.buffer, 'features are copied out');
+
+  // Contract 4 snapshots carry no kinetic features.
+  assert.equal((await adapterForState(runtime, validTopologyState())).state().encoderFeatures.length, 0);
+
+  for (const invalid of [
+    new Float32Array([1.5, ...Array(15).fill(0)]),
+    new Float32Array([-0.25, ...Array(15).fill(0)]),
+    new Float32Array([Number.NaN, ...Array(15).fill(0)]),
+    new Float32Array(15),
+    undefined,
+  ]) {
+    const { adapter: rejecting } = await adapterFor(kineticState({ encoder_features: invalid }));
+    assert.throws(() => rejecting.state(), runtime.AdapterUnavailableError);
+  }
+
+  const { adapter: shapeError } = await adapterFor(kineticState({ error_status: 'input-telemetry-shape' }));
+  assert.equal(shapeError.state().errorStatus, 'input-telemetry-shape');
 });

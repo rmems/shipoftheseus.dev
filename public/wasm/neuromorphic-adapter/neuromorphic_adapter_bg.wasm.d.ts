@@ -13,6 +13,7 @@ export const wasmstate_contract_version: (a: number) => number;
 export const wasmstate_encoded_spike_channels: (a: number) => number;
 export const wasmstate_encoded_spike_count: (a: number) => number;
 export const wasmstate_encoded_spike_total: (a: number) => bigint;
+export const wasmstate_encoder_features: (a: number) => any;
 export const wasmstate_encoder_mode: (a: number) => number;
 export const wasmstate_encoder_name: (a: number) => [number, number];
 export const wasmstate_error_status: (a: number) => [number, number];

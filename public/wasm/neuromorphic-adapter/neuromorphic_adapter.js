@@ -23,7 +23,8 @@ export class WasmAdapter {
     /**
      * `config` is `[3]` for the legacy delta-only contract, `[4]` for the
      * default v1 encoder mode, or `[4, mode]` to select it explicitly
-     * (`0 = delta`, `1 = temporal`, `2 = rate`).
+     * (`0 = delta`, `1 = temporal`, `2 = rate`). `[5]` and `[5, mode]` select
+     * the same encoder modes behind `kinetic-signals` telemetry extraction.
      * @param {bigint} seed
      * @param {Uint8Array} config
      * @returns {WasmAdapter}
@@ -123,6 +124,13 @@ export class WasmState {
     get encoded_spike_total() {
         const ret = wasm.wasmstate_encoded_spike_total(this.__wbg_ptr);
         return BigInt.asUintN(64, ret);
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get encoder_features() {
+        const ret = wasm.wasmstate_encoder_features(this.__wbg_ptr);
+        return ret;
     }
     /**
      * @returns {number}
