@@ -27,6 +27,7 @@ import {
   type PlasticityGolden,
   type PlasticityProbeView,
   type PlasticitySession,
+  type PlasticityStateView,
   type PlasticityStepView,
   type PlasticityWasmModule,
   type StimulusName,
@@ -175,8 +176,9 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
   const live = required<HTMLElement>(root, '[data-plasticity-live]');
   const goldenSource = required<HTMLScriptElement>(root, '[data-plasticity-golden-source]');
   const runButton = required<HTMLButtonElement>(root, '[data-plasticity-action="run"]');
-  const rasterCanvas = required<HTMLCanvasElement>(root, 'canvas[data-plasticity-raster]');
-  const stripCanvas = required<HTMLCanvasElement>(root, 'canvas[data-plasticity-modulator-strip]');
+  const rasterCanvas = required<HTMLCanvasElement>(root, '[data-plasticity-raster]');
+  const stripCanvas = required<HTMLCanvasElement>(root, '[data-plasticity-modulator-strip]');
+  const stimulusInputs = Array.from(root.querySelectorAll<HTMLInputElement>('[data-plasticity-stimulus]'));
   const eventLog = required<HTMLOListElement>(root, '[data-plasticity-event-log]');
   const eventEmpty = required<HTMLElement>(root, '[data-plasticity-event-empty]');
   const field = (name: string) => required<HTMLElement>(root, `[data-plasticity-field="${name}"]`);
@@ -230,9 +232,19 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
   };
 
   const selectedStimulus = (): StimulusName => {
-    const checked = root.querySelector<HTMLInputElement>('input[name="plasticity-stimulus"]:checked');
+    const checked = stimulusInputs.find((input) => input.checked);
     return checked && isStimulusName(checked.value) ? checked.value : 'quiet';
   };
+
+  /**
+   * Readout text when the network has no step to describe: before the first
+   * step, or right after New episode / Reset, when `neuromod`'s reset has
+   * cleared spike times, membranes, traces, and modulators.
+   */
+  const noStepNote = (state: PlasticityStateView) =>
+    state.completedSteps === 0n
+      ? 'No step yet.'
+      : `Episode ${state.episode} started after step ${state.completedSteps}: spike times, membranes, traces, and modulators cleared; weights and thresholds kept. No step in this episode yet.`;
 
   const renderQueued = () => {
     const queued = rewardInput.pending();
@@ -240,20 +252,26 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
     setText(fields.queued, queued === 'none' ? 'nothing queued' : `${REWARD_EVENT_LABELS[queued]}, applied to the next step`);
   };
 
-  const renderReward = () => {
+  // Every readout below describes the same moment: `lastStep` (the latest
+  // step of the current episode) or, when there is none, the state right
+  // after the reset. History views (event log, strip, raster) keep past steps.
+  const renderReward = (state: PlasticityStateView) => {
     renderQueued();
-    const latest = history.latest();
-    setText(fields.lastStep, latest ? `${latest.step} (episode ${latest.episode}, ${STIMULUS_LABELS[latest.stimulus]})` : '—');
-    setText(fields.lastEvent, latest ? (latest.event === 'none' ? 'none' : REWARD_EVENT_LABELS[latest.event]) : '—');
-    setText(fields.observation, latest ? `objective ${formatModulator(latest.objective)}, stress ${formatModulator(latest.stress)}` : '—');
-    root.dataset.plasticityLastEvent = latest?.event ?? '';
-    const vector = session?.state().modulators ?? null;
+    const step = lastStep;
+    setText(
+      fields.lastStep,
+      step ? `${step.step} (episode ${step.episode}, ${STIMULUS_LABELS[step.stimulus]})` : state.completedSteps === 0n ? '—' : `none yet in episode ${state.episode}`,
+    );
+    setText(fields.lastEvent, step ? (step.event === 'none' ? 'none' : REWARD_EVENT_LABELS[step.event]) : '—');
+    setText(fields.observation, step ? `objective ${formatModulator(step.objective)}, stress ${formatModulator(step.stress)}` : '—');
+    root.dataset.plasticityLastEvent = step?.event ?? '';
+    const vector = state.modulators;
     modulatorItems.forEach(({ item, bar, value }, index) => {
-      const level = vector ? vector[index] : 0;
+      const level = vector[index];
       const transform = `scaleX(${Math.max(0, Math.min(1, level))})`;
       if (bar.style.transform !== transform) bar.style.transform = transform;
-      setText(value, vector ? formatModulator(level) : '—');
-      item.dataset.level = vector ? String(level) : '';
+      setText(value, formatModulator(level));
+      item.dataset.level = String(level);
     });
     const events = history.events();
     eventLog.replaceChildren(
@@ -268,10 +286,7 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
     if (palette) drawModulatorStrip(stripCanvas, history, palette);
   };
 
-  const renderNetwork = () => {
-    if (!session) return;
-    const state = session.state();
-    const channels = session.channels;
+  const renderNetwork = (state: PlasticityStateView, channels: number) => {
     neuronRows.forEach((row, neuron) => {
       const spiked = lastStep ? Array.from(lastStep.outputSpikes).includes(neuron) : null;
       setText(required(row, '[data-cell="spiked"]'), spiked === null ? '—' : spiked ? 'yes' : 'no');
@@ -293,7 +308,7 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
     });
     setText(
       fields.weightChange,
-      lastStep ? `Step ${lastStep.step}: ${formatWeightChangeSummary(lastStep.weightChanges.length / 4, largestWeightChange(lastStep))}.` : 'No step yet.',
+      lastStep ? `Step ${lastStep.step}: ${formatWeightChangeSummary(lastStep.weightChanges.length / 4, largestWeightChange(lastStep))}.` : noStepNote(state),
     );
     const totals = raster.totals();
     setText(fields.rasterSummary, raster.size() === 0 ? '' : `${totals.spikes} spikes in the last ${raster.size()} steps.`);
@@ -311,9 +326,11 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
 
   const render = () => {
     if (!session || disposed) return;
-    root.dataset.plasticitySteps = String(session.state().completedSteps);
-    renderReward();
-    renderNetwork();
+    const state = session.state();
+    root.dataset.plasticitySteps = String(state.completedSteps);
+    root.dataset.plasticityEpisode = String(state.episode);
+    renderReward(state);
+    renderNetwork(state, session.channels);
     renderProbe();
   };
 
@@ -439,9 +456,11 @@ export function bindPlasticityLab(root: HTMLElement, options: BindPlasticityLabO
           if (!stepOnce(selectedStimulus())) return;
           break;
         case 'new-episode':
-          // The step a queued input was meant for belongs to the old episode.
+          // The step a queued input was meant for belongs to the old episode,
+          // and the last step no longer describes the reset network.
           rewardInput.clear();
           session.newEpisode();
+          lastStep = null;
           break;
         case 'reset':
           setRunning(false);

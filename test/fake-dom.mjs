@@ -1,7 +1,8 @@
 // A deliberately small DOM for behavior tests of progressive-enhancement code
 // without a browser or a new dependency. It implements only what the tested
 // modules use: elements, text, fragments, attributes, `dataset`, `hidden`,
-// `textContent`, `append`/`replaceChildren`, click listeners, and attribute
+// `style` (plain fields), `textContent`, `append`/`replaceChildren`, click
+// listeners (added and removed), and attribute
 // selectors (`[data-x]`, `[data-x="v"]`). Anything else throws, so a test fails
 // loudly instead of passing against behavior the fake does not model.
 
@@ -30,6 +31,8 @@ export class FakeElement {
     this.attributes = new Map();
     this.listeners = new Map();
     this.className = '';
+    /** Inline style properties, written as plain fields. */
+    this.style = {};
     this.dataset = new Proxy(
       {},
       {
@@ -128,9 +131,17 @@ export class FakeElement {
     this.listeners.set(type, listeners);
   }
 
+  removeEventListener(type, listener) {
+    this.listeners.set(type, (this.listeners.get(type) ?? []).filter((candidate) => candidate !== listener));
+  }
+
+  listenerCount(type) {
+    return (this.listeners.get(type) ?? []).length;
+  }
+
   /** Dispatch to every listener and wait for async handlers to settle. */
   async dispatch(type) {
-    await Promise.all((this.listeners.get(type) ?? []).map((listener) => listener({ type, target: this })));
+    await Promise.all((this.listeners.get(type) ?? []).map((listener) => listener({ type, target: this, currentTarget: this })));
   }
 }
 

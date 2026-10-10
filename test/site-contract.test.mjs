@@ -369,7 +369,9 @@ test('the plasticity lab is static-first, keeps reward state apart from spike st
   assert.match(enhance, /executionOriginLabel\(originKind\)/);
 
   // Every step, from Run or Step, consumes the one-slot reward input queue;
-  // nothing calls the session's step directly.
+  // nothing calls the session's step directly. The controls' behavior is
+  // exercised end to end in test/plasticity-lab-dom.test.mjs; these checks
+  // only keep the single step path from being bypassed.
   assert.equal(enhance.match(/stepWithRewardInput\(session, stimulus, rewardInput\)/g)?.length, 1);
   assert.doesNotMatch(enhance, /session\.step\(/);
   assert.match(enhance, /case 'step':\s*\n\s*if \(!stepOnce\(selectedStimulus\(\)\)\) return;/);

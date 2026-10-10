@@ -91,9 +91,9 @@ const channelPattern = (channel: number) => (channel < 2 ? 'A' : 'B');
     <div class="plasticity-controls" data-plasticity-controls hidden>
       <fieldset class="plasticity-stimulus">
         <legend>Input pattern</legend>
-        <label><input type="radio" name="plasticity-stimulus" value="quiet" /> <span>Quiet</span></label>
-        <label><input type="radio" name="plasticity-stimulus" value="A" checked /> <span>Pattern A <small>(ch 0–1)</small></span></label>
-        <label><input type="radio" name="plasticity-stimulus" value="B" /> <span>Pattern B <small>(ch 2–3)</small></span></label>
+        <label><input type="radio" name="plasticity-stimulus" value="quiet" data-plasticity-stimulus /> <span>Quiet</span></label>
+        <label><input type="radio" name="plasticity-stimulus" value="A" checked data-plasticity-stimulus /> <span>Pattern A <small>(ch 0–1)</small></span></label>
+        <label><input type="radio" name="plasticity-stimulus" value="B" data-plasticity-stimulus /> <span>Pattern B <small>(ch 2–3)</small></span></label>
       </fieldset>
       <div class="plasticity-buttons" role="group" aria-label="Session">
         <button type="button" class="button button-secondary" data-plasticity-action="step">Step</button>
