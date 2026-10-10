@@ -6,6 +6,24 @@ import type {
 } from './demo-runtime';
 import type { NeuromorphicState } from './neuromorphic-adapter';
 import type { SimulationChannel } from './simulation-channel';
+import {
+  LIVE_SPIKE_EVENT_PROVENANCE,
+  SPIKE_EVENT_STEP_MS,
+  createSpikeEventBuffer,
+  feedSpikeEvents,
+  propagationSpanInto,
+  type PropagationSpan,
+  type SpikeEventBuffer,
+  type SpikePropagationEvent,
+} from './spike-events';
+
+/** Drawn pulse width at its head, in CSS pixels. */
+const PULSE_WIDTH_PX = 3;
+
+/** Draw order, back to front: edges, then pulses, then the neuron markers. */
+export const EDGE_RENDER_ORDER = 0;
+export const PULSE_RENDER_ORDER = 1;
+export const NODE_RENDER_ORDER = 2;
 
 class RendererSeamError extends Error {
   code: ReasonCode;
@@ -56,17 +74,50 @@ function readPalette(): CssPalette {
 export interface TopologyRendererSeamOptions {
   channel: SimulationChannel;
   island?: HTMLElement;
+  /**
+   * Live spike-event buffer shared with telemetry consumers. The renderer
+   * feeds it from `channel` while running, clears it on pause, and clears it
+   * again on dispose. Defaults to a private `live-wasm` buffer.
+   */
+  spikeEvents?: SpikeEventBuffer;
+}
+
+/** Per-frame facts for development inspection and performance budgets. */
+export interface TopologyRendererInspection {
+  /** Propagation pulses drawn in the most recent frame. */
+  drawnPulses: number;
+  /** Events buffered when that frame was drawn. */
+  bufferedEvents: number;
+  /** Whether nonessential motion (camera drift, pulses) is enabled. */
+  motionEnabled: boolean;
+}
+
+export interface TopologyRendererSeam extends RendererSeam {
+  /** The current session's last frame, or `null` without a live session. */
+  inspect: () => TopologyRendererInspection | null;
 }
 
 /**
  * Three.js renderer seam for the WASM topology projection. Loads `three` only
  * when the runtime actually attempts the live path, so static readers never
  * pay the bundle cost.
+ *
+ * Spike propagation: each `neuromod` spike is mapped through the snapshot's
+ * `synaptic-wiring` edges by `spike-events.ts` (on publish, not per frame);
+ * frames only read the buffer and draw each in-flight event as a short pulse
+ * travelling source → target over its delay. With reduced motion, pulses and
+ * camera drift stay off and only the static topology and node state render.
  */
-export function createTopologyRendererSeam(options: TopologyRendererSeamOptions): RendererSeam {
+export function createTopologyRendererSeam(options: TopologyRendererSeamOptions): TopologyRendererSeam {
   let partial: (() => void) | null = null;
+  let inspectSession: (() => TopologyRendererInspection) | null = null;
+  const spikeEvents =
+    options.spikeEvents ?? createSpikeEventBuffer({ provenance: LIVE_SPIKE_EVENT_PROVENANCE });
 
   return {
+    inspect() {
+      return inspectSession?.() ?? null;
+    },
     disposePartial() {
       partial?.();
       partial = null;
@@ -134,7 +185,36 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         transparent: true,
         opacity: 0.55,
       });
-      disposables.push(nodeMaterial, edgeMaterial);
+      // Pulses: one tapered quad (two triangles) per in-flight event, with
+      // RGBA vertex colors fading from an opaque head to a clear tail.
+      const pulseMaterial = new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      disposables.push(nodeMaterial, edgeMaterial, pulseMaterial);
+      const pulseCapacity = spikeEvents.capacity;
+      const pulsePositions = new Float32Array(pulseCapacity * 6 * 3);
+      const pulseColors = new Float32Array(pulseCapacity * 6 * 4);
+      const pulsePositionAttribute = new THREE.BufferAttribute(pulsePositions, 3);
+      const pulseColorAttribute = new THREE.BufferAttribute(pulseColors, 4);
+      pulsePositionAttribute.setUsage(THREE.DynamicDrawUsage);
+      pulseColorAttribute.setUsage(THREE.DynamicDrawUsage);
+      const pulseGeometry = new THREE.BufferGeometry();
+      pulseGeometry.setAttribute('position', pulsePositionAttribute);
+      pulseGeometry.setAttribute('color', pulseColorAttribute);
+      pulseGeometry.setDrawRange(0, 0);
+      disposables.push(pulseGeometry);
+      const pulseMesh = new THREE.Mesh(pulseGeometry, pulseMaterial);
+      pulseMesh.frustumCulled = false;
+      // Layering, back to front: edges (z −0.01, order 0), pulses (z −0.005,
+      // order 1), nodes (z 0, order 2). The opaque nodes write depth, and
+      // pulses are depth-tested against them, so pulses pass under the
+      // neuron markers. The explicit orders keep that true if nodes ever
+      // become transparent.
+      pulseMesh.renderOrder = PULSE_RENDER_ORDER;
+      world.add(pulseMesh);
 
       let nodeGeometry: import('three').BufferGeometry | null = null;
       let edgeGeometry: import('three').BufferGeometry | null = null;
@@ -149,13 +229,30 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       const inkColor = new THREE.Color(palette.ink);
       const inhibitoryColor = mutedColor.clone().lerp(inkColor, 0.25);
       const excitatoryColor = signalColor.clone();
+      // Pulses use the full-strength tokens so they read over the softer edges:
+      // `--signal` for excitatory synapses, `--ink` for inhibitory ones.
+      const excitatoryPulseColor = signalColor.clone();
+      const inhibitoryPulseColor = inkColor.clone();
+      // Reused for per-frame node colors instead of cloning each frame.
+      const nodeScratchColor = mutedColor.clone();
       const spikeFlash = new Map<number, number>();
       let latest: NeuromorphicState | null = options.channel.latest();
+      let latestAt = 0;
       const unsubscribe = options.channel.subscribe((state) => {
         latest = state;
+        latestAt = performance.now();
         for (const neuron of state.spikeNeurons) {
           spikeFlash.set(neuron, 1);
         }
+      });
+      // Ingestion runs on publish, independent of frames; frames only read.
+      const feed = feedSpikeEvents(options.channel, spikeEvents, () => createOptions.onRendererError());
+      // Partial-init cleanup releases the channel and the buffer as well.
+      disposables.push({
+        dispose() {
+          unsubscribe();
+          feed.detach();
+        },
       });
 
       function rebuildTopology(state: NeuromorphicState): void {
@@ -187,6 +284,7 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         nodeGeometry.setAttribute('color', new THREE.BufferAttribute(pointColors, 3));
         disposables.push(nodeGeometry);
         pointsObject = new THREE.Points(nodeGeometry, nodeMaterial);
+        pointsObject.renderOrder = NODE_RENDER_ORDER;
         world.add(pointsObject);
 
         edgeGeometry = new THREE.BufferGeometry();
@@ -211,15 +309,120 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
         edgeGeometry.setAttribute('color', new THREE.BufferAttribute(lineColors, 3));
         disposables.push(edgeGeometry);
         edgeObject = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+        edgeObject.renderOrder = EDGE_RENDER_ORDER;
         world.add(edgeObject);
       }
 
       let disposed = false;
       let paused = true;
       let frozen = false;
-      let cameraMotionEnabled = createOptions.cameraMotionEnabled;
+      // Governs all nonessential motion: camera drift and propagation pulses.
+      // The runtime turns it off whenever reduced motion is requested.
+      let motionEnabled = createOptions.cameraMotionEnabled;
       let frame = 0;
       let lastFrameTime = 0;
+      let worldPerPixel = 0.01;
+      let drawnPulses = 0;
+
+      // Allocation-free per frame: vertices go straight into the
+      // preallocated attribute arrays.
+      const writeVertex = (
+        vertex: number,
+        x: number,
+        y: number,
+        alpha: number,
+        color: import('three').Color,
+      ) => {
+        const p = vertex * 3;
+        pulsePositions[p] = x;
+        pulsePositions[p + 1] = y;
+        pulsePositions[p + 2] = -0.005;
+        const c = vertex * 4;
+        pulseColors[c] = color.r;
+        pulseColors[c + 1] = color.g;
+        pulseColors[c + 2] = color.b;
+        pulseColors[c + 3] = alpha;
+      };
+
+      const writePulse = (
+        slot: number,
+        source: NodeLayout,
+        target: NodeLayout,
+        head: number,
+        tail: number,
+        color: import('three').Color,
+      ) => {
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        const length = Math.hypot(dx, dy) || 1;
+        const halfWidth = (PULSE_WIDTH_PX / 2) * worldPerPixel;
+        // Normal to the edge; the clear tail tapers to a third of the head.
+        const nx = (-dy / length) * halfWidth;
+        const ny = (dx / length) * halfWidth;
+        const tx = source.x + dx * tail;
+        const ty = source.y + dy * tail;
+        const hx = source.x + dx * head;
+        const hy = source.y + dy * head;
+        const base = slot * 6;
+        writeVertex(base, tx + nx / 3, ty + ny / 3, 0, color);
+        writeVertex(base + 1, tx - nx / 3, ty - ny / 3, 0, color);
+        writeVertex(base + 2, hx + nx, hy + ny, 1, color);
+        writeVertex(base + 3, hx + nx, hy + ny, 1, color);
+        writeVertex(base + 4, tx - nx / 3, ty - ny / 3, 0, color);
+        writeVertex(base + 5, hx - nx, hy - ny, 1, color);
+      };
+
+      // Per-frame pulse state lives here and the visitor is created once, so
+      // drawing a frame allocates nothing: no span objects, no closures.
+      const pulseSpan: PropagationSpan = { head: 0, tail: 0 };
+      let frameStep = 0;
+      let drawn = 0;
+      const visitPulse = (event: SpikePropagationEvent) => {
+        if (drawn >= pulseCapacity || event.topologyDigest !== builtDigest) {
+          return;
+        }
+        const source = nodePositions[event.sourceNeuron];
+        const target = nodePositions[event.targetNeuron];
+        if (
+          !source ||
+          !target ||
+          !propagationSpanInto(pulseSpan, event.delaySteps, frameStep - Number(event.emittedStep))
+        ) {
+          return;
+        }
+        writePulse(
+          drawn,
+          source,
+          target,
+          pulseSpan.head,
+          pulseSpan.tail,
+          event.polarity === 0 ? excitatoryPulseColor : inhibitoryPulseColor,
+        );
+        drawn += 1;
+      };
+
+      const drawPulses = (time: number) => {
+        drawn = 0;
+        const latestStep = spikeEvents.latestStep();
+        if (motionEnabled && latestStep !== null && nodeCount > 0) {
+          // Sub-step progress since the latest snapshot, capped at one step
+          // so a stalled simulation cannot run pulses ahead of it.
+          const fraction = Math.min(1, Math.max(0, (time - latestAt) / SPIKE_EVENT_STEP_MS));
+          // Steps stay exact as numbers for 2^53 ticks; avoids bigint math per event.
+          frameStep = Number(latestStep) + fraction;
+          spikeEvents.forEach(visitPulse);
+        }
+        pulseGeometry.setDrawRange(0, drawn * 6);
+        if (drawn > 0) {
+          pulsePositionAttribute.clearUpdateRanges();
+          pulsePositionAttribute.addUpdateRange(0, drawn * 6 * 3);
+          pulsePositionAttribute.needsUpdate = true;
+          pulseColorAttribute.clearUpdateRanges();
+          pulseColorAttribute.addUpdateRange(0, drawn * 6 * 4);
+          pulseColorAttribute.needsUpdate = true;
+        }
+        drawnPulses = drawn;
+      };
 
       const resize = () => {
         const width = surface.clientWidth || 1;
@@ -240,6 +443,7 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
           camera.bottom = -extent / aspect;
         }
         camera.updateProjectionMatrix();
+        worldPerPixel = (camera.top - camera.bottom) / height;
       };
 
       const renderFrame = (time: number) => {
@@ -256,10 +460,10 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
             const potential = latest.membranePotentials[node] ?? 0;
             const activation = Math.min(1, Math.max(0, Math.abs(potential)));
             const flash = spikeFlash.get(node) ?? 0;
-            const color = mutedColor
-              .clone()
-              .lerp(signalColor, Math.min(1, activation * 0.9 + flash));
-            color.toArray(colors.array as Float32Array, node * 3);
+            nodeScratchColor
+              .copy(mutedColor)
+              .lerp(signalColor, Math.min(1, activation * 0.9 + flash))
+              .toArray(colors.array as Float32Array, node * 3);
             if (flash > 0) {
               spikeFlash.set(node, Math.max(0, flash - delta * 3));
             }
@@ -267,7 +471,8 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
           colors.needsUpdate = true;
         }
 
-        if (cameraMotionEnabled) {
+        drawPulses(time);
+        if (motionEnabled) {
           world.rotation.z += delta * 0.08;
         }
         renderer.render(scene, camera);
@@ -286,6 +491,7 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
           return;
         }
         paused = false;
+        feed.setActive(true);
         if (frame === 0) {
           frame = requestAnimationFrame(loop);
         }
@@ -326,10 +532,18 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
       resize();
       start();
       partial = null;
+      const inspect = (): TopologyRendererInspection => ({
+        drawnPulses,
+        bufferedEvents: spikeEvents.size(),
+        motionEnabled,
+      });
+      inspectSession = inspect;
 
       return {
         pause() {
           stop();
+          // Paused sessions hold no spike events; the next tick starts fresh.
+          feed.setActive(false);
         },
         resume() {
           start();
@@ -338,9 +552,10 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
           frozen = true;
           stop();
           renderFrame(performance.now());
+          feed.setActive(false);
         },
         setCameraMotionEnabled(enabled: boolean) {
-          cameraMotionEnabled = enabled;
+          motionEnabled = enabled;
         },
         dispose() {
           if (disposed) {
@@ -349,6 +564,10 @@ export function createTopologyRendererSeam(options: TopologyRendererSeamOptions)
           disposed = true;
           stop();
           unsubscribe();
+          feed.detach();
+          if (inspectSession === inspect) {
+            inspectSession = null;
+          }
           resizeObserver?.disconnect();
           motionQuery?.removeEventListener('change', onDprChange);
           for (const disposable of disposables) {
