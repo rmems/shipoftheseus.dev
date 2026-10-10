@@ -7,9 +7,11 @@
 // in headless Chrome at 320, 360, 375, 768, and 1024 CSS px, first at the
 // default root text size and then at 200%, each in the site's fonts and in a
 // wide fallback face (see FONT_VARIANTS). It fails if any page scrolls
-// horizontally and names the element that overflows. It also loads the
-// homepage at a desktop size, where the hero's live demo is in view, and
-// fails if the homepage requests the labs WASM package. Node 20 needs
+// horizontally and names the element that overflows. The homepage is checked
+// a second time with its live telemetry panel open, once the lazily loaded
+// view has rendered. It also loads the homepage at a desktop size, where the
+// hero's live demo is in view, and fails if the homepage requests the labs
+// WASM package. Node 20 needs
 // `--experimental-websocket` (the npm script passes it); Node 22 has
 // `WebSocket` built in.
 import { createReadStream } from 'node:fs';
@@ -81,8 +83,9 @@ export function overflowFailures(measurements) {
   return measurements
     .filter((measurement) => measurement.overflowPx > 0)
     .map(
-      ({ path, width, scale, fonts, overflowPx, culprit, widest }) =>
-        `${path} at ${width}px, ${scale} text${fonts && fonts !== 'site' ? `, ${fonts} fonts` : ''}: ` +
+      ({ path, width, scale, fonts, state, overflowPx, culprit, widest }) =>
+        `${path} at ${width}px, ${scale} text${fonts && fonts !== 'site' ? `, ${fonts} fonts` : ''}` +
+        `${state ? `, ${state}` : ''}: ` +
         `scrolls ${overflowPx}px horizontally` +
         (culprit ? `; first to overflow: ${culprit}` : '') +
         (widest && widest !== culprit ? `; reaches furthest: ${widest}` : ''),
@@ -123,13 +126,21 @@ function measureOverflow({ scale, fontCss }) {
     const own = `${element.tagName.toLowerCase()}${classesOf(element).map((name) => `.${name}`).join('')}`;
     return `${own}${where}${text ? ` "${text}"` : ''}`;
   };
+  // Content inside a scroll or clip container (a wide table in its
+  // `overflow-x: auto` wrapper) cannot widen the page; skip it.
+  const clipped = (element) => {
+    for (let ancestor = element.parentElement; ancestor && ancestor !== document.body; ancestor = ancestor.parentElement) {
+      if (getComputedStyle(ancestor).overflowX !== 'visible') return true;
+    }
+    return false;
+  };
   let culprit = null;
   let widest = null;
   if (overflowPx > 0) {
     let right = limit;
     for (const element of document.body.querySelectorAll('*')) {
       const box = element.getBoundingClientRect();
-      if (box.width === 0 || box.right <= limit) continue;
+      if (box.width === 0 || box.right <= limit || clipped(element)) continue;
       if (culprit === null && (element.parentElement?.getBoundingClientRect().right ?? 0) <= limit) {
         culprit = describe(element);
       }
@@ -140,6 +151,36 @@ function measureOverflow({ scale, fontCss }) {
     }
   }
   return { overflowPx, culprit, widest };
+}
+
+/**
+ * Page-side: open the homepage's live telemetry panel and wait for its lazily
+ * loaded view to render live data. Without a live runtime (no WebGL or WASM on
+ * the machine, so the demo falls back) the data section stays hidden; its
+ * static markup is then shown with an injected rule so its layout is still
+ * measured. Self-contained: it is serialized and evaluated in the page.
+ */
+async function openTelemetryPanel({ timeoutMs }) {
+  const island = document.querySelector('[data-neuromorphic-demo]');
+  const panel = document.querySelector('details[data-demo-telemetry]');
+  const live = panel?.querySelector('[data-telemetry-live]');
+  if (!panel || !live) return { rendered: 'missing' };
+  panel.open = true;
+  panel.scrollIntoView({ block: 'start' });
+  const started = performance.now();
+  while (live.hidden && island?.dataset.mode !== 'fallback' && performance.now() - started < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (live.hidden) {
+    const show = document.createElement('style');
+    show.id = 'layout-check-telemetry';
+    show.textContent = '[data-telemetry-live][hidden] { display: grid !important; }';
+    document.head.append(show);
+    return { rendered: 'static', telemetryState: panel.dataset.telemetryState ?? null };
+  }
+  // Let a refresh fill the neuron chips and edge tables.
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  return { rendered: 'live', telemetryState: panel.dataset.telemetryState ?? null };
 }
 
 function serve(root) {
@@ -206,6 +247,26 @@ async function main() {
         }
       }
     }
+    // The homepage again, with the live telemetry panel open and rendered.
+    const panelStates = new Set();
+    for (const width of LAYOUT_WIDTHS) {
+      await page.send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: true });
+      await page.navigate(`${origin}/`);
+      await delay(400);
+      const opened = await page.evaluate(`(${openTelemetryPanel.toString()})(${JSON.stringify({ timeoutMs: 6000 })})`);
+      if (opened.rendered === 'missing') {
+        failures.push(`the homepage has no telemetry panel to open at ${width}px`);
+        continue;
+      }
+      panelStates.add(opened.rendered);
+      const state = `telemetry panel open (${opened.rendered === 'live' ? 'live data' : 'static markup, no live runtime'})`;
+      for (const [fonts, fontCss] of Object.entries(FONT_VARIANTS)) {
+        for (const scale of TEXT_SCALES) {
+          const result = await page.evaluate(`(${measureOverflow.toString()})(${JSON.stringify({ scale, fontCss })})`);
+          measurements.push({ path: '/', width, scale, fonts, state, ...result });
+        }
+      }
+    }
     failures.push(...overflowFailures(measurements));
 
     requests.length = 0;
@@ -219,8 +280,8 @@ async function main() {
     if (failures.length === 0) {
       process.stdout.write(
         `Layout check passed: ${paths.length} pages at ${LAYOUT_WIDTHS.join(', ')} px with ${TEXT_SCALES.join(' and ')} text, ` +
-          `in the site's fonts and in wide fallback fonts; ` +
-          `the homepage (demo mode: ${mode}) requested no labs package.\n`,
+          `in the site's fonts and in wide fallback fonts, plus the homepage with the telemetry panel open ` +
+          `(${[...panelStates].join(' and ')}); the homepage (demo mode: ${mode}) requested no labs package.\n`,
       );
     }
   } finally {

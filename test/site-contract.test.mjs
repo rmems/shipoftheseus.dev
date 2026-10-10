@@ -62,6 +62,13 @@ test('the responsive stylesheet does not force horizontal scrolling on narrow sc
     );
   assert.deepEqual(contentSizedTracks, ['1fr auto 1fr']);
   assert.doesNotMatch(styles, /white-space: nowrap/, 'labels and links wrap when their box is narrow');
+  // The live telemetry panel (homepage) shrinks and stacks with text size,
+  // and the layout check measures the homepage with it open.
+  const telemetryStyles = read('src/styles/telemetry.css');
+  assert.match(telemetryStyles, /container: telemetry-block \/ inline-size;/);
+  assert.match(telemetryStyles, /@container telemetry-block \(max-width: 15rem\)/);
+  assert.match(telemetryStyles, /\.demo-telemetry-features li \{[^}]*grid-template-columns: 1\.4rem minmax\(0, 8\.5rem\) minmax\(2\.5rem, 1fr\) 3rem;/);
+  assert.match(layoutCheck, /openTelemetryPanel/);
   // Project cards get fewer, wider columns as text grows instead of cramped ones.
   assert.match(styles, /\.project-grid \{[^}]*grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 18rem\), 1fr\)\);/);
   // Every built page is loaded at 320 to 1024 px with 100% and 200% text in CI.

@@ -669,7 +669,12 @@ none of the named faces and falls back to wider ones), and with every font
 token forced to a monospace face of about 0.6 em per character (DejaVu Sans
 Mono on Linux, Courier New elsewhere), which is wider than any of them. A
 failure names the first element that sticks out of a box that fits, with its
-classes and text. The check also loads the homepage at a desktop size and
+classes and text, skipping content inside scroll containers (the panel's
+tables), which cannot widen the page. The homepage is measured a second time
+with the live telemetry panel open, once its lazily loaded view has rendered
+live data; on a machine without a live runtime (no WebGL or WebAssembly) the
+panel's data section is shown from its static markup instead, so its layout
+is still measured. The check also loads the homepage at a desktop size and
 fails if it requests `/wasm/neuromorphic-adapter-labs/`.
 
 Before #13, 25 of the 26 page and width combinations at 320 and 375 px
@@ -687,6 +692,11 @@ fixes are structural, so they do not depend on font metrics:
   size, one at 200%) instead of cramped ones.
 - Display headings on narrow screens are capped by the viewport rather than by
   `rem`; inner-page headings use 15.5vw so their longest word fits.
+- The live telemetry panel's blocks are size containers
+  (`container: telemetry-block / inline-size`), and its grids use
+  `minmax(0, …)` tracks. Below 15rem of block width (so at twice the width
+  with 200% text), fact rows stack and each encoder-feature row puts its label
+  on one line and its bar and value on the next.
 
 ## NIR network inspection (GitHub #16 / Linear RM-1653)
 

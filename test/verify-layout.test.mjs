@@ -65,11 +65,22 @@ test('only measurements that scroll horizontally fail, naming the element and th
       widest: 'i in span.status',
     },
     { path: '/labs/', width: 360, scale: '200%', fonts: 'site', overflowPx: 3, culprit: null, widest: null },
+    {
+      path: '/',
+      width: 320,
+      scale: '200%',
+      fonts: 'site',
+      state: 'telemetry panel open (live data)',
+      overflowPx: 160,
+      culprit: 'h3 in section.demo-telemetry-block "Input and encoding"',
+      widest: null,
+    },
   ]);
   assert.deepEqual(failures, [
     '/projects/ at 1024px, 200% text, wide fonts: scrolls 22px horizontally; first to overflow: span in a.project-detail-link "→"',
     '/work/ at 375px, 200% text: scrolls 63px horizontally; first to overflow: span.status in header.case-study-header "Active research"; reaches furthest: i in span.status',
     '/labs/ at 360px, 200% text: scrolls 3px horizontally',
+    '/ at 320px, 200% text, telemetry panel open (live data): scrolls 160px horizontally; first to overflow: h3 in section.demo-telemetry-block "Input and encoding"',
   ]);
 });
 
