@@ -663,15 +663,30 @@ spike-event buffer, and #10's adaptive quality.
 `scripts/verify-layout.mjs` (`npm run test:layout`, the last step of
 `npm run validate`) serves `dist/` and loads every built page in headless
 Chrome at 320, 360, 375, 768, and 1024 px, at the default root text size and
-at 200%, and fails if any page scrolls horizontally. It also loads the
-homepage at a desktop size and fails if it requests
-`/wasm/neuromorphic-adapter-labs/`. Before #13, 25 of the 26 page and width
-combinations at 320 and 375 px scrolled horizontally at 200% text (the header
-navigation alone did on every page at 375 px), and `/projects/` also did at
-320 px at the default size. The fixes are structural:
-`overflow-wrap: break-word` on the body, wrapping navigation, `minmax(0, 1fr)`
-instead of `1fr` for single-column grids, and display headings capped by the
-viewport rather than by `rem` on narrow screens.
+at 200%, and fails if any page scrolls horizontally. Each combination runs
+twice: in the fonts the machine resolves for the site's stacks (a CI runner has
+none of the named faces and falls back to wider ones), and with every font
+token forced to a monospace face of about 0.6 em per character (DejaVu Sans
+Mono on Linux, Courier New elsewhere), which is wider than any of them. A
+failure names the first element that sticks out of a box that fits, with its
+classes and text. The check also loads the homepage at a desktop size and
+fails if it requests `/wasm/neuromorphic-adapter-labs/`.
+
+Before #13, 25 of the 26 page and width combinations at 320 and 375 px
+scrolled horizontally at 200% text (the header navigation alone did on every
+page at 375 px), and `/projects/` also did at 320 px at the default size. The
+fixes are structural, so they do not depend on font metrics:
+
+- `overflow-wrap: break-word` on the body, and no `white-space: nowrap` on
+  links or status labels; the navigation and the project card header wrap.
+- Every fraction grid track in `global.css` is `minmax(0, …fr)` (or has a
+  minimum no wider than the grid), so long words wrap instead of widening a
+  track. Only the desktop header keeps content-sized side tracks.
+- Project cards use `repeat(auto-fit, minmax(min(100%, 18rem), 1fr))`, so
+  larger text gives fewer, wider columns (three on a desktop at the default
+  size, one at 200%) instead of cramped ones.
+- Display headings on narrow screens are capped by the viewport rather than by
+  `rem`; inner-page headings use 15.5vw so their longest word fits.
 
 ## NIR network inspection (GitHub #16 / Linear RM-1653)
 

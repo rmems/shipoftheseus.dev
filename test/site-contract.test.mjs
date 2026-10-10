@@ -49,6 +49,21 @@ test('the responsive stylesheet does not force horizontal scrolling on narrow sc
   assert.match(styles, /body \{[^}]*overflow-wrap: break-word;/);
   assert.match(styles, /\.primary-nav \{ flex-wrap: wrap;/);
   assert.match(styles, /font-size: min\(17vw, 5rem\)/);
+  // Fraction tracks may shrink below their content (`minmax(0, …fr)`, or a
+  // minimum no wider than the grid), so a wide fallback font wraps text
+  // instead of widening the page. Only the desktop header keeps
+  // content-sized side tracks (its navigation wraps).
+  const contentSizedTracks = [...styles.matchAll(/grid-template-columns:\s*([^;]+);/g)]
+    .map((match) => match[1].trim())
+    .filter((tracks) =>
+      /(^|[\s(,])\d*\.?\d+fr/.test(
+        tracks.replace(/minmax\(0, \d*\.?\d+fr\)/g, '').replace(/minmax\(min\(100%, \d*\.?\d+rem\), \d*\.?\d+fr\)/g, ''),
+      ),
+    );
+  assert.deepEqual(contentSizedTracks, ['1fr auto 1fr']);
+  assert.doesNotMatch(styles, /white-space: nowrap/, 'labels and links wrap when their box is narrow');
+  // Project cards get fewer, wider columns as text grows instead of cramped ones.
+  assert.match(styles, /\.project-grid \{[^}]*grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 18rem\), 1fr\)\);/);
   // Every built page is loaded at 320 to 1024 px with 100% and 200% text in CI.
   assert.equal(packageJson.scripts['test:layout'], 'node --experimental-websocket scripts/verify-layout.mjs');
   assert.match(packageJson.scripts.validate, /npm run build && .* && npm run test:layout$/);

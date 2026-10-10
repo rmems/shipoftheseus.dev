@@ -5,11 +5,13 @@
 //
 // Serves `dist/` from an in-process static server and loads every built page
 // in headless Chrome at 320, 360, 375, 768, and 1024 CSS px, first at the
-// default root text size and then at 200%. It fails if any page scrolls
-// horizontally. It also loads the homepage at a desktop size, where the
-// hero's live demo is in view, and fails if the homepage requests the labs
-// WASM package. Node 20 needs `--experimental-websocket` (the npm script
-// passes it); Node 22 has `WebSocket` built in.
+// default root text size and then at 200%, each in the site's fonts and in a
+// wide fallback face (see FONT_VARIANTS). It fails if any page scrolls
+// horizontally and names the element that overflows. It also loads the
+// homepage at a desktop size, where the hero's live demo is in view, and
+// fails if the homepage requests the labs WASM package. Node 20 needs
+// `--experimental-websocket` (the npm script passes it); Node 22 has
+// `WebSocket` built in.
 import { createReadStream } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -20,6 +22,19 @@ import { pathToFileURL } from 'node:url';
 
 export const LAYOUT_WIDTHS = Object.freeze([320, 360, 375, 768, 1024]);
 export const TEXT_SCALES = Object.freeze(['100%', '200%']);
+const WIDE_FACE = "'DejaVu Sans Mono', 'Courier New', monospace";
+/**
+ * Font stacks to measure with. `site` is whatever the machine resolves for the
+ * site's own stacks (CI runners have none of its named faces). `wide` swaps
+ * every font token for a monospace face of about 0.6 em per character (DejaVu
+ * Sans Mono on Linux, Courier New elsewhere). That is wider than the site's
+ * faces and their usual fallbacks, so a layout that passes it does not depend
+ * on font metrics.
+ */
+export const FONT_VARIANTS = Object.freeze({
+  site: null,
+  wide: `:root { --serif: ${WIDE_FACE}; --sans: ${WIDE_FACE}; --mono: ${WIDE_FACE}; }`,
+});
 export const LABS_PACKAGE_PATH = '/wasm/neuromorphic-adapter-labs/';
 
 const repository = resolve(import.meta.dirname, '..');
@@ -66,8 +81,11 @@ export function overflowFailures(measurements) {
   return measurements
     .filter((measurement) => measurement.overflowPx > 0)
     .map(
-      ({ path, width, scale, overflowPx, widest }) =>
-        `${path} at ${width}px, ${scale} text: scrolls ${overflowPx}px horizontally${widest ? ` (widest: ${widest})` : ''}`,
+      ({ path, width, scale, fonts, overflowPx, culprit, widest }) =>
+        `${path} at ${width}px, ${scale} text${fonts && fonts !== 'site' ? `, ${fonts} fonts` : ''}: ` +
+        `scrolls ${overflowPx}px horizontally` +
+        (culprit ? `; first to overflow: ${culprit}` : '') +
+        (widest && widest !== culprit ? `; reaches furthest: ${widest}` : ''),
     );
 }
 
@@ -76,24 +94,52 @@ export function labsPackageRequests(urls) {
   return urls.filter((url) => new URL(url, 'http://localhost').pathname.startsWith(LABS_PACKAGE_PATH));
 }
 
-/** Page-side measurement: horizontal overflow at the given root text size. */
-function measureOverflow(scale) {
-  document.documentElement.style.fontSize = scale;
+/**
+ * Page-side measurement: horizontal overflow at the given root text size and
+ * font override. Names the outermost element that sticks out of a parent that
+ * itself fits (usually the cause) and the element reaching furthest right,
+ * each as `tag.classes in ancestor.class "text"`. Self-contained: it is
+ * serialized and evaluated in the page.
+ */
+function measureOverflow({ scale, fontCss }) {
   const root = document.documentElement;
+  root.style.fontSize = scale;
+  let override = document.getElementById('layout-check-fonts');
+  if (fontCss && !override) {
+    override = document.createElement('style');
+    override.id = 'layout-check-fonts';
+    document.head.append(override);
+  }
+  if (override) override.textContent = fontCss ?? '';
+  const limit = root.clientWidth + 0.5;
   const overflowPx = root.scrollWidth - root.clientWidth;
+  const classesOf = (element) =>
+    typeof element.className === 'string' ? element.className.trim().split(/\s+/).filter(Boolean) : [];
+  const describe = (element) => {
+    let context = element.parentElement;
+    while (context && classesOf(context).length === 0) context = context.parentElement;
+    const where = context ? ` in ${context.tagName.toLowerCase()}.${classesOf(context)[0]}` : '';
+    const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    const own = `${element.tagName.toLowerCase()}${classesOf(element).map((name) => `.${name}`).join('')}`;
+    return `${own}${where}${text ? ` "${text}"` : ''}`;
+  };
+  let culprit = null;
   let widest = null;
   if (overflowPx > 0) {
-    let right = root.clientWidth;
+    let right = limit;
     for (const element of document.body.querySelectorAll('*')) {
       const box = element.getBoundingClientRect();
+      if (box.width === 0 || box.right <= limit) continue;
+      if (culprit === null && (element.parentElement?.getBoundingClientRect().right ?? 0) <= limit) {
+        culprit = describe(element);
+      }
       if (box.right > right) {
         right = box.right;
-        const name = typeof element.className === 'string' && element.className ? `.${element.className.split(' ')[0]}` : '';
-        widest = `${element.tagName.toLowerCase()}${name}`;
+        widest = describe(element);
       }
     }
   }
-  return { overflowPx, widest };
+  return { overflowPx, culprit, widest };
 }
 
 function serve(root) {
@@ -152,9 +198,11 @@ async function main() {
         await page.navigate(`${origin}${path}`);
         // Let progressive enhancement (labs, protocol, demo status) settle.
         await delay(400);
-        for (const scale of TEXT_SCALES) {
-          const result = await page.evaluate(`(${measureOverflow.toString()})(${JSON.stringify(scale)})`);
-          measurements.push({ path, width, scale, ...result });
+        for (const [fonts, fontCss] of Object.entries(FONT_VARIANTS)) {
+          for (const scale of TEXT_SCALES) {
+            const result = await page.evaluate(`(${measureOverflow.toString()})(${JSON.stringify({ scale, fontCss })})`);
+            measurements.push({ path, width, scale, fonts, ...result });
+          }
         }
       }
     }
@@ -170,7 +218,8 @@ async function main() {
     }
     if (failures.length === 0) {
       process.stdout.write(
-        `Layout check passed: ${paths.length} pages at ${LAYOUT_WIDTHS.join(', ')} px with ${TEXT_SCALES.join(' and ')} text; ` +
+        `Layout check passed: ${paths.length} pages at ${LAYOUT_WIDTHS.join(', ')} px with ${TEXT_SCALES.join(' and ')} text, ` +
+          `in the site's fonts and in wide fallback fonts; ` +
           `the homepage (demo mode: ${mode}) requested no labs package.\n`,
       );
     }

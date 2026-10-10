@@ -486,7 +486,8 @@ instead of the whole island.
 
 Re-measured on the same machine on 2026-10-09 at 10:31 UTC with
 `npm run perf:browser -- --browser <chrome> --seconds 8 --skip-bench --skip-stress`
-on the production build of this branch (on top of #50, `c7ff9e5`): headless
+on the production build of this branch (on top of #50, `c7ff9e5`; restacked
+later onto `f5677b5` with an identical tree): headless
 Chrome 155.0.8059.40, renderer `ANGLE (NVIDIA, NVIDIA GeForce RTX 5080 …
 D3D11)`, DPR 1, viewport 1244×795, served from `127.0.0.1` without
 compression. The headed run was not repeated (see [Not measured](#not-measured)).
@@ -533,14 +534,15 @@ Times are mean / p95 / max in ms, quantized at 0.1 ms.
 | `telemetry-view.*.js` + `demo-telemetry.*.js` (#48 panel) | 16,856 | 7,175 | 6,528 | only when a reader opens the panel |
 | **total, panel opened** | 1,041,175 | 292,090 | 241,781 | |
 
-Against a build of the #50 head (`c7ff9e5`) on the same machine, the hero
-changes the homepage as follows. The island entry grows by 350 bytes (124
-brotli). The HTML grows from 19,149 to 25,393 bytes (3,662 to 4,787 brotli),
-almost all of it the static drawing (64 lines and one path) and the crate
-trail, which are plain markup with no script. The page's own stylesheet
-(`hero.css` with the telemetry styles) grows from 4,474 to 8,866 bytes (1,046
-to 1,959 brotli), and the shared site stylesheet shrinks from 16,590 to 16,392
-bytes once the old demo section's rules are removed.
+Against a build of the #50 head (`c7ff9e5`, since restacked as `f5677b5` with
+an identical tree) on the same machine, the hero changes the homepage as
+follows. The island entry grows by 350 bytes (124 brotli). The HTML grows from
+19,149 to 25,393 bytes (3,662 to 4,798 brotli), almost all of it the static
+drawing (64 lines and one path) and the crate trail, which are plain markup
+with no script. The page's own stylesheet (`hero.css` with the telemetry
+styles) grows from 4,474 to 8,866 bytes (1,046 to 1,959 brotli), and the
+shared site stylesheet shrinks from 16,590 to 16,305 bytes once the old demo
+section's rules are removed and the narrow-screen rules are consolidated.
 
 **Layout stability.** A separate headless Chrome 155 session on the same
 machine and build (a `layout-shift` and `largest-contentful-paint`

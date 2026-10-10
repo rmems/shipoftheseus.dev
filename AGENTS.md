@@ -49,7 +49,7 @@ npm run lint                # eslint .
 npm run typecheck           # astro check
 npm run build               # astro build
 npm run validate:rust       # cargo +1.98.1 fmt/clippy/test/check (wasm32) on crates/neuromorphic-adapter
-npm run test:layout         # built pages at 320–1024 px, 100%/200% text: no horizontal scroll (needs dist/, BROWSER_BIN)
+npm run test:layout         # built pages at 320–1024 px, 100%/200% text, site + wide fonts: no horizontal scroll (needs dist/, BROWSER_BIN)
 ```
 
 ## Conventions visible in the repo
