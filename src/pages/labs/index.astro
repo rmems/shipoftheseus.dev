@@ -1,0 +1,30 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import ExecutionOrigin from '../../components/ExecutionOrigin.astro';
+import { labs } from '../../data/labs';
+import '../../styles/labs.css';
+---
+<BaseLayout title="Labs" description="Focused neuromorphic experiments. Each lab labels where its data comes from and stays readable without JavaScript.">
+  <section class="page-intro compact" aria-labelledby="labs-title">
+    <p class="eyebrow">Labs</p>
+    <h1 id="labs-title">Focused experiments, one question each.</h1>
+    <p>Each lab isolates one part of the neuromorphic stack. Every page states where its data comes from, and none of them is the live simulation on the homepage.</p>
+  </section>
+  <section class="labs-index" aria-label="Available labs">
+    <ol class="labs-list">
+      {labs.map((lab) => (
+        <li>
+          <article class="lab-entry">
+            <ExecutionOrigin origin={lab.origin} />
+            <h2><a href={lab.href}>{lab.title}</a></h2>
+            <p>{lab.summary}</p>
+            <ul class="technology-list" aria-label="Crates">
+              {lab.crates.map((crate) => <li>{crate}</li>)}
+            </ul>
+            <a class="text-link" href={lab.href}>Open the lab <span aria-hidden="true">→</span></a>
+          </article>
+        </li>
+      ))}
+    </ol>
+  </section>
+</BaseLayout>

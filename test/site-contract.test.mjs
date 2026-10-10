@@ -29,6 +29,8 @@ test('every requested primary route is backed by an Astro page', () => {
     'src/pages/contact.astro',
     'src/pages/resume.astro',
     'src/pages/evidence.astro',
+    'src/pages/labs/index.astro',
+    'src/pages/labs/nir.astro',
   ]) {
     assert.equal(existsSync(new URL(`../${route}`, import.meta.url)), true, `${route} is missing`);
   }
@@ -225,4 +227,92 @@ test('quality CI validates the locked Rust/WASM adapter before the frontend cont
   assert.match(readme, /Rust 1\.98\.1/);
   assert.match(readme, /wasm32-unknown-unknown/);
   assert.match(readme, /wasm-bindgen-cli 0\.2\.126/);
+});
+
+test('primary navigation lists Labs between Evidence and About', () => {
+  const site = read('src/data/site.ts');
+  const evidence = site.indexOf("{ href: '/evidence/', label: 'Evidence' }");
+  const labs = site.indexOf("{ href: '/labs/', label: 'Labs' }");
+  const about = site.indexOf("{ href: '/about/', label: 'About' }");
+
+  assert.ok(evidence >= 0 && labs > evidence && about > labs, 'Labs must sit between Evidence and About');
+  assert.equal(site.match(/label: 'Labs'/g).length, 1);
+});
+
+test('the labs index is a list driven by one data array', () => {
+  const index = read('src/pages/labs/index.astro');
+  const labs = read('src/data/labs.ts');
+
+  assert.match(index, /labs\.map\(\(lab\) =>/);
+  assert.match(index, /<ExecutionOrigin origin=\{lab\.origin\} \/>/);
+  assert.match(index, /href=\{lab\.href\}/);
+  assert.match(labs, /export const labs: readonly LabEntry\[\] = \[/);
+  assert.match(labs, /href: '\/labs\/nir\/'/);
+  assert.match(labs, /origin: 'imported-nir'/);
+});
+
+test('the NIR lab is static-first and labelled as imported structure, not the live simulation', () => {
+  const page = read('src/pages/labs/nir.astro');
+  const enhance = read('src/runtime/enhance-nir.ts');
+  const types = read('src/native-evidence/types.ts');
+  const home = read('src/pages/index.astro');
+  const demo = read('src/components/NeuromorphicDemo.astro');
+
+  assert.match(page, /<ExecutionOrigin origin="imported-nir" \/>/);
+  assert.match(types, /IMPORTED_NIR_ORIGIN_LABEL = 'IMPORTED · NIR structure'/);
+  assert.match(page, /not a simulation/);
+  assert.match(page, /data-nir-lab/);
+  assert.match(page, /layoutNirDiagram\(projection\)/);
+  assert.match(page, /lif-readout-example\.v1\.inspection\.json\?raw/);
+  assert.match(page, /data-nir-static-projection/);
+  assert.match(page, /<svg viewBox=/);
+  assert.match(page, /href=\{`#\$\{node\.anchorId\}`\}/);
+  assert.match(page, /<table class="nir-field-table">/);
+  assert.match(page, /<noscript>/);
+  assert.match(page, /role="status"/);
+  assert.match(page, /aria-live="polite"/);
+  assert.match(page, /data-nir-inspector aria-label="Operator inspector" hidden/);
+  assert.match(page, /import '\.\.\/\.\.\/styles\/nir-lab\.css'/);
+  assert.doesNotMatch(page, /client:/);
+  assert.doesNotMatch(page, /origin="live-wasm"/);
+  assert.match(enhance, /astro:before-swap/);
+  assert.match(enhance, /pagehide/);
+  assert.match(enhance, /session\?\.dispose\(\)/);
+  assert.doesNotMatch(home, /labs\/nir|imported-nir/);
+  assert.doesNotMatch(demo, /imported-nir/);
+});
+
+test('the NIR browser path never ships native HDF5', () => {
+  const manifest = read('crates/neuromorphic-adapter/Cargo.toml');
+  const policy = read('scripts/verify-browser-dependencies.mjs');
+
+  assert.match(manifest, /nir-rs = \{ version = "=0\.4\.5", default-features = false, features = \["serde"\], optional = true \}/);
+  assert.match(manifest, /\[features\]\s*\ndefault = \[\]/);
+  assert.match(manifest, /nir = \["dep:nir-rs", "dep:serde", "dep:serde_json"\]/);
+  assert.doesNotMatch(manifest, /hdf5/);
+  assert.match(policy, /\/hdf5\/i\.test\(pkg\.name\)/);
+  assert.match(policy, /NATIVE_FEATURES = new Set\(\['hdf5'\]\)/);
+  assert.equal(existsSync(new URL('../public/nir/lif-readout-example.v1.json', import.meta.url)), true);
+  assert.doesNotMatch(read('public/nir/lif-readout-example.v1.json'), /\.nir"|hdf5/i);
+});
+
+test('NIR inspection ships only in the labs package, never in the homepage package', () => {
+  const lib = read('crates/neuromorphic-adapter/src/lib.rs');
+  const packageJson = JSON.parse(read('package.json'));
+  const rust = packageJson.scripts['validate:rust'];
+
+  assert.match(lib, /#\[cfg\(feature = "nir"\)\]\s*\npub mod nir;/);
+  for (const command of ['clippy', 'test', 'check']) {
+    const runs = rust.split(' && ').filter((step) => step.includes(` ${command} `));
+    assert.equal(runs.length, 2, `${command} must run for the default and nir builds`);
+    assert.equal(runs.filter((step) => step.includes('--features nir')).length, 1, command);
+  }
+  assert.match(rust, /node scripts\/verify-browser-dependencies\.mjs$/);
+  assert.match(read('src/runtime/nir-inspection.ts'), /'\/wasm\/neuromorphic-adapter-labs\/neuromorphic_adapter\.js'/);
+  assert.match(read('src/runtime/wasm-session.ts'), /'\/wasm\/neuromorphic-adapter\/neuromorphic_adapter\.js'/);
+  assert.match(read('scripts/wasm-profiles.mjs'), /outputDirectory: 'public\/wasm\/neuromorphic-adapter-labs'/);
+  for (const file of ['neuromorphic_adapter.js', 'neuromorphic_adapter.d.ts', 'neuromorphic_adapter_bg.wasm']) {
+    assert.equal(existsSync(new URL(`../public/wasm/neuromorphic-adapter-labs/${file}`, import.meta.url)), true, file);
+  }
+  assert.doesNotMatch(read('public/wasm/neuromorphic-adapter/neuromorphic_adapter.js'), /WasmNirInspection/);
 });

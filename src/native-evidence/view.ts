@@ -1,4 +1,5 @@
 import {
+  IMPORTED_NIR_ORIGIN_LABEL,
   LIVE_ORIGIN_LABEL,
   NATIVE_EVIDENCE_CATALOG_DIR,
   RECORDED_ORIGIN_LABEL,
@@ -13,7 +14,12 @@ function assertNever(value: never, label: string): never {
   throw new Error(`Unhandled ${label}: ${String(value)}`);
 }
 
-export type ExecutionOrigin = 'live-wasm' | 'static-diagram' | 'unavailable-wasm' | 'recorded-cuda-fpga';
+export type ExecutionOrigin =
+  | 'live-wasm'
+  | 'static-diagram'
+  | 'unavailable-wasm'
+  | 'recorded-cuda-fpga'
+  | 'imported-nir';
 
 export function executionOriginLabel(origin: ExecutionOrigin): string {
   switch (origin) {
@@ -25,12 +31,16 @@ export function executionOriginLabel(origin: ExecutionOrigin): string {
       return UNAVAILABLE_ORIGIN_LABEL;
     case 'recorded-cuda-fpga':
       return RECORDED_ORIGIN_LABEL;
+    case 'imported-nir':
+      return IMPORTED_NIR_ORIGIN_LABEL;
     default:
       return assertNever(origin, 'execution origin');
   }
 }
 
-export function executionOriginData(origin: ExecutionOrigin): 'live' | 'static' | 'unavailable' | 'recorded' {
+export function executionOriginData(
+  origin: ExecutionOrigin,
+): 'live' | 'static' | 'unavailable' | 'recorded' | 'imported' {
   switch (origin) {
     case 'live-wasm':
       return 'live';
@@ -40,6 +50,8 @@ export function executionOriginData(origin: ExecutionOrigin): 'live' | 'static' 
       return 'unavailable';
     case 'recorded-cuda-fpga':
       return 'recorded';
+    case 'imported-nir':
+      return 'imported';
     default:
       return assertNever(origin, 'execution origin');
   }
