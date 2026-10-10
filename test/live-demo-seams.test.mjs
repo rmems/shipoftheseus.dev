@@ -215,6 +215,24 @@ test('a canceled touch never reaches the simulation through a queued packet', ()
   source.dispose();
 });
 
+test('a promoted queued packet keeps the pointer that produced it', () => {
+  const target = fakePointerTarget();
+  const source = telemetry.createPointerTelemetry(target);
+  // A touch press is latched, then mouse hover is queued behind it before the tick.
+  target.emit('pointerdown', { clientX: 200, clientY: 100, pressure: 0.5, isPrimary: true, pointerId: 2 });
+  target.emit('pointermove', { clientX: 300, clientY: 150, pressure: 0, isPrimary: true, pointerId: 1 });
+  assert.deepEqual([...source.sample(1n)], [0.25, 0.25, 0.5], 'the touch press is delivered first');
+  // The mouse packet is now latched; a late cancel of the touch must not drop it.
+  target.emit('pointercancel', { isPrimary: true, pointerId: 2 });
+  assert.deepEqual([...source.sample(2n)], [0.5, 0.5, 0], 'the mouse packet survives the touch cancel');
+  assert.equal(source.kind(), 'pointer');
+  // The mouse leaving does end pointer input.
+  target.emit('pointerleave', { isPrimary: true, pointerId: 1 });
+  assert.deepEqual(source.sample(3n), stimulus.scriptedTelemetry(3n));
+  assert.equal(source.kind(), 'scripted');
+  source.dispose();
+});
+
 test('a cancel drops a queued quick-tap release as well', () => {
   const target = fakePointerTarget();
   const source = telemetry.createPointerTelemetry(target);
