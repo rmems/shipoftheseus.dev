@@ -10,6 +10,7 @@ import {
   formatF32,
   ProtocolFixtureError,
   readBoundedBytes,
+  transportFailure,
   type ProtocolInspection,
   type ProtocolInspector,
   type ProtocolWasmModule,
@@ -33,6 +34,25 @@ export interface ProtocolViewerOptions {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+
+/**
+ * Fetch one fixture and read at most the adapter's limit plus one byte. Any
+ * transport failure is `fetch-failed`; `adapter-error` stays reserved for the
+ * Rust/WASM side.
+ */
+export async function loadFixtureBytes(
+  fetchFixture: (url: string) => Promise<Response>,
+  url: string,
+  byteLimit: number,
+): Promise<Uint8Array> {
+  let response: Response;
+  try {
+    response = await fetchFixture(url);
+  } catch (error) {
+    throw transportFailure(error);
+  }
+  return readBoundedBytes(response, byteLimit);
+}
 
 function failureOf(error: unknown): ProtocolFixtureError {
   if (error instanceof ProtocolFixtureError) return error;
@@ -303,7 +323,7 @@ export async function enhanceProtocolViewer(root: HTMLElement, options: Protocol
   let verified = 0;
   for (const card of cards) {
     try {
-      const bytes = await readBoundedBytes(await fetchFixture(card.url), inspector.byteLimit);
+      const bytes = await loadFixtureBytes(fetchFixture, card.url, inspector.byteLimit);
       const inspection = inspector.inspect(bytes, card.sha256, card.variant);
       const container = card.element.querySelector<HTMLElement>('[data-protocol-decoded]');
       if (container) renderInspection(container, inspection);

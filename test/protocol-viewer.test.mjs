@@ -327,6 +327,20 @@ test('bounded reads never buffer more than the limit plus one byte', async () =>
   const small = await bridge.readBoundedBytes(new Response(encode(STIMULI)), 65536);
   assert.equal(new TextDecoder().decode(small), STIMULI);
   await assert.rejects(bridge.readBoundedBytes(new Response('missing', { status: 404 }), 10), (error) => error.code === 'fetch-failed');
+
+  // A body stream that fails partway is a transport failure, not an adapter one.
+  const failing = new ReadableStream({
+    pull(controller) {
+      controller.error(new TypeError('network error'));
+    },
+  });
+  await assert.rejects(
+    bridge.readBoundedBytes(new Response(failing), 10),
+    (error) => error instanceof bridge.ProtocolFixtureError && error.code === 'fetch-failed' && error.message === 'Fixture request failed: network error',
+  );
+  const existing = new bridge.ProtocolFixtureError('oversize', 'kept');
+  assert.equal(bridge.transportFailure(existing), existing);
+  assert.equal(bridge.transportFailure(new TypeError('Failed to fetch')).code, 'fetch-failed');
 });
 
 test('display formatting keeps the shortest f32 decimal', () => {

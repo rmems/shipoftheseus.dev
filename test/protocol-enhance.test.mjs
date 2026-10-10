@@ -1,4 +1,4 @@
-/* global Response, TextDecoder -- Node 20+ web globals */
+/* global ReadableStream, Response, TextDecoder -- Node 20+ web globals */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -168,6 +168,65 @@ test('both tamper buttons replay a modified copy through the adapter and fail cl
 
   // The published fixtures are untouched by the demonstrations.
   assert.equal(card(root, 'Stimuli').dataset.protocolStatus, 'verified');
+});
+
+test('transport failures are fetch-failed, never adapter-error', async () => {
+  const root = staticPage();
+  const served = servedFixtures();
+  const fetchFixture = async (url) => {
+    if (url.includes('stimuli')) throw new TypeError('Failed to fetch');
+    if (url.includes('spikes')) {
+      // The body stream errors partway through the read.
+      let sent = false;
+      return new Response(
+        new ReadableStream({
+          pull(controller) {
+            if (sent) {
+              controller.error(new TypeError('network error'));
+              return;
+            }
+            sent = true;
+            controller.enqueue(new Uint8Array([0x7b]));
+          },
+        }),
+      );
+    }
+    if (url.includes('eligibility')) return new Response('missing', { status: 404 });
+    return served.fetchFixture(url);
+  };
+  await enhance.enhanceProtocolViewer(root, { loadWasmModule, fetchFixture });
+
+  assert.equal(root.dataset.protocolState, 'partial');
+  assert.equal(root.querySelector('[data-protocol-page-status]').textContent, '0 of 3 recorded envelopes verified and decoded in this browser.');
+  const expectations = [
+    ['Stimuli', 'Rejected · fetch-failed. Fixture request failed: Failed to fetch'],
+    ['Spikes', 'Rejected · fetch-failed. Fixture request failed: network error'],
+    ['EligibilityTraces', 'Rejected · fetch-failed. Fixture request failed with HTTP 404.'],
+  ];
+  for (const [variant, status] of expectations) {
+    const fixture = card(root, variant);
+    assert.equal(fixture.dataset.protocolStatus, 'rejected', variant);
+    assert.equal(fixture.dataset.protocolCode, 'fetch-failed', variant);
+    assert.equal(fixture.querySelector('[data-protocol-fixture-status]').textContent, status);
+    assert.equal(fixture.querySelector('[data-protocol-decoded]').childNodes.length, 0);
+  }
+});
+
+test('adapter-side failures stay adapter-error', async () => {
+  const root = staticPage();
+  const trapping = async () => ({
+    ...(await loadWasmModule()),
+    inspectProtocolFixture: () => {
+      throw new Error('RuntimeError: unreachable');
+    },
+  });
+  await enhance.enhanceProtocolViewer(root, { loadWasmModule: trapping, fetchFixture: servedFixtures().fetchFixture });
+
+  for (const entry of manifest.fixtures) {
+    const fixture = card(root, entry.variant);
+    assert.equal(fixture.dataset.protocolCode, 'adapter-error', entry.variant);
+    assert.equal(fixture.querySelector('[data-protocol-fixture-status]').textContent, 'Rejected · adapter-error. RuntimeError: unreachable');
+  }
 });
 
 test('renderInspection reports dropped fields only when the adapter found them', async () => {

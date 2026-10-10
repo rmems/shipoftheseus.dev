@@ -365,7 +365,24 @@ export async function readBoundedBytes(response: Response, limit: number): Promi
   if (!response.ok) {
     throw new ProtocolFixtureError('fetch-failed', `Fixture request failed with HTTP ${response.status}.`);
   }
-  const cap = limit + 1;
+  try {
+    return await readCappedBody(response, limit + 1);
+  } catch (error) {
+    throw transportFailure(error);
+  }
+}
+
+/**
+ * Classify a failure while getting fixture bytes (a rejected fetch, a network
+ * or CORS error, a body read that fails partway) as `fetch-failed`. The
+ * adapter has not seen any bytes at that point, so it is never `adapter-error`.
+ */
+export function transportFailure(error: unknown): ProtocolFixtureError {
+  if (error instanceof ProtocolFixtureError) return error;
+  return new ProtocolFixtureError('fetch-failed', `Fixture request failed: ${errorMessage(error)}`);
+}
+
+async function readCappedBody(response: Response, cap: number): Promise<Uint8Array> {
   if (!response.body) {
     const whole = new Uint8Array(await response.arrayBuffer());
     return whole.length > cap ? whole.slice(0, cap) : whole;
